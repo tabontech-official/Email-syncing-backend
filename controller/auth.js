@@ -73,8 +73,8 @@ export const signIn = async (req, res) => {
 };
 
 
-const CLIENT_ID = "1072288734636-sprpp7fplpulutk214n8ckrpsp923cmv.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
+const CLIENT_ID = "1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com";
+const CLIENT_SECRET = "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";
 const REDIRECT_URI = 'https://email-syncing-backend.vercel.app/auth/google/callback';  // Make sure this matches your backend port
 console.log(CLIENT_ID)
 console.log(CLIENT_SECRET)
