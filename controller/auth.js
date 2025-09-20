@@ -264,14 +264,15 @@ export const EmailWebhook = async (req, res) => {
 
 // Reusable message processor
 const processMessage = async (gmail, msgId, user) => {
-  console.log("📥 [ProcessMessage] Fetching full message:", msgId);
+  console.log("📥 [ProcessMessage] Fetching message (metadata only):", msgId);
 
   let fullMessage;
   try {
     fullMessage = await gmail.users.messages.get({
       userId: "me",
       id: msgId,
-      format: "full",
+      format: "metadata",   // 👈 use metadata instead of full
+      metadataHeaders: ["From", "To", "Subject", "Date"], // only needed headers
     });
   } catch (err) {
     console.error("❌ [ProcessMessage] Failed to fetch message:", err.message);
@@ -282,6 +283,8 @@ const processMessage = async (gmail, msgId, user) => {
   const subject = headers.find(h => h.name === "Subject")?.value || "";
   const from = headers.find(h => h.name === "From")?.value || "";
   const to = headers.filter(h => h.name === "To").map(h => h.value);
+  const dateHeader = headers.find(h => h.name === "Date")?.value || "";
+  const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
 
   console.log("📧 [ProcessMessage] Subject:", subject);
 
@@ -298,7 +301,7 @@ const processMessage = async (gmail, msgId, user) => {
       from,
       to,
       snippet: fullMessage.data.snippet,
-      dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
+      dateReceived,
       threadId: fullMessage.data.threadId,
       messageId: msgId,
     });
@@ -307,6 +310,7 @@ const processMessage = async (gmail, msgId, user) => {
     console.error("❌ [ProcessMessage] Failed to save email to DB:", dbErr.message);
   }
 };
+
 
 
 
