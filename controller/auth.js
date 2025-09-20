@@ -294,11 +294,58 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
 
   console.log("📨 History API Response:", historyRes.data);
 
+  // 👉 If no history records, fallback to fetch recent messages
   if (!historyRes.data.history) {
-    console.warn("⚠️ No history records found.");
-    return;
+    console.warn("⚠️ No history records found. Fetching recent messages instead...");
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      maxResults: 5, // adjust as needed
+    });
+
+    if (!listRes.data.messages) {
+      console.warn("⚠️ No recent messages found either.");
+      return;
+    }
+
+    for (let msg of listRes.data.messages) {
+      console.log("🔔 Fallback fetching message:", msg.id);
+
+      const fullMessage = await gmail.users.messages.get({
+        userId: "me",
+        id: msg.id,
+        format: "full",
+      });
+
+      const headers = fullMessage.data.payload.headers;
+      const subject = headers.find(h => h.name === "Subject")?.value || "";
+
+      console.log("📧 [Fallback] Subject received:", subject);
+
+      if (subject.toLowerCase().includes("shopify experts directory")) {
+        console.log("✅ [Fallback] Subject matched filter. Saving to DB...");
+        try {
+          const savedEmail = await EmailModel.create({
+            userId,
+            subject,
+            from: headers.find(h => h.name === "From")?.value,
+            to: headers.filter(h => h.name === "To").map(h => h.value),
+            snippet: fullMessage.data.snippet,
+            dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
+            threadId: fullMessage.data.threadId,
+            messageId: msg.id,
+          });
+          console.log("💾 [Fallback] Saved to DB:", savedEmail);
+        } catch (dbError) {
+          console.error("❌ [Fallback] Error saving to DB:", dbError);
+        }
+      } else {
+        console.log("🚫 [Fallback] Subject did NOT match filter, skipping.");
+      }
+    }
+    return; // stop further processing
   }
 
+  // 👉 Process normal history records
   for (let record of historyRes.data.history) {
     console.log("🔎 Processing record:", record);
 
@@ -348,6 +395,7 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
 
   console.log("🏁 [fetchHistoryEmails] Processing complete.");
 }
+
 
 
 export const getEmails=async(req,res)=>{
