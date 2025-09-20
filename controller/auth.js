@@ -198,16 +198,45 @@ export const EmailWebhook = async (req, res) => {
 
     // Step 5: Fetch Gmail history
     console.log("📡 [Step 5] Fetching Gmail history for historyId:", data.historyId);
-    const history = await gmail.users.history.list({
-      userId: "me",
-      startHistoryId: data.historyId,
-      historyTypes: ["messageAdded"],
-    });
+
+    let history;
+    try {
+      history = await gmail.users.history.list({
+        userId: "me",
+        startHistoryId: data.historyId,
+        historyTypes: ["messageAdded", "labelAdded", "labelRemoved"], // broaden tracking
+      });
+    } catch (err) {
+      console.error("❌ [Step 5] Failed to fetch Gmail history:", err.message);
+      return res.status(200).send();
+    }
 
     console.log("📨 [Step 5] Gmail History API Response:", history.data);
 
+    // Always update stored historyId (very important)
+    if (history.data.historyId) {
+      await authModel.updateOne(
+        { email: user.email },
+        { $set: { lastHistoryId: history.data.historyId } }
+      );
+      console.log("💾 [Step 5] Updated user's lastHistoryId:", history.data.historyId);
+    }
+
     if (!history.data.history) {
-      console.log("ℹ️ [Step 5] No history records found.");
+      console.log("ℹ️ [Step 5] No history records found → fallback to listing latest emails.");
+
+      // Optional: Initial sync fallback (fetch recent 5 messages)
+      const list = await gmail.users.messages.list({
+        userId: "me",
+        maxResults: 5,
+      });
+
+      if (list.data.messages) {
+        for (const msg of list.data.messages) {
+          await processMessage(gmail, msg.id, user);
+        }
+      }
+
       return res.status(200).send();
     }
 
@@ -220,54 +249,8 @@ export const EmailWebhook = async (req, res) => {
         continue;
       }
 
-      // Step 7: Loop through added messages
       for (const added of record.messagesAdded) {
-        const msgId = added.message.id;
-        console.log("🔔 [Step 7] Checking message ID:", msgId);
-
-        let fullMessage;
-        try {
-          console.log("📥 [Step 7] Fetching full message:", msgId);
-          fullMessage = await gmail.users.messages.get({
-            userId: "me",
-            id: msgId,
-            format: "full",
-          });
-          console.log("📨 [Step 7] Full message fetched successfully:", JSON.stringify(fullMessage.data, null, 2));
-        } catch (err) {
-          console.error("❌ [Step 7] Failed to fetch message:", err.message);
-          continue;
-        }
-
-        const headers = fullMessage.data.payload.headers || [];
-        console.log("📑 [Step 7] Message headers:", headers);
-
-        const subject = headers.find(h => h.name === "Subject")?.value || "";
-        console.log("📧 [Step 7] Subject extracted:", subject);
-
-        // Step 8: Check subject match
-        if (subject.toLowerCase().includes("shopify expert directory")) {
-          console.log("✅ [Step 8] Subject matches filter → Preparing to save to DB.");
-
-          try {
-            const saved = await EmailModel.create({
-              userId: user._id,
-              subject,
-              from: headers.find(h => h.name === "From")?.value,
-              to: headers.filter(h => h.name === "To").map(h => h.value),
-              snippet: fullMessage.data.snippet,
-              dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
-              threadId: fullMessage.data.threadId,
-              messageId: msgId,
-            });
-
-            console.log("💾 [Step 8] Email saved to DB with ID:", saved._id);
-          } catch (dbErr) {
-            console.error("❌ [Step 8] Failed to save email to DB:", dbErr.message);
-          }
-        } else {
-          console.log("🚫 [Step 8] Subject does not match filter, skipping.");
-        }
+        await processMessage(gmail, added.message.id, user);
       }
     }
 
@@ -276,6 +259,52 @@ export const EmailWebhook = async (req, res) => {
   } catch (err) {
     console.error("❌ [Global Catch] Webhook Error:", err);
     res.status(500).send("Server error");
+  }
+};
+
+// Reusable message processor
+const processMessage = async (gmail, msgId, user) => {
+  console.log("📥 [ProcessMessage] Fetching full message:", msgId);
+
+  let fullMessage;
+  try {
+    fullMessage = await gmail.users.messages.get({
+      userId: "me",
+      id: msgId,
+      format: "full",
+    });
+  } catch (err) {
+    console.error("❌ [ProcessMessage] Failed to fetch message:", err.message);
+    return;
+  }
+
+  const headers = fullMessage.data.payload.headers || [];
+  const subject = headers.find(h => h.name === "Subject")?.value || "";
+  const from = headers.find(h => h.name === "From")?.value || "";
+  const to = headers.filter(h => h.name === "To").map(h => h.value);
+
+  console.log("📧 [ProcessMessage] Subject:", subject);
+
+  // Filter condition
+  if (!subject.toLowerCase().includes("shopify expert directory")) {
+    console.log("🚫 [ProcessMessage] Subject does not match filter, skipping.");
+    return;
+  }
+
+  try {
+    const saved = await EmailModel.create({
+      userId: user._id,
+      subject,
+      from,
+      to,
+      snippet: fullMessage.data.snippet,
+      dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
+      threadId: fullMessage.data.threadId,
+      messageId: msgId,
+    });
+    console.log("💾 [ProcessMessage] Email saved to DB with ID:", saved._id);
+  } catch (dbErr) {
+    console.error("❌ [ProcessMessage] Failed to save email to DB:", dbErr.message);
   }
 };
 
