@@ -86,7 +86,7 @@ const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_U
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.addons.current.action.compose', 
   'https://www.googleapis.com/auth/gmail.addons.current.message.action', 
-  'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
+  // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
   'https://www.googleapis.com/auth/gmail.addons.current.message.readonly', 
   'https://www.googleapis.com/auth/gmail.labels',
   'https://www.googleapis.com/auth/gmail.send', 
