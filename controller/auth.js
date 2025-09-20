@@ -5,6 +5,7 @@ import fs from 'fs';
 import { PubSub } from '@google-cloud/pubsub';
 import axios from 'axios';
 import { EmailModel } from '../Models/Email.js';
+import { ConnectionModel } from '../Models/Connection.js';
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
@@ -117,6 +118,44 @@ export const googleAuth = (req, res) => {
 
   res.redirect(authUrl);
 };
+// export const googleAuthCallback = async (req, res) => {
+//   const { code } = req.query;
+
+//   try {
+//     const { tokens } = await oauth2Client.getToken(code);
+//     oauth2Client.setCredentials(tokens);
+
+//     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+//     const response = await peopleApi.people.get({
+//       resourceName: 'people/me',
+//       personFields: 'emailAddresses,names',
+//     });
+
+//     const userEmail = response.data.emailAddresses[0].value;
+//     const googleId = response.data.resourceName;
+
+//     let user = await authModel.findOne({ googleId });
+
+//     if (!user) {
+//       user = new authModel({
+//         googleId,
+//         email: userEmail,
+//         tokens,
+//       });
+//     } else {
+//       user.tokens = tokens;
+//     }
+
+//     await user.save();
+//     await startWatch(tokens);
+
+//     res.send('Gmail Sync Successful! You can now access your Gmail data.');
+//   } catch (error) {
+//     console.error('Error during token exchange: ', error);
+//     res.status(500).send('Error during authentication');
+//   }
+// };
+
 export const googleAuthCallback = async (req, res) => {
   const { code } = req.query;
 
@@ -124,34 +163,44 @@ export const googleAuthCallback = async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+    const peopleApi = google.people({ version: "v1", auth: oauth2Client });
     const response = await peopleApi.people.get({
-      resourceName: 'people/me',
-      personFields: 'emailAddresses,names',
+      resourceName: "people/me",
+      personFields: "emailAddresses,names",
     });
 
-    const userEmail = response.data.emailAddresses[0].value;
-    const googleId = response.data.resourceName;
+    const userEmail = response.data.emailAddresses?.[0]?.value;
+    const userName = response.data.names?.[0]?.displayName || "";
 
-    let user = await authModel.findOne({ googleId });
+    if (!userEmail) {
+      return res.status(400).send("No email found in Google profile");
+    }
 
-    if (!user) {
-      user = new authModel({
-        googleId,
+    const userId = req.user._id; 
+
+    let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+
+    if (!connection) {
+      connection = new ConnectionModel({
+        userId,
+        provider: "gmail",
         email: userEmail,
+        name: userName,
         tokens,
       });
     } else {
-      user.tokens = tokens;
+      connection.tokens = tokens; 
+      connection.status = "active";
     }
 
-    await user.save();
+    await connection.save();
+
     await startWatch(tokens);
 
-    res.send('Gmail Sync Successful! You can now access your Gmail data.');
+    return res.redirect("http://localhost:3000/connections?status=success");
   } catch (error) {
-    console.error('Error during token exchange: ', error);
-    res.status(500).send('Error during authentication');
+    console.error("❌ Error during Google auth callback:", error);
+    return res.redirect("http://localhost:3000/connections?status=error");
   }
 };
 
