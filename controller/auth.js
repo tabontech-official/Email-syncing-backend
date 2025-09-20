@@ -197,7 +197,7 @@ export const googleAuthCallback = async (req, res) => {
 
     await startWatch(tokens);
 
-    return res.redirect("http://localhost:3000/connections?status=success");
+    return res.redirect("http://localhost:3006/connection");
   } catch (error) {
     console.error("❌ Error during Google auth callback:", error);
     return res.redirect("http://localhost:3000/connections?status=error");
