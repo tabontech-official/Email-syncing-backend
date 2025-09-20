@@ -157,12 +157,18 @@ export const googleAuth = (req, res) => {
 // };
 
 export const googleAuthCallback = async (req, res) => {
-  const { code } = req.query;
+  const { code, userId } = req.query; // 👈 you’re passing userId in params
+
+  if (!userId) {
+    return res.status(400).send("userId is required");
+  }
 
   try {
+    // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
+    // Get Google profile (email + name)
     const peopleApi = google.people({ version: "v1", auth: oauth2Client });
     const response = await peopleApi.people.get({
       resourceName: "people/me",
@@ -176,8 +182,7 @@ export const googleAuthCallback = async (req, res) => {
       return res.status(400).send("No email found in Google profile");
     }
 
-    const userId = req.user._id; 
-
+    // 🔑 Find or create Gmail connection linked to this userId
     let connection = await ConnectionModel.findOne({ userId, email: userEmail });
 
     if (!connection) {
@@ -189,18 +194,20 @@ export const googleAuthCallback = async (req, res) => {
         tokens,
       });
     } else {
-      connection.tokens = tokens; 
+      connection.tokens = tokens;
       connection.status = "active";
     }
 
     await connection.save();
 
+    // Start Gmail watch for new emails
     await startWatch(tokens);
 
+    // Redirect back to frontend
     return res.redirect("http://localhost:3006/connection");
   } catch (error) {
     console.error("❌ Error during Google auth callback:", error);
-    return res.redirect("http://localhost:3000/connections?status=error");
+    return res.redirect("http://localhost:3000/connection");
   }
 };
 
