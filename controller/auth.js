@@ -122,8 +122,8 @@ export const googleAuth = (req, res) => {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent", // ensure refresh_token is always returned
-    state: JSON.stringify({ userId }), // 🔑 send userId via state
+    prompt: "consent", 
+    state: JSON.stringify({ userId }), 
   });
 
   console.log("Generated Google OAuth URL:", authUrl);
@@ -357,83 +357,83 @@ const decodeBase64 = (data) => {
   ).toString('utf8');
 };
 
-// export const processMessage = async (gmail, msgId, user) => {
-//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
+export const processMessage = async (gmail, msgId, user) => {
+  console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
-//   let fullMessage;
-//   try {
-//     fullMessage = await gmail.users.messages.get({
-//       userId: 'me',
-//       id: msgId,
-//       format: 'full', 
-//     });
-//   } catch (err) {
-//     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
-//     return;
-//   }
+  let fullMessage;
+  try {
+    fullMessage = await gmail.users.messages.get({
+      userId: 'me',
+      id: msgId,
+      format: 'full', 
+    });
+  } catch (err) {
+    console.error(' [ProcessMessage] Failed to fetch message:', err.message);
+    return;
+  }
 
-//   const headers = fullMessage.data.payload.headers || [];
-//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-//   const from = headers.find((h) => h.name === 'From')?.value || '';
-//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
-//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
-//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
-//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
-//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
-//   const snippet = fullMessage.data.snippet || '';
+  const headers = fullMessage.data.payload.headers || [];
+  const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+  const from = headers.find((h) => h.name === 'From')?.value || '';
+  const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
+  const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
+  const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
+  const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
+  const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
+  const snippet = fullMessage.data.snippet || '';
 
-//   let body = '';
+  let body = '';
 
-//   const getBody = (parts) => {
-//     if (!parts) return;
-//     for (const part of parts) {
-//       if (part.mimeType === 'text/plain' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.mimeType === 'text/html' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.parts) {
-//         getBody(part.parts);
-//       }
-//     }
-//   };
+  const getBody = (parts) => {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        body += decodeBase64(part.body.data) + '\n';
+      }
+      if (part.mimeType === 'text/html' && part.body?.data) {
+        body += decodeBase64(part.body.data) + '\n';
+      }
+      if (part.parts) {
+        getBody(part.parts);
+      }
+    }
+  };
 
-//   if (fullMessage.data.payload?.parts) {
-//     getBody(fullMessage.data.payload.parts);
-//   } else if (fullMessage.data.payload?.body?.data) {
-//     body = decodeBase64(fullMessage.data.payload.body.data);
-//   }
+  if (fullMessage.data.payload?.parts) {
+    getBody(fullMessage.data.payload.parts);
+  } else if (fullMessage.data.payload?.body?.data) {
+    body = decodeBase64(fullMessage.data.payload.body.data);
+  }
 
-//   console.log(' [ProcessMessage] Subject:', subject);
+  console.log(' [ProcessMessage] Subject:', subject);
 
-//   if (!subject.toLowerCase().includes('shopify expert directory')) {
-//     console.log(' [ProcessMessage] Subject does not match filter, skipping.');
-//     return;
-//   }
+  if (!subject.toLowerCase().includes('shopify expert directory')) {
+    console.log(' [ProcessMessage] Subject does not match filter, skipping.');
+    return;
+  }
 
-//   try {
-//     const saved = await EmailModel.create({
-//       userId: user._id,
-//       subject,
-//       from,
-//       to,
-//       cc,
-//       bcc,
-//       body,
-//       snippet,
-//       dateReceived,
-//       threadId: fullMessage.data.threadId,
-//       messageId: msgId,
-//     });
-//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
-//   } catch (dbErr) {
-//     console.error(
-//       ' [ProcessMessage] Failed to save email to DB:',
-//       dbErr.message
-//     );
-//   }
-// };
+  try {
+    const saved = await EmailModel.create({
+      userId: user._id,
+      subject,
+      from,
+      to,
+      cc,
+      bcc,
+      body,
+      snippet,
+      dateReceived,
+      threadId: fullMessage.data.threadId,
+      messageId: msgId,
+    });
+    console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
+  } catch (dbErr) {
+    console.error(
+      ' [ProcessMessage] Failed to save email to DB:',
+      dbErr.message
+    );
+  }
+};
 
 const sendReply = async (gmail, service, to, user) => {
   const subject = `Re: Your inquiry about ${service}`;
@@ -510,113 +510,113 @@ const makeMessage = (to, subject, body) => {
 };
 
 
-export const processMessage = async (gmail, msgId, user) => {
-  console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
+// export const processMessage = async (gmail, msgId, user) => {
+//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
-  let fullMessage;
-  try {
-    fullMessage = await gmail.users.messages.get({
-      userId: 'me',
-      id: msgId,
-      format: 'full', 
-    });
-  } catch (err) {
-    console.error(' [ProcessMessage] Failed to fetch message:', err.message);
-    return;
-  }
+//   let fullMessage;
+//   try {
+//     fullMessage = await gmail.users.messages.get({
+//       userId: 'me',
+//       id: msgId,
+//       format: 'full', 
+//     });
+//   } catch (err) {
+//     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
+//     return;
+//   }
 
-  const headers = fullMessage.data.payload.headers || [];
-  const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-  const from = headers.find((h) => h.name === 'From')?.value || '';
-  const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
-  const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
-  const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
-  const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
-  const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
-  const snippet = fullMessage.data.snippet || '';
+//   const headers = fullMessage.data.payload.headers || [];
+//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+//   const from = headers.find((h) => h.name === 'From')?.value || '';
+//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
+//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
+//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
+//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
+//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
+//   const snippet = fullMessage.data.snippet || '';
 
-  let body = '';
+//   let body = '';
 
-  const getBody = (parts) => {
-    if (!parts) return;
-    for (const part of parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        body += decodeBase64(part.body.data) + '\n';
-      }
-      if (part.mimeType === 'text/html' && part.body?.data) {
-        body += decodeBase64(part.body.data) + '\n';
-      }
-      if (part.parts) {
-        getBody(part.parts);
-      }
-    }
-  };
+//   const getBody = (parts) => {
+//     if (!parts) return;
+//     for (const part of parts) {
+//       if (part.mimeType === 'text/plain' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.mimeType === 'text/html' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.parts) {
+//         getBody(part.parts);
+//       }
+//     }
+//   };
 
-  if (fullMessage.data.payload?.parts) {
-    getBody(fullMessage.data.payload.parts);
-  } else if (fullMessage.data.payload?.body?.data) {
-    body = decodeBase64(fullMessage.data.payload.body.data);
-  }
+//   if (fullMessage.data.payload?.parts) {
+//     getBody(fullMessage.data.payload.parts);
+//   } else if (fullMessage.data.payload?.body?.data) {
+//     body = decodeBase64(fullMessage.data.payload.body.data);
+//   }
 
-  console.log(' [ProcessMessage] Subject:', subject);
+//   console.log(' [ProcessMessage] Subject:', subject);
 
-  // Check if the subject contains the required string
-  if (!subject.toLowerCase().includes('shopify expert directory')) {
-    console.log(' [ProcessMessage] Subject does not match the filter, skipping.');
-    return; // Skip processing if subject does not match
-  }
+//   // Check if the subject contains the required string
+//   if (!subject.toLowerCase().includes('shopify expert directory')) {
+//     console.log(' [ProcessMessage] Subject does not match the filter, skipping.');
+//     return; // Skip processing if subject does not match
+//   }
 
-  // Fetch templates for the "shopify" platform from the database
-  const templates = await TemplateModel.findOne({ platform: 'shopify' }); // Only platform-based search
+//   // Fetch templates for the "shopify" platform from the database
+//   const templates = await TemplateModel.findOne({ platform: 'shopify' }); // Only platform-based search
 
-  if (!templates) {
-    console.log(' [ProcessMessage] No templates found for this platform.');
-    return;
-  }
+//   if (!templates) {
+//     console.log(' [ProcessMessage] No templates found for this platform.');
+//     return;
+//   }
 
-  // List of available services in templates
-  const services = templates.templates.map(template => template.name);
-  let serviceFound = null;
+//   // List of available services in templates
+//   const services = templates.templates.map(template => template.name);
+//   let serviceFound = null;
 
-  // Check if any of the services are mentioned in the email body
-  for (const service of services) {
-    if (body.toLowerCase().includes(service.toLowerCase())) {
-      serviceFound = service; // Store the matched service
-      break;
-    }
-  }
+//   // Check if any of the services are mentioned in the email body
+//   for (const service of services) {
+//     if (body.toLowerCase().includes(service.toLowerCase())) {
+//       serviceFound = service; // Store the matched service
+//       break;
+//     }
+//   }
 
-  if (!serviceFound) {
-    console.log(' [ProcessMessage] No matching service found in the email body.');
-    return; // No matching service, skipping
-  }
+//   if (!serviceFound) {
+//     console.log(' [ProcessMessage] No matching service found in the email body.');
+//     return; // No matching service, skipping
+//   }
 
-  console.log(' [ProcessMessage] Service found:', serviceFound);
+//   console.log(' [ProcessMessage] Service found:', serviceFound);
 
-  // Save the email to the database with the matched service
-  try {
-    const saved = await EmailModel.create({
-      userId: user._id,
-      subject,
-      from,
-      to,
-      cc,
-      bcc,
-      body,
-      snippet,
-      dateReceived,
-      service: serviceFound, // Save the service type (e.g., "SEO")
-      threadId: fullMessage.data.threadId,
-      messageId: msgId,
-    });
-    console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
+//   // Save the email to the database with the matched service
+//   try {
+//     const saved = await EmailModel.create({
+//       userId: user._id,
+//       subject,
+//       from,
+//       to,
+//       cc,
+//       bcc,
+//       body,
+//       snippet,
+//       dateReceived,
+//       service: serviceFound, // Save the service type (e.g., "SEO")
+//       threadId: fullMessage.data.threadId,
+//       messageId: msgId,
+//     });
+//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
 
-    // Send a reply based on the detected service
-    await sendReply(gmail, serviceFound, from, user); // Send the reply with the matched service
-  } catch (dbErr) {
-    console.error(' [ProcessMessage] Failed to save email to DB:', dbErr.message);
-  }
-};
+//     // Send a reply based on the detected service
+//     await sendReply(gmail, serviceFound, from, user); // Send the reply with the matched service
+//   } catch (dbErr) {
+//     console.error(' [ProcessMessage] Failed to save email to DB:', dbErr.message);
+//   }
+// };
 
 async function startWatch(oauthTokens) {
   const oauth2Client = new google.auth.OAuth2(
