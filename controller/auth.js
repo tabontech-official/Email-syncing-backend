@@ -157,11 +157,9 @@ export const googleAuth = (req, res) => {
 // };
 
 export const googleAuthCallback = async (req, res) => {
-  const { code, userId } = req.query; // 👈 you’re passing userId in params
+  const { code, userId } = req.query; 
 
-  if (!userId) {
-    return res.status(400).send("userId is required");
-  }
+ 
 
   try {
     // Exchange code for tokens
