@@ -152,46 +152,89 @@ export const googleAuthCallback = async (req, res) => {
 
 
 export const EmailWebhook = async (req, res) => {
-  console.log("➡️ [EmailWebhook] Incoming request body:", req.body);
+  console.log("➡️ [EmailWebhook] Body:", req.body);
 
   try {
     const message = req.body.message;
-
     if (!message || !message.data) {
-      console.warn("⚠️ [EmailWebhook] No Pub/Sub message received or data missing.");
-      return res.status(400).send("No Pub/Sub message received");
+      return res.status(400).send("No Pub/Sub message");
     }
 
-    // Decode and parse Pub/Sub message
-    const dataBuffer = Buffer.from(message.data, "base64").toString("utf-8");
-    console.log("📦 [EmailWebhook] Decoded data buffer:", dataBuffer);
+    const data = JSON.parse(Buffer.from(message.data, "base64").toString("utf-8"));
+    console.log("🔔 Pub/Sub Data:", data);
 
-    let data;
-    try {
-      data = JSON.parse(dataBuffer);
-    } catch (parseErr) {
-      console.error("❌ [EmailWebhook] Failed to parse JSON from Pub/Sub data:", parseErr);
-      return res.status(400).send("Invalid Pub/Sub message format");
-    }
-
-    console.log("🔔 [EmailWebhook] Pub/Sub Notification parsed:", data);
-
-    // Find user in DB
-    console.log("🔎 [EmailWebhook] Looking for user with email:", data.emailAddress);
     const user = await authModel.findOne({ email: data.emailAddress });
+    if (!user) {
+      console.warn("⚠️ User not found for:", data.emailAddress);
+      return res.status(200).send();
+    }
 
-    if (user) {
-      console.log("✅ [EmailWebhook] User found:", user.email, " → Fetching history emails...");
-      await fetchHistoryEmails(user.tokens, user._id, data.historyId);
-      console.log("🏁 [EmailWebhook] fetchHistoryEmails completed for:", user.email);
-    } else {
-      console.warn("⚠️ [EmailWebhook] No user found for email:", data.emailAddress);
+    // Use the newest Gmail message directly from history
+    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+    oauth2Client.setCredentials(user.tokens);
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+    // Get the latest added message for this history ID
+    const history = await gmail.users.history.list({
+      userId: "me",
+      startHistoryId: data.historyId,
+      historyTypes: ["messageAdded"],
+    });
+
+    if (!history.data.history) {
+      console.log("ℹ️ No new history records.");
+      return res.status(200).send();
+    }
+
+    for (const record of history.data.history) {
+      if (!record.messagesAdded) continue;
+
+      for (const added of record.messagesAdded) {
+        const msgId = added.message.id;
+        console.log("🔔 Checking message:", msgId);
+
+        let fullMessage;
+        try {
+          fullMessage = await gmail.users.messages.get({
+            userId: "me",
+            id: msgId,
+            format: "full",
+          });
+        } catch (err) {
+          console.error("❌ Failed to fetch message:", err.message);
+          continue;
+        }
+
+        const headers = fullMessage.data.payload.headers;
+        const subject = headers.find(h => h.name === "Subject")?.value || "";
+        console.log("📧 Subject:", subject);
+
+        if (subject.toLowerCase().includes("shopify expert directory")) {
+          try {
+            const saved = await EmailModel.create({
+              userId: user._id,
+              subject,
+              from: headers.find(h => h.name === "From")?.value,
+              to: headers.filter(h => h.name === "To").map(h => h.value),
+              snippet: fullMessage.data.snippet,
+              dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
+              threadId: fullMessage.data.threadId,
+              messageId: msgId,
+            });
+            console.log("💾 Saved:", saved._id);
+          } catch (dbErr) {
+            console.error("❌ DB Save Error:", dbErr.message);
+          }
+        } else {
+          console.log("🚫 Subject not matched, skipping.");
+        }
+      }
     }
 
     res.status(200).send();
   } catch (err) {
-    console.error("❌ [EmailWebhook] PubSub error:", err);
-    res.status(500).send();
+    console.error("❌ Webhook Error:", err);
+    res.status(500).send("Server error");
   }
 };
 
@@ -275,9 +318,6 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
   console.log("🏁 [fetchHistoryEmails] Processing complete.");
 }
 
-/**
- * Helper: fetch a message, retry with metadata if FULL fails.
- */
 async function fetchAndSaveMessage(gmail, messageId, userId, isFallbackList) {
   console.log(`🔔 Fetching message ${messageId} (format: full)`);
   let fullMessage;
