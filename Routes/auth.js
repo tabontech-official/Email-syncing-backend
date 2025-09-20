@@ -1,5 +1,5 @@
 import express from 'express';
-import { EmailWebhook, getEmail, googleAuth, googleAuthCallback, signIn, signUp } from '../controller/auth.js';
+import { EmailWebhook, getEmail, getEmails, googleAuth, googleAuthCallback, signIn, signUp } from '../controller/auth.js';
 
 
 const authRouter = express.Router();
@@ -15,5 +15,6 @@ authRouter.get('/google/callback', googleAuthCallback);
 // Sync Gmail Emails Route
 authRouter.get('/sync-emails', getEmail); // Ensu
 authRouter.post('/pubsub', EmailWebhook); // Ensu
+authRouter.get('/get', getEmails); // Ensu
 
 export default authRouter;

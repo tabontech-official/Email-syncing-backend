@@ -213,31 +213,49 @@ export const getEmail = async (req, res) => {
     }
 };
 
-export const EmailWebhook=async(req,res)=>{
-   try {
+export const EmailWebhook = async (req, res) => {
+  console.log("➡️ [EmailWebhook] Incoming request body:", req.body);
+
+  try {
     const message = req.body.message;
 
     if (!message || !message.data) {
+      console.warn("⚠️ [EmailWebhook] No Pub/Sub message received or data missing.");
       return res.status(400).send("No Pub/Sub message received");
     }
 
+    // Decode and parse Pub/Sub message
     const dataBuffer = Buffer.from(message.data, "base64").toString("utf-8");
-    const data = JSON.parse(dataBuffer);
+    console.log("📦 [EmailWebhook] Decoded data buffer:", dataBuffer);
 
-    console.log("🔔 Pub/Sub Notification:", data);
+    let data;
+    try {
+      data = JSON.parse(dataBuffer);
+    } catch (parseErr) {
+      console.error("❌ [EmailWebhook] Failed to parse JSON from Pub/Sub data:", parseErr);
+      return res.status(400).send("Invalid Pub/Sub message format");
+    }
 
+    console.log("🔔 [EmailWebhook] Pub/Sub Notification parsed:", data);
 
+    // Find user in DB
+    console.log("🔎 [EmailWebhook] Looking for user with email:", data.emailAddress);
     const user = await authModel.findOne({ email: data.emailAddress });
+
     if (user) {
+      console.log("✅ [EmailWebhook] User found:", user.email, " → Fetching history emails...");
       await fetchHistoryEmails(user.tokens, user._id, data.historyId);
+      console.log("🏁 [EmailWebhook] fetchHistoryEmails completed for:", user.email);
+    } else {
+      console.warn("⚠️ [EmailWebhook] No user found for email:", data.emailAddress);
     }
 
     res.status(200).send();
   } catch (err) {
-    console.error("❌ PubSub error:", err);
+    console.error("❌ [EmailWebhook] PubSub error:", err);
     res.status(500).send();
   }
-}
+};
 
 
 
@@ -259,23 +277,39 @@ async function startWatch(oauthTokens) {
 }
 
 async function fetchHistoryEmails(oauthTokens, userId, historyId) {
+  console.log("➡️ [fetchHistoryEmails] Called with:", { userId, historyId });
+
   const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
   oauth2Client.setCredentials(oauthTokens);
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
+  // Step 1: Request history
+  console.log("📡 Fetching history from Gmail...");
   const historyRes = await gmail.users.history.list({
     userId: "me",
     startHistoryId: historyId,
     historyTypes: ["messageAdded"],
   });
 
-  if (!historyRes.data.history) return;
+  console.log("📨 History API Response:", historyRes.data);
+
+  if (!historyRes.data.history) {
+    console.warn("⚠️ No history records found.");
+    return;
+  }
 
   for (let record of historyRes.data.history) {
-    if (!record.messagesAdded) continue;
+    console.log("🔎 Processing record:", record);
+
+    if (!record.messagesAdded) {
+      console.warn("⚠️ No messagesAdded in this record.");
+      continue;
+    }
 
     for (let msg of record.messagesAdded) {
+      console.log("🔔 Fetching full message:", msg.message.id);
+
       const fullMessage = await gmail.users.messages.get({
         userId: "me",
         id: msg.message.id,
@@ -285,20 +319,42 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
       const headers = fullMessage.data.payload.headers;
       const subject = headers.find(h => h.name === "Subject")?.value || "";
 
-      if (subject.toLowerCase().includes("shopify experts directory")) {
-        console.log("📩 Real-time matched mail:", subject);
+      console.log("📧 Subject received:", subject);
 
-        await EmailModel.create({
-          userId,
-          subject,
-          from: headers.find(h => h.name === "From")?.value,
-          to: headers.filter(h => h.name === "To").map(h => h.value),
-          snippet: fullMessage.data.snippet,
-          dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
-          threadId: fullMessage.data.threadId,
-          messageId: msg.message.id,
-        });
+      if (subject.toLowerCase().includes("shopify experts directory")) {
+        console.log("✅ Subject matched filter. Saving to DB...");
+
+        try {
+          const savedEmail = await EmailModel.create({
+            userId,
+            subject,
+            from: headers.find(h => h.name === "From")?.value,
+            to: headers.filter(h => h.name === "To").map(h => h.value),
+            snippet: fullMessage.data.snippet,
+            dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
+            threadId: fullMessage.data.threadId,
+            messageId: msg.message.id,
+          });
+
+          console.log("💾 Saved to DB:", savedEmail);
+        } catch (dbError) {
+          console.error("❌ Error saving to DB:", dbError);
+        }
+      } else {
+        console.log("🚫 Subject did NOT match filter, skipping.");
       }
     }
+  }
+
+  console.log("🏁 [fetchHistoryEmails] Processing complete.");
+}
+
+
+export const getEmails=async(req,res)=>{
+  try {
+    const result =EmailModel.find()
+    res.send(result)
+  } catch (error) {
+    
   }
 }
