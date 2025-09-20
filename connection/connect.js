@@ -106,7 +106,7 @@ const Connect = async () => {
 
   try {
     const conn = await mongoose.connect(
-      process.env.DB_URL || "mongodb+srv://multivendor:test123@cluster0.k1cc1.mongodb.net",
+      process.env.DB_URL || "mongodb+srv://email-sync:email123@cluster0.3ufwdcd.mongodb.net/",
       {
         useNewUrlParser: true,
         useUnifiedTopology: true,
