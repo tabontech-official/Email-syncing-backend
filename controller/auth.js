@@ -456,11 +456,15 @@ async function startWatch(oauthTokens) {
   return res.data;
 }
 
-export const getEmails = async (req, res) => {
+export const getConnections = async (req, res) => {
   try {
-    const result = EmailModel.find();
-    res.send(result);
-  } catch (error) {}
+    const { userId } = req.params;
+    const connections = await ConnectionModel.find({ userId });
+    res.json(connections);
+  } catch (err) {
+    console.error("❌ Failed to fetch connections:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
 };
 
 export const getEmail = async (req, res) => {

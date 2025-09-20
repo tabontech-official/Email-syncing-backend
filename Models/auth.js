@@ -10,26 +10,26 @@ const authSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      lowercase: true,  // Ensures email is always lowercase
-      match: [/\S+@\S+\.\S+/, 'Please use a valid email address'], // Simple regex to validate email format
+      lowercase: true,
+      match: [/\S+@\S+\.\S+/, 'Please use a valid email address'],
     },
     password: {
       type: String,
-      minlength: [6, 'Password must be at least 6 characters long'], // Add minimum length validation
+      minlength: [6, 'Password must be at least 6 characters long'],
     },
     roe: {
       type: String,
-      enum: ['user', 'admin'], // Ensure the role can only be 'user' or 'admin'
+      enum: ['user', 'admin'],
       default: 'user',
     },
-        googleId: { type: String, required: true, unique: true },
-   tokens: {
-        access_token: { type: String },
-        refresh_token: { type: String },
-        scope: { type: String },
-        token_type: { type: String },
-        expiry_date: { type: Number }
-    }
+    googleId: { type: String, unique: true },
+    tokens: {
+      access_token: { type: String },
+      refresh_token: { type: String },
+      scope: { type: String },
+      token_type: { type: String },
+      expiry_date: { type: Number },
+    },
   },
   {
     timestamps: true,
