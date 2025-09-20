@@ -140,6 +140,7 @@ export const googleAuthCallback = async (req, res) => {
         }
 
         await user.save();
+    await startWatch(tokens);
 
         res.send('Gmail Sync Successful! You can now access your Gmail data.');
     } catch (error) {
@@ -249,7 +250,7 @@ async function startWatch(oauthTokens) {
   const res = await gmail.users.watch({
     userId: "me",
     requestBody: {
-      topicName: "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME", // Pub/Sub topic ka naam
+      topicName: "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME", 
     },
   });
 
