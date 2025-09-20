@@ -357,7 +357,160 @@ const decodeBase64 = (data) => {
   ).toString('utf8');
 };
 
-export const processMessage = async (gmail, msgId, user) => {
+// export const processMessage = async (gmail, msgId, user) => {
+//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
+
+//   let fullMessage;
+//   try {
+//     fullMessage = await gmail.users.messages.get({
+//       userId: 'me',
+//       id: msgId,
+//       format: 'full', 
+//     });
+//   } catch (err) {
+//     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
+//     return;
+//   }
+
+//   const headers = fullMessage.data.payload.headers || [];
+//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+//   const from = headers.find((h) => h.name === 'From')?.value || '';
+//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
+//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
+//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
+//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
+//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
+//   const snippet = fullMessage.data.snippet || '';
+
+//   let body = '';
+
+//   const getBody = (parts) => {
+//     if (!parts) return;
+//     for (const part of parts) {
+//       if (part.mimeType === 'text/plain' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.mimeType === 'text/html' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.parts) {
+//         getBody(part.parts);
+//       }
+//     }
+//   };
+
+//   if (fullMessage.data.payload?.parts) {
+//     getBody(fullMessage.data.payload.parts);
+//   } else if (fullMessage.data.payload?.body?.data) {
+//     body = decodeBase64(fullMessage.data.payload.body.data);
+//   }
+
+//   console.log(' [ProcessMessage] Subject:', subject);
+
+//   if (!subject.toLowerCase().includes('shopify expert directory')) {
+//     console.log(' [ProcessMessage] Subject does not match filter, skipping.');
+//     return;
+//   }
+
+//   try {
+//     const saved = await EmailModel.create({
+//       userId: user._id,
+//       subject,
+//       from,
+//       to,
+//       cc,
+//       bcc,
+//       body,
+//       snippet,
+//       dateReceived,
+//       threadId: fullMessage.data.threadId,
+//       messageId: msgId,
+//     });
+//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
+//   } catch (dbErr) {
+//     console.error(
+//       ' [ProcessMessage] Failed to save email to DB:',
+//       dbErr.message
+//     );
+//   }
+// };
+
+const sendReply = async (gmail, service, to, user) => {
+  const subject = `Re: Your inquiry about ${service}`;
+  let body = '';
+
+  try {
+    // Fetch templates from the database (based on platform)
+    const templates = await TemplateModel.findOne({ platform: 'shopify' }); // Fetch templates for "shopify"
+
+    if (!templates) {
+      console.log('❌ [sendReply] No templates found for this platform.');
+      return;
+    }
+
+    // Check if the service exists in the fetched templates
+    const isServiceAvailable = templates.templates.some(
+      (template) => template.name.toLowerCase() === service.toLowerCase()
+    );
+
+    // If service is found, send a predefined response
+    if (isServiceAvailable) {
+      body = `
+        Hello,
+
+        Thank you for reaching out to us regarding ${service}. We are happy to assist you with this service for your Shopify store.
+
+        If you need further information or assistance, feel free to reply to this email.
+
+        Best regards,
+        Your Shopify Expert Team
+      `;
+    } else {
+      body = `
+        Hello,
+
+        Thank you for your inquiry about ${service}. Unfortunately, we currently do not have details about this service.
+
+        However, please feel free to reach out to us for more information or further assistance.
+
+        Best regards,
+        Your Shopify Expert Team
+      `;
+    }
+
+    // Prepare the email reply
+    const rawMessage = makeMessage(to, subject, body);
+
+    // Send the email using Gmail API
+    await gmail.users.messages.send({
+      userId: 'me',  // 'me' refers to the authenticated user
+      requestBody: {
+        raw: rawMessage,
+      },
+    });
+    console.log(`💌 [sendReply] Email sent to ${to} for service: ${service}`);
+  } catch (err) {
+    console.error(`❌ [sendReply] Failed to send reply: ${err.message}`);
+  }
+};
+
+// Function to create the raw email in base64 format
+const makeMessage = (to, subject, body) => {
+  const message = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'MIME-Version: 1.0',
+    '',
+    body,
+  ].join('\n');
+
+  // Base64 encode the message
+  return Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+
+const processMessage = async (gmail, msgId, user) => {
   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
   let fullMessage;
@@ -365,7 +518,7 @@ export const processMessage = async (gmail, msgId, user) => {
     fullMessage = await gmail.users.messages.get({
       userId: 'me',
       id: msgId,
-      format: 'full', 
+      format: 'full',
     });
   } catch (err) {
     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
@@ -384,6 +537,7 @@ export const processMessage = async (gmail, msgId, user) => {
 
   let body = '';
 
+  // Decode the body parts
   const getBody = (parts) => {
     if (!parts) return;
     for (const part of parts) {
@@ -407,11 +561,38 @@ export const processMessage = async (gmail, msgId, user) => {
 
   console.log(' [ProcessMessage] Subject:', subject);
 
+  // Check if the subject contains the phrase "Shopify expert directory"
   if (!subject.toLowerCase().includes('shopify expert directory')) {
-    console.log(' [ProcessMessage] Subject does not match filter, skipping.');
+    console.log(' [ProcessMessage] Subject does not match the filter, skipping.');
+    return; // If the subject does not match, skip processing
+  }
+
+  // Fetch templates from the database based on the platform
+  const templates = await TemplateModel.findOne({ platform: 'shopify' }); // Only platform-based search
+
+  if (!templates) {
+    console.log(' [ProcessMessage] No templates found for this platform.');
     return;
   }
 
+  // Check if the email body contains any of the templates (services)
+  const services = templates.templates.map(template => template.name);
+  let serviceFound = null;
+  for (const service of services) {
+    if (body.toLowerCase().includes(service.toLowerCase())) {
+      serviceFound = service;
+      break;
+    }
+  }
+
+  if (!serviceFound) {
+    console.log(' [ProcessMessage] No matching service found in the email body.');
+    return;
+  }
+
+  console.log(' [ProcessMessage] Service found:', serviceFound);
+
+  // Save the email and the detected service
   try {
     const saved = await EmailModel.create({
       userId: user._id,
@@ -423,15 +604,16 @@ export const processMessage = async (gmail, msgId, user) => {
       body,
       snippet,
       dateReceived,
+      service: serviceFound, // Save the service type (e.g., "SEO")
       threadId: fullMessage.data.threadId,
       messageId: msgId,
     });
     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
+
+    // Send a reply based on the detected service
+    await sendReply(gmail, serviceFound, from, user);
   } catch (dbErr) {
-    console.error(
-      ' [ProcessMessage] Failed to save email to DB:',
-      dbErr.message
-    );
+    console.error(' [ProcessMessage] Failed to save email to DB:', dbErr.message);
   }
 };
 
@@ -540,3 +722,34 @@ export const getEmail = async (req, res) => {
     res.status(500).send('Error syncing emails');
   }
 };
+
+export const savePlatformForUser = async (req, res) => {
+  try {
+    const { userId, platform } = req.body;
+
+    if (!userId || !platform) {
+      return res.status(400).json({
+        error: "userId and platform are required"
+      });
+    }
+
+    // Use '_id' as the unique identifier for the user
+    const user = await authModel.findById(userId); // Use findById instead of findOne({ id: userId })
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Set the platform
+    user.selectedPlatform = platform;
+
+    // Save the updated user data
+    await user.save();
+
+    res.json({ message: "Platform saved successfully", user });
+  } catch (err) {
+    console.error("Failed to save platform:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+;

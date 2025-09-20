@@ -30,6 +30,7 @@ const authSchema = new mongoose.Schema(
       token_type: { type: String },
       expiry_date: { type: Number },
     },
+    selectedPlatform: { type: String, enum: ['shopify', 'other'] }, // Store the platform only
   },
   {
     timestamps: true,
