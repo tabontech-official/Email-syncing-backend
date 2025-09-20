@@ -6,6 +6,7 @@ import { PubSub } from '@google-cloud/pubsub';
 import axios from 'axios';
 import { EmailModel } from '../Models/Email.js';
 import { ConnectionModel } from '../Models/Connection.js';
+import { TemplateModel } from '../Models/Template.js';
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
