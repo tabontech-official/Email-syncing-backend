@@ -510,7 +510,7 @@ const makeMessage = (to, subject, body) => {
 };
 
 
-const processMessage = async (gmail, msgId, user) => {
+export const processMessage = async (gmail, msgId, user) => {
   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
   let fullMessage;
@@ -518,7 +518,7 @@ const processMessage = async (gmail, msgId, user) => {
     fullMessage = await gmail.users.messages.get({
       userId: 'me',
       id: msgId,
-      format: 'full',
+      format: 'full', 
     });
   } catch (err) {
     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
@@ -537,7 +537,6 @@ const processMessage = async (gmail, msgId, user) => {
 
   let body = '';
 
-  // Decode the body parts
   const getBody = (parts) => {
     if (!parts) return;
     for (const part of parts) {
@@ -561,13 +560,13 @@ const processMessage = async (gmail, msgId, user) => {
 
   console.log(' [ProcessMessage] Subject:', subject);
 
-  // Check if the subject contains the phrase "Shopify expert directory"
+  // Check if the subject contains the required string
   if (!subject.toLowerCase().includes('shopify expert directory')) {
     console.log(' [ProcessMessage] Subject does not match the filter, skipping.');
-    return; // If the subject does not match, skip processing
+    return; // Skip processing if subject does not match
   }
 
-  // Fetch templates from the database based on the platform
+  // Fetch templates for the "shopify" platform from the database
   const templates = await TemplateModel.findOne({ platform: 'shopify' }); // Only platform-based search
 
   if (!templates) {
@@ -575,24 +574,26 @@ const processMessage = async (gmail, msgId, user) => {
     return;
   }
 
-  // Check if the email body contains any of the templates (services)
+  // List of available services in templates
   const services = templates.templates.map(template => template.name);
   let serviceFound = null;
+
+  // Check if any of the services are mentioned in the email body
   for (const service of services) {
     if (body.toLowerCase().includes(service.toLowerCase())) {
-      serviceFound = service;
+      serviceFound = service; // Store the matched service
       break;
     }
   }
 
   if (!serviceFound) {
     console.log(' [ProcessMessage] No matching service found in the email body.');
-    return;
+    return; // No matching service, skipping
   }
 
   console.log(' [ProcessMessage] Service found:', serviceFound);
 
-  // Save the email and the detected service
+  // Save the email to the database with the matched service
   try {
     const saved = await EmailModel.create({
       userId: user._id,
@@ -611,7 +612,7 @@ const processMessage = async (gmail, msgId, user) => {
     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
 
     // Send a reply based on the detected service
-    await sendReply(gmail, serviceFound, from, user);
+    await sendReply(gmail, serviceFound, from, user); // Send the reply with the matched service
   } catch (dbErr) {
     console.error(' [ProcessMessage] Failed to save email to DB:', dbErr.message);
   }
