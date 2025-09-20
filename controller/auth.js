@@ -83,24 +83,35 @@ console.log("REDIRECT_URI",REDIRECT_URI)
 
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
+// const SCOPES = [
+//   'https://www.googleapis.com/auth/gmail.addons.current.action.compose', 
+//   'https://www.googleapis.com/auth/gmail.addons.current.message.action', 
+//   // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
+//   'https://www.googleapis.com/auth/gmail.addons.current.message.readonly', 
+//   'https://www.googleapis.com/auth/gmail.labels',
+//   'https://www.googleapis.com/auth/gmail.send', 
+//   'https://www.googleapis.com/auth/gmail.readonly',
+//   'https://www.googleapis.com/auth/gmail.compose', 
+//   'https://www.googleapis.com/auth/gmail.insert', 
+//   'https://www.googleapis.com/auth/gmail.modify', 
+//   'https://www.googleapis.com/auth/gmail.metadata',
+//   'https://www.googleapis.com/auth/gmail.settings.basic',
+//   'https://www.googleapis.com/auth/gmail.settings.sharing',
+  // 'https://mail.google.com/' ,
+//   'https://www.googleapis.com/auth/userinfo.email',
+//   'https://www.googleapis.com/auth/userinfo.profile'
+// ];
+
 const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.addons.current.action.compose', 
-  'https://www.googleapis.com/auth/gmail.addons.current.message.action', 
-  // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
-  'https://www.googleapis.com/auth/gmail.addons.current.message.readonly', 
-  'https://www.googleapis.com/auth/gmail.labels',
-  'https://www.googleapis.com/auth/gmail.send', 
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose', 
-  'https://www.googleapis.com/auth/gmail.insert', 
-  'https://www.googleapis.com/auth/gmail.modify', 
-  'https://www.googleapis.com/auth/gmail.metadata',
-  'https://www.googleapis.com/auth/gmail.settings.basic',
-  'https://www.googleapis.com/auth/gmail.settings.sharing',
-  'https://mail.google.com/' ,
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile'
+  'https://www.googleapis.com/auth/gmail.readonly', // read emails (headers + body)
+  'https://www.googleapis.com/auth/gmail.modify',   // read + modify (mark read, add labels)
+  'https://www.googleapis.com/auth/gmail.send',     // send emails
+  'https://www.googleapis.com/auth/userinfo.email', // basic user info
+  'https://www.googleapis.com/auth/userinfo.profile',
+    'https://mail.google.com/' ,
+
 ];
+
 
 export const googleAuth = (req, res) => {
     const authUrl = oauth2Client.generateAuthUrl({
