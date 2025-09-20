@@ -152,64 +152,103 @@ export const googleAuthCallback = async (req, res) => {
 
 
 export const EmailWebhook = async (req, res) => {
-  console.log("➡️ [EmailWebhook] Body:", req.body);
+  console.log("➡️ [EmailWebhook] Incoming Request Body:", JSON.stringify(req.body, null, 2));
 
   try {
+    // Step 1: Validate Pub/Sub message
     const message = req.body.message;
+    console.log("📩 [Step 1] Extracted message:", message);
+
     if (!message || !message.data) {
+      console.warn("⚠️ [Step 1] No Pub/Sub message or data field found.");
       return res.status(400).send("No Pub/Sub message");
     }
 
-    const data = JSON.parse(Buffer.from(message.data, "base64").toString("utf-8"));
-    console.log("🔔 Pub/Sub Data:", data);
+    // Step 2: Decode and parse data
+    const decoded = Buffer.from(message.data, "base64").toString("utf-8");
+    console.log("📦 [Step 2] Decoded Base64 Data:", decoded);
 
-    const user = await authModel.findOne({ email: data.emailAddress });
-    if (!user) {
-      console.warn("⚠️ User not found for:", data.emailAddress);
-      return res.status(200).send();
+    let data;
+    try {
+      data = JSON.parse(decoded);
+      console.log("🔔 [Step 2] Parsed Pub/Sub Data:", data);
+    } catch (parseErr) {
+      console.error("❌ [Step 2] Failed to parse Pub/Sub data:", parseErr);
+      return res.status(400).send("Invalid Pub/Sub message format");
     }
 
-    // Use the newest Gmail message directly from history
+    // Step 3: Find user
+    console.log("🔎 [Step 3] Looking up user for email:", data.emailAddress);
+    const user = await authModel.findOne({ email: data.emailAddress });
+
+    if (!user) {
+      console.warn("⚠️ [Step 3] No user found for email:", data.emailAddress);
+      return res.status(200).send();
+    }
+    console.log("✅ [Step 3] User found:", user.email);
+
+    // Step 4: Prepare Gmail API client
+    console.log("🔐 [Step 4] Creating OAuth2 client...");
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
     oauth2Client.setCredentials(user.tokens);
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    console.log("🔑 [Step 4] OAuth2 credentials set.");
 
-    // Get the latest added message for this history ID
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    console.log("📮 [Step 4] Gmail client initialized.");
+
+    // Step 5: Fetch Gmail history
+    console.log("📡 [Step 5] Fetching Gmail history for historyId:", data.historyId);
     const history = await gmail.users.history.list({
       userId: "me",
       startHistoryId: data.historyId,
       historyTypes: ["messageAdded"],
     });
 
+    console.log("📨 [Step 5] Gmail History API Response:", history.data);
+
     if (!history.data.history) {
-      console.log("ℹ️ No new history records.");
+      console.log("ℹ️ [Step 5] No history records found.");
       return res.status(200).send();
     }
 
+    // Step 6: Loop through records
     for (const record of history.data.history) {
-      if (!record.messagesAdded) continue;
+      console.log("🔎 [Step 6] Processing record:", JSON.stringify(record, null, 2));
 
+      if (!record.messagesAdded) {
+        console.warn("⚠️ [Step 6] Record has no messagesAdded.");
+        continue;
+      }
+
+      // Step 7: Loop through added messages
       for (const added of record.messagesAdded) {
         const msgId = added.message.id;
-        console.log("🔔 Checking message:", msgId);
+        console.log("🔔 [Step 7] Checking message ID:", msgId);
 
         let fullMessage;
         try {
+          console.log("📥 [Step 7] Fetching full message:", msgId);
           fullMessage = await gmail.users.messages.get({
             userId: "me",
             id: msgId,
             format: "full",
           });
+          console.log("📨 [Step 7] Full message fetched successfully:", JSON.stringify(fullMessage.data, null, 2));
         } catch (err) {
-          console.error("❌ Failed to fetch message:", err.message);
+          console.error("❌ [Step 7] Failed to fetch message:", err.message);
           continue;
         }
 
-        const headers = fullMessage.data.payload.headers;
-        const subject = headers.find(h => h.name === "Subject")?.value || "";
-        console.log("📧 Subject:", subject);
+        const headers = fullMessage.data.payload.headers || [];
+        console.log("📑 [Step 7] Message headers:", headers);
 
+        const subject = headers.find(h => h.name === "Subject")?.value || "";
+        console.log("📧 [Step 7] Subject extracted:", subject);
+
+        // Step 8: Check subject match
         if (subject.toLowerCase().includes("shopify expert directory")) {
+          console.log("✅ [Step 8] Subject matches filter → Preparing to save to DB.");
+
           try {
             const saved = await EmailModel.create({
               userId: user._id,
@@ -221,19 +260,21 @@ export const EmailWebhook = async (req, res) => {
               threadId: fullMessage.data.threadId,
               messageId: msgId,
             });
-            console.log("💾 Saved:", saved._id);
+
+            console.log("💾 [Step 8] Email saved to DB with ID:", saved._id);
           } catch (dbErr) {
-            console.error("❌ DB Save Error:", dbErr.message);
+            console.error("❌ [Step 8] Failed to save email to DB:", dbErr.message);
           }
         } else {
-          console.log("🚫 Subject not matched, skipping.");
+          console.log("🚫 [Step 8] Subject does not match filter, skipping.");
         }
       }
     }
 
+    console.log("🏁 [Step 9] Webhook processing complete.");
     res.status(200).send();
   } catch (err) {
-    console.error("❌ Webhook Error:", err);
+    console.error("❌ [Global Catch] Webhook Error:", err);
     res.status(500).send("Server error");
   }
 };
