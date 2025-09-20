@@ -250,7 +250,7 @@ async function startWatch(oauthTokens) {
   const res = await gmail.users.watch({
     userId: "me",
     requestBody: {
-      topicName: "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC_NAME", 
+      topicName: "projects/email-syncing-472610/topics/gmail-notifications", 
     },
   });
 
