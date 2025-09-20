@@ -453,7 +453,6 @@ export const EmailWebhook = async (req, res) => {
     }
 
     console.log('🔎 [Step 3] Looking up connection for email:', data.emailAddress);
-    // FIX: Use ConnectionModel instead of authModel
     const connection = await ConnectionModel.findOne({ 
       email: data.emailAddress, 
       provider: 'gmail',
@@ -473,10 +472,8 @@ export const EmailWebhook = async (req, res) => {
       REDIRECT_URI
     );
 
-    // FIX: Properly handle token refresh
     oauth2Client.setCredentials(connection.tokens);
     
-    // Set up automatic token refresh
     oauth2Client.on('tokens', async (tokens) => {
       console.log('🔄 [Step 4] Refreshing tokens...');
       try {
@@ -506,7 +503,6 @@ export const EmailWebhook = async (req, res) => {
 
     let history;
     try {
-      // FIX: Add proper error handling and retry logic
       history = await gmail.users.history.list({
         userId: 'me',
         startHistoryId: data.historyId,
@@ -515,7 +511,6 @@ export const EmailWebhook = async (req, res) => {
     } catch (err) {
       console.error('❌ [Step 5] Failed to fetch Gmail history:', err.message);
       
-      // If it's a token error, try to refresh and retry once
       if (err.code === 401 || err.message.includes('refresh token')) {
         console.log('🔄 [Step 5] Attempting token refresh...');
         try {
@@ -528,7 +523,6 @@ export const EmailWebhook = async (req, res) => {
           console.log('✅ [Step 5] Retry successful after token refresh');
         } catch (retryErr) {
           console.error('❌ [Step 5] Retry failed:', retryErr.message);
-          // Mark connection as inactive if token refresh fails
           await ConnectionModel.updateOne(
             { _id: connection._id },
             { $set: { status: 'inactive' } }
@@ -542,7 +536,6 @@ export const EmailWebhook = async (req, res) => {
 
     console.log('📨 [Step 5] Gmail History API Response:', history.data);
 
-    // Update the connection's last history ID
     if (history.data.historyId) {
       await ConnectionModel.updateOne(
         { _id: connection._id },
@@ -568,7 +561,6 @@ export const EmailWebhook = async (req, res) => {
       return res.status(200).send();
     }
 
-    // Step 6: Loop through records
     for (const record of history.data.history) {
       console.log('🔎 [Step 6] Processing record:', JSON.stringify(record, null, 2));
 
@@ -677,6 +669,7 @@ const decodeBase64 = (data) => {
 //   }
 // };
 
+
 const processMessage = async (gmail, msgId, connection) => {
   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
@@ -728,7 +721,7 @@ const processMessage = async (gmail, msgId, connection) => {
   console.log('📋 [ProcessMessage] Subject:', subject);
 
   // Check if the subject contains the required string
-  if (!subject.toLowerCase().includes('shopify expert directory')) {
+  if (!subject.toLowerCase().includes('shopify partner directory')) {
     console.log('ℹ️ [ProcessMessage] Subject does not match the filter, skipping.');
     return;
   }
@@ -785,7 +778,6 @@ const processMessage = async (gmail, msgId, connection) => {
   }
 };
 
-// Updated sendReply function
 const sendReply = async (gmail, service, to, connection) => {
   const subject = `Re: Your inquiry about ${service}`;
   let body = '';
@@ -840,7 +832,6 @@ const sendReply = async (gmail, service, to, connection) => {
   }
 };
 
-// Helper function to ensure proper token refresh setup
  const setupTokenRefresh = (oauth2Client, connectionId) => {
   oauth2Client.on('tokens', async (tokens) => {
     try {
@@ -861,7 +852,6 @@ const sendReply = async (gmail, service, to, connection) => {
 };
 
 
-// Function to create the raw email in base64 format
 const makeMessage = (to, subject, body) => {
   const message = [
     `To: ${to}`,
