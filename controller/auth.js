@@ -109,53 +109,23 @@ const SCOPES = [
 ];
 
 export const googleAuth = (req, res) => {
+  const { userId } = req.query; // frontend must send ?userId=xxxx
+
+  if (!userId) {
+    return res.status(400).send("userId is required");
+  }
+
   const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
+    access_type: "offline",
     scope: SCOPES,
+    prompt: "consent", // ensure refresh_token is always returned
+    state: JSON.stringify({ userId }), // 🔑 send userId via state
   });
 
-  console.log('Generated Google OAuth URL:', authUrl);
+  console.log("Generated Google OAuth URL:", authUrl);
 
   res.redirect(authUrl);
 };
-// export const googleAuthCallback = async (req, res) => {
-//   const { code } = req.query;
-
-//   try {
-//     const { tokens } = await oauth2Client.getToken(code);
-//     oauth2Client.setCredentials(tokens);
-
-//     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
-//     const response = await peopleApi.people.get({
-//       resourceName: 'people/me',
-//       personFields: 'emailAddresses,names',
-//     });
-
-//     const userEmail = response.data.emailAddresses[0].value;
-//     const googleId = response.data.resourceName;
-
-//     let user = await authModel.findOne({ googleId });
-
-//     if (!user) {
-//       user = new authModel({
-//         googleId,
-//         email: userEmail,
-//         tokens,
-//       });
-//     } else {
-//       user.tokens = tokens;
-//     }
-
-//     await user.save();
-//     await startWatch(tokens);
-
-//     res.send('Gmail Sync Successful! You can now access your Gmail data.');
-//   } catch (error) {
-//     console.error('Error during token exchange: ', error);
-//     res.status(500).send('Error during authentication');
-//   }
-// };
-
 export const googleAuthCallback = async (req, res) => {
   const { code, userId } = req.query; 
 
@@ -208,6 +178,45 @@ export const googleAuthCallback = async (req, res) => {
     return res.redirect("http://localhost:3000/connection");
   }
 };
+
+// export const googleAuthCallback = async (req, res) => {
+//   const { code } = req.query;
+
+//   try {
+//     const { tokens } = await oauth2Client.getToken(code);
+//     oauth2Client.setCredentials(tokens);
+
+//     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+//     const response = await peopleApi.people.get({
+//       resourceName: 'people/me',
+//       personFields: 'emailAddresses,names',
+//     });
+
+//     const userEmail = response.data.emailAddresses[0].value;
+//     const googleId = response.data.resourceName;
+
+//     let user = await authModel.findOne({ googleId });
+
+//     if (!user) {
+//       user = new authModel({
+//         googleId,
+//         email: userEmail,
+//         tokens,
+//       });
+//     } else {
+//       user.tokens = tokens;
+//     }
+
+//     await user.save();
+//     await startWatch(tokens);
+
+//     res.send('Gmail Sync Successful! You can now access your Gmail data.');
+//   } catch (error) {
+//     console.error('Error during token exchange: ', error);
+//     res.status(500).send('Error during authentication');
+//   }
+// };
+
 
 export const EmailWebhook = async (req, res) => {
   console.log(
