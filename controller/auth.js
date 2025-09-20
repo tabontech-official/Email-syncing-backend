@@ -149,69 +149,7 @@ export const googleAuthCallback = async (req, res) => {
     }
 };
 
-export const getEmail = async (req, res) => {
-    let tokens;
-    
-    try {
-        const user = await authModel.findOne({ googleId: req.userId }); 
-        tokens = user.tokens;
-        oauth2Client.setCredentials(tokens);
 
-        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-        const response = await gmail.users.messages.list({
-            userId: 'me',
-            labelIds: ['INBOX'],
-            q: 'subject:"Shopify Partner Directory"',  
-        });
-
-        const messages = response.data.messages || [];
-
-        const emailDetails = [];
-
-        for (const message of messages) {
-            const email = await gmail.users.messages.get({
-                userId: 'me',
-                id: message.id,
-            });
-
-            const headers = email.data.payload.headers || [];
-            const body = email.data.payload.parts ? email.data.payload.parts[0].body.data : ''; 
-            const decodedBody = Buffer.from(body, 'base64').toString('utf-8'); 
-
-            const from = headers.find(header => header.name === 'From')?.value;
-            const to = headers.filter(header => header.name === 'To').map(header => header.value);
-            const bcc = headers.filter(header => header.name === 'Bcc').map(header => header.value);
-            const cc = headers.filter(header => header.name === 'Cc').map(header => header.value);
-            const subject = headers.find(header => header.name === 'Subject')?.value;
-            const dateReceived = new Date(parseInt(email.data.internalDate));
-
-            const emailData = {
-                userId: user._id, 
-                subject,
-                from,
-                to,
-                bcc,
-                cc,
-                body: decodedBody, 
-                snippet: email.data.snippet,
-                dateReceived,
-                threadId: email.data.threadId,
-                messageId: email.data.id,  
-            };
-
-            const newEmail = new EmailModel(emailData);
-            await newEmail.save();
-
-            emailDetails.push(emailData);
-        }
-
-        res.json(emailDetails);
-    } catch (error) {
-        console.error('Error syncing emails: ', error);
-        res.status(500).send('Error syncing emails');
-    }
-};
 
 export const EmailWebhook = async (req, res) => {
   console.log("➡️ [EmailWebhook] Incoming request body:", req.body);
@@ -284,7 +222,14 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  // Step 1: Request history
+  // 🔎 Check granted scopes (optional but useful)
+  try {
+    const info = await oauth2Client.getTokenInfo(oauthTokens.access_token);
+    console.log("🔑 Granted scopes:", info.scopes);
+  } catch (err) {
+    console.warn("⚠️ Could not fetch token info:", err.message);
+  }
+
   console.log("📡 Fetching history from Gmail...");
   const historyRes = await gmail.users.history.list({
     userId: "me",
@@ -299,7 +244,7 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
     console.warn("⚠️ No history records found. Fetching recent messages instead...");
     const listRes = await gmail.users.messages.list({
       userId: "me",
-      maxResults: 5, // adjust as needed
+      maxResults: 5,
     });
 
     if (!listRes.data.messages) {
@@ -308,41 +253,9 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
     }
 
     for (let msg of listRes.data.messages) {
-      console.log("🔔 Fallback fetching message:", msg.id);
-
-      const fullMessage = await gmail.users.messages.get({
-        userId: "me",
-        id: msg.id,
-        format: "full",
-      });
-
-      const headers = fullMessage.data.payload.headers;
-      const subject = headers.find(h => h.name === "Subject")?.value || "";
-
-      console.log("📧 [Fallback] Subject received:", subject);
-
-      if (subject.toLowerCase().includes("shopify experts directory")) {
-        console.log("✅ [Fallback] Subject matched filter. Saving to DB...");
-        try {
-          const savedEmail = await EmailModel.create({
-            userId,
-            subject,
-            from: headers.find(h => h.name === "From")?.value,
-            to: headers.filter(h => h.name === "To").map(h => h.value),
-            snippet: fullMessage.data.snippet,
-            dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
-            threadId: fullMessage.data.threadId,
-            messageId: msg.id,
-          });
-          console.log("💾 [Fallback] Saved to DB:", savedEmail);
-        } catch (dbError) {
-          console.error("❌ [Fallback] Error saving to DB:", dbError);
-        }
-      } else {
-        console.log("🚫 [Fallback] Subject did NOT match filter, skipping.");
-      }
+      await fetchAndSaveMessage(gmail, msg.id, userId, true);
     }
-    return; // stop further processing
+    return;
   }
 
   // 👉 Process normal history records
@@ -355,45 +268,66 @@ async function fetchHistoryEmails(oauthTokens, userId, historyId) {
     }
 
     for (let msg of record.messagesAdded) {
-      console.log("🔔 Fetching full message:", msg.message.id);
-
-      const fullMessage = await gmail.users.messages.get({
-        userId: "me",
-        id: msg.message.id,
-        format: "full",
-      });
-
-      const headers = fullMessage.data.payload.headers;
-      const subject = headers.find(h => h.name === "Subject")?.value || "";
-
-      console.log("📧 Subject received:", subject);
-
-      if (subject.toLowerCase().includes("shopify experts directory")) {
-        console.log("✅ Subject matched filter. Saving to DB...");
-
-        try {
-          const savedEmail = await EmailModel.create({
-            userId,
-            subject,
-            from: headers.find(h => h.name === "From")?.value,
-            to: headers.filter(h => h.name === "To").map(h => h.value),
-            snippet: fullMessage.data.snippet,
-            dateReceived: new Date(parseInt(fullMessage.data.internalDate)),
-            threadId: fullMessage.data.threadId,
-            messageId: msg.message.id,
-          });
-
-          console.log("💾 Saved to DB:", savedEmail);
-        } catch (dbError) {
-          console.error("❌ Error saving to DB:", dbError);
-        }
-      } else {
-        console.log("🚫 Subject did NOT match filter, skipping.");
-      }
+      await fetchAndSaveMessage(gmail, msg.message.id, userId, false);
     }
   }
 
   console.log("🏁 [fetchHistoryEmails] Processing complete.");
+}
+
+/**
+ * Helper: fetch a message, retry with metadata if FULL fails.
+ */
+async function fetchAndSaveMessage(gmail, messageId, userId, isFallbackList) {
+  console.log(`🔔 Fetching message ${messageId} (format: full)`);
+  let fullMessage;
+
+  try {
+    fullMessage = await gmail.users.messages.get({
+      userId: "me",
+      id: messageId,
+      format: "full",
+    });
+  } catch (err) {
+    if (err?.code === 403 && err?.message?.includes("Metadata scope")) {
+      console.warn("⚠️ FULL format denied by scope, retrying with METADATA...");
+      fullMessage = await gmail.users.messages.get({
+        userId: "me",
+        id: messageId,
+        format: "metadata",
+        metadataHeaders: ["Subject", "From", "To", "Date"],
+      });
+    } else {
+      console.error("❌ Error fetching message:", err);
+      return;
+    }
+  }
+
+  const headers = fullMessage.data.payload.headers || [];
+  const subject = headers.find(h => h.name === "Subject")?.value || "";
+
+  console.log(`📧 Subject received${isFallbackList ? " [Fallback]" : ""}:`, subject);
+
+  if (subject.toLowerCase().includes("shopify experts directory")) {
+    console.log("✅ Subject matched filter. Saving to DB...");
+    try {
+      const savedEmail = await EmailModel.create({
+        userId,
+        subject,
+        from: headers.find(h => h.name === "From")?.value,
+        to: headers.filter(h => h.name === "To").map(h => h.value),
+        snippet: fullMessage.data.snippet,
+        dateReceived: new Date(parseInt(fullMessage.data.internalDate || Date.now())),
+        threadId: fullMessage.data.threadId,
+        messageId,
+      });
+      console.log("💾 Saved to DB:", savedEmail);
+    } catch (dbError) {
+      console.error("❌ Error saving to DB:", dbError);
+    }
+  } else {
+    console.log("🚫 Subject did NOT match filter, skipping.");
+  }
 }
 
 
@@ -406,3 +340,67 @@ export const getEmails=async(req,res)=>{
     
   }
 }
+
+export const getEmail = async (req, res) => {
+    let tokens;
+    
+    try {
+        const user = await authModel.findOne({ googleId: req.userId }); 
+        tokens = user.tokens;
+        oauth2Client.setCredentials(tokens);
+
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+        const response = await gmail.users.messages.list({
+            userId: 'me',
+            labelIds: ['INBOX'],
+            q: 'subject:"Shopify Partner Directory"',  
+        });
+
+        const messages = response.data.messages || [];
+
+        const emailDetails = [];
+
+        for (const message of messages) {
+            const email = await gmail.users.messages.get({
+                userId: 'me',
+                id: message.id,
+            });
+
+            const headers = email.data.payload.headers || [];
+            const body = email.data.payload.parts ? email.data.payload.parts[0].body.data : ''; 
+            const decodedBody = Buffer.from(body, 'base64').toString('utf-8'); 
+
+            const from = headers.find(header => header.name === 'From')?.value;
+            const to = headers.filter(header => header.name === 'To').map(header => header.value);
+            const bcc = headers.filter(header => header.name === 'Bcc').map(header => header.value);
+            const cc = headers.filter(header => header.name === 'Cc').map(header => header.value);
+            const subject = headers.find(header => header.name === 'Subject')?.value;
+            const dateReceived = new Date(parseInt(email.data.internalDate));
+
+            const emailData = {
+                userId: user._id, 
+                subject,
+                from,
+                to,
+                bcc,
+                cc,
+                body: decodedBody, 
+                snippet: email.data.snippet,
+                dateReceived,
+                threadId: email.data.threadId,
+                messageId: email.data.id,  
+            };
+
+            const newEmail = new EmailModel(emailData);
+            await newEmail.save();
+
+            emailDetails.push(emailData);
+        }
+
+        res.json(emailDetails);
+    } catch (error) {
+        console.error('Error syncing emails: ', error);
+        res.status(500).send('Error syncing emails');
+    }
+};
