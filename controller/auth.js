@@ -264,16 +264,20 @@ export const EmailWebhook = async (req, res) => {
 };
 
 // Reusable message processor
-const processMessage = async (gmail, msgId, user) => {
-  console.log("📥 [ProcessMessage] Fetching message (metadata only):", msgId);
+const decodeBase64 = (data) => {
+  if (!data) return "";
+  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+};
+
+export const processMessage = async (gmail, msgId, user) => {
+  console.log("📥 [ProcessMessage] Fetching message (full):", msgId);
 
   let fullMessage;
   try {
     fullMessage = await gmail.users.messages.get({
       userId: "me",
       id: msgId,
-      format: "metadata",   // 👈 use metadata instead of full
-      metadataHeaders: ["From", "To", "Subject", "Date"], // only needed headers
+      format: "full", // 👈 fetch full content
     });
   } catch (err) {
     console.error("❌ [ProcessMessage] Failed to fetch message:", err.message);
@@ -284,8 +288,36 @@ const processMessage = async (gmail, msgId, user) => {
   const subject = headers.find(h => h.name === "Subject")?.value || "";
   const from = headers.find(h => h.name === "From")?.value || "";
   const to = headers.filter(h => h.name === "To").map(h => h.value);
+  const cc = headers.filter(h => h.name === "Cc").map(h => h.value);
+  const bcc = headers.filter(h => h.name === "Bcc").map(h => h.value);
   const dateHeader = headers.find(h => h.name === "Date")?.value || "";
   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
+  const snippet = fullMessage.data.snippet || "";
+
+  // Extract body text + HTML
+  let body = "";
+
+  const getBody = (parts) => {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.mimeType === "text/plain" && part.body?.data) {
+        body += decodeBase64(part.body.data) + "\n";
+      }
+      if (part.mimeType === "text/html" && part.body?.data) {
+        body += decodeBase64(part.body.data) + "\n";
+      }
+      if (part.parts) {
+        getBody(part.parts); // recursive for nested MIME parts
+      }
+    }
+  };
+
+  if (fullMessage.data.payload?.parts) {
+    getBody(fullMessage.data.payload.parts);
+  } else if (fullMessage.data.payload?.body?.data) {
+    // Single-part message
+    body = decodeBase64(fullMessage.data.payload.body.data);
+  }
 
   console.log("📧 [ProcessMessage] Subject:", subject);
 
@@ -301,7 +333,10 @@ const processMessage = async (gmail, msgId, user) => {
       subject,
       from,
       to,
-      snippet: fullMessage.data.snippet,
+      cc,
+      bcc,
+      body,
+      snippet,
       dateReceived,
       threadId: fullMessage.data.threadId,
       messageId: msgId,
