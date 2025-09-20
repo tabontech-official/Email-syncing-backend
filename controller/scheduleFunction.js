@@ -37,7 +37,7 @@
 //   });
 // };
 import cron from 'node-cron';
-import { authModel } from '../Models/auth';
+import { authModel } from '../Models/auth.js';
 
 
 export const productSubscriptionExpiration = () => {
