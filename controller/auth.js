@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import { PubSub } from '@google-cloud/pubsub';
 import axios from 'axios';
+import { EmailModel } from '../Models/Email.js';
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
@@ -331,118 +332,6 @@ async function startWatch(oauthTokens) {
   return res.data;
 }
 
-async function fetchHistoryEmails(oauthTokens, userId, historyId) {
-  console.log("➡️ [fetchHistoryEmails] Called with:", { userId, historyId });
-
-  const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-  oauth2Client.setCredentials(oauthTokens);
-
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-  // 🔎 Check granted scopes (optional but useful)
-  try {
-    const info = await oauth2Client.getTokenInfo(oauthTokens.access_token);
-    console.log("🔑 Granted scopes:", info.scopes);
-  } catch (err) {
-    console.warn("⚠️ Could not fetch token info:", err.message);
-  }
-
-  console.log("📡 Fetching history from Gmail...");
-  const historyRes = await gmail.users.history.list({
-    userId: "me",
-    startHistoryId: historyId,
-    historyTypes: ["messageAdded"],
-  });
-
-  console.log("📨 History API Response:", historyRes.data);
-
-  // 👉 If no history records, fallback to fetch recent messages
-  if (!historyRes.data.history) {
-    console.warn("⚠️ No history records found. Fetching recent messages instead...");
-    const listRes = await gmail.users.messages.list({
-      userId: "me",
-      maxResults: 5,
-    });
-
-    if (!listRes.data.messages) {
-      console.warn("⚠️ No recent messages found either.");
-      return;
-    }
-
-    for (let msg of listRes.data.messages) {
-      await fetchAndSaveMessage(gmail, msg.id, userId, true);
-    }
-    return;
-  }
-
-  // 👉 Process normal history records
-  for (let record of historyRes.data.history) {
-    console.log("🔎 Processing record:", record);
-
-    if (!record.messagesAdded) {
-      console.warn("⚠️ No messagesAdded in this record.");
-      continue;
-    }
-
-    for (let msg of record.messagesAdded) {
-      await fetchAndSaveMessage(gmail, msg.message.id, userId, false);
-    }
-  }
-
-  console.log("🏁 [fetchHistoryEmails] Processing complete.");
-}
-
-async function fetchAndSaveMessage(gmail, messageId, userId, isFallbackList) {
-  console.log(`🔔 Fetching message ${messageId} (format: full)`);
-  let fullMessage;
-
-  try {
-    fullMessage = await gmail.users.messages.get({
-      userId: "me",
-      id: messageId,
-      format: "full",
-    });
-  } catch (err) {
-    if (err?.code === 403 && err?.message?.includes("Metadata scope")) {
-      console.warn("⚠️ FULL format denied by scope, retrying with METADATA...");
-      fullMessage = await gmail.users.messages.get({
-        userId: "me",
-        id: messageId,
-        format: "metadata",
-        metadataHeaders: ["Subject", "From", "To", "Date"],
-      });
-    } else {
-      console.error("❌ Error fetching message:", err);
-      return;
-    }
-  }
-
-  const headers = fullMessage.data.payload.headers || [];
-  const subject = headers.find(h => h.name === "Subject")?.value || "";
-
-  console.log(`📧 Subject received${isFallbackList ? " [Fallback]" : ""}:`, subject);
-
-  if (subject.toLowerCase().includes("shopify experts directory")) {
-    console.log("✅ Subject matched filter. Saving to DB...");
-    try {
-      const savedEmail = await EmailModel.create({
-        userId,
-        subject,
-        from: headers.find(h => h.name === "From")?.value,
-        to: headers.filter(h => h.name === "To").map(h => h.value),
-        snippet: fullMessage.data.snippet,
-        dateReceived: new Date(parseInt(fullMessage.data.internalDate || Date.now())),
-        threadId: fullMessage.data.threadId,
-        messageId,
-      });
-      console.log("💾 Saved to DB:", savedEmail);
-    } catch (dbError) {
-      console.error("❌ Error saving to DB:", dbError);
-    }
-  } else {
-    console.log("🚫 Subject did NOT match filter, skipping.");
-  }
-}
 
 
 
