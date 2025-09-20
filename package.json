@@ -25,7 +25,9 @@
     "prettier": "^3.3.3"
   },
   "dependencies": {
+    "@google-cloud/pubsub": "^5.2.0",
     "@google/generative-ai": "^0.17.1",
+    "atob": "^2.1.2",
     "aws-sdk": "^2.1679.0",
     "axios": "^1.7.7",
     "bcrypt": "^5.1.1",
@@ -42,6 +44,8 @@
     "express": "^4.19.2",
     "form-data": "^4.0.0",
     "fs": "^0.0.1-security",
+    "google-auth-library": "^10.3.0",
+    "googleapis": "^160.0.0",
     "helmet": "^7.1.0",
     "http-status": "^1.7.4",
     "https": "^1.0.0",
