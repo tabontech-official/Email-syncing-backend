@@ -73,12 +73,12 @@ export const signIn = async (req, res) => {
 };
 
 
-const CLIENT_ID = "1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-const REDIRECT_URI = 'https://email-syncing-backend.vercel.app/auth/google/callback';  // Make sure this matches your backend port
-console.log(CLIENT_ID)
-console.log(CLIENT_SECRET)
-
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET =  process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI =  process.env.GOOGLE_REDIRECT_URI;  // Make sure this matches your backend port
+console.log("CLIENT_ID",CLIENT_ID)
+console.log("CLIENT_SECRET",CLIENT_SECRET)
+console.log("REDIRECT_URI",REDIRECT_URI)
 
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
