@@ -1,112 +1,81 @@
-import { TemplateModel } from '../Models/Template.js';
+import { TemplateModel } from "../Models/Template.js";
 
+// Create Template
 export const addTemplate = async (req, res) => {
   try {
-    const { userId, platform, templates } = req.body;
+    const { userId, platform, service, keywords, content } = req.body;
 
-    if (!userId || !platform || !templates || !Array.isArray(templates)) {
+    if (!userId || !platform || !service || !content) {
       return res.status(400).json({
-        error: "userId, platform, and templates[] are required",
+        error: "userId, platform, service and content are required",
       });
     }
 
-    // Map templates to the proper format { name: "template name" }
-    const formattedTemplates = templates.map((template) => ({
-      name: template,  // each template will now be an object with the name field
-    }));
+    const template = new TemplateModel({
+      userId,
+      platform,
+      service,
+      keywords: keywords || [],
+      content,
+    });
 
-    // Check if the user already has templates for this platform
-    let doc = await TemplateModel.findOne({ userId, platform });
-
-    if (!doc) {
-      // If not, create a new document for the user with the templates array
-      doc = new TemplateModel({
-        userId,
-        platform,
-        templates: formattedTemplates,  // add formatted templates
-      });
-    } else {
-      // If document exists, just add the new templates to the array
-      const existingTemplates = doc.templates.map((t) => t.name);
-      const newTemplates = formattedTemplates.filter(
-        (t) => !existingTemplates.includes(t.name)  // avoid duplicates
-      );
-
-      if (newTemplates.length > 0) {
-        doc.templates.push(...newTemplates);  // push the formatted templates
-      }
-    }
-
-    await doc.save();
-    res.json(doc);
+    await template.save();
+    res.json(template);
   } catch (err) {
-    console.error("❌ Failed to save bulk templates:", err.message);
+    console.error("❌ Failed to save template:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-
+// Get Templates by User
 export const getTemplates = async (req, res) => {
   try {
-    const { platform } = req.params;
+    const { userId } = req.query;
 
-    if (!platform) {
-      return res.status(400).json({ error: "Platform parameter is required" });
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required" });
     }
 
-    // Fetch templates based on platform
-    const templates = await TemplateModel.find({ platform });
-
-    if (!templates.length) {
-      return res.status(404).json({ error: "No templates found for this platform" });
-    }
-
-    // Return templates, showing name and _id
-    const formattedTemplates = templates.map(doc => ({
-      _id: doc._id,
-      platform: doc.platform,
-      templates: doc.templates.map(template => template.name) // Only return the name of each template
-    }));
-
-    res.json(formattedTemplates);
+    const templates = await TemplateModel.find({ userId });
+    res.json(templates);
   } catch (err) {
     console.error("❌ Failed to fetch templates:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-
-export const deleteTemplate=async(req,res)=>{
-    try {
-    await TemplateModel.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(" Failed to delete template:", err.message);
-    res.status(500).json({ error: "Server error" });
-  }
-}
-
-export const addOtherTemplate = async (req, res) => {
+// Update Template
+export const updateTemplate = async (req, res) => {
   try {
-    const { userId, name } = req.body;
-
-    if (!userId || !name) {
-      return res
-        .status(400)
-        .json({ error: "userId and name are required" });
-    }
-
-    const template = new TemplateModel({
-      userId,
-      platform: "other", 
-      name,
+    const { id } = req.params;
+    const updated = await TemplateModel.findByIdAndUpdate(id, req.body, {
+      new: true,
     });
 
-    await template.save();
+    if (!updated) {
+      return res.status(404).json({ error: "Template not found" });
+    }
 
-    res.json(template);
+    res.json(updated);
   } catch (err) {
-    console.error("❌ Failed to save other template:", err.message);
+    console.error("❌ Failed to update template:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Delete Template
+export const deleteTemplate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await TemplateModel.findByIdAndDelete(id);
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+
+    res.json({ success: true, msg: "Template deleted" });
+  } catch (err) {
+    console.error("❌ Failed to delete template:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 };
