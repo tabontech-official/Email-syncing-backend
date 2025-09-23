@@ -133,34 +133,6 @@ export const verifyUser = async (req, res) => {
 };
 
 
-// async function sendTestMail() {
-//   let transporter = nodemailer.createTransport({
-//     host: "localhost",  
-//     port: 2525,        
-//     secure: false,       
-//     tls: { rejectUnauthorized: false }
-//   });
-
-//   try {
-//     let info = await transporter.sendMail({
-//       from: '2014tabontech@gmail.com',
-//       to: "68d128b109532346633099e8@brandfer.com",
-//       subject: "Shopify Partner Directory: Theme Customization",
-//       text: "We need help with SEO optimization for our Shopify store.",
-//       html: "<p>We need help with <b>SEO optimization</b> for our Shopify store.</p>"
-//     });
-
-//     console.log(" Test email sent:", info.messageId);
-//   } catch (err) {
-//     console.error("❌ Error sending test email:", err);
-//   }
-// }
-
-// sendTestMail();
-
-
-
-
 
 
 
