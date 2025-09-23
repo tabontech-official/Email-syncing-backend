@@ -18,6 +18,8 @@ import { financeScheduler } from './controller/financeDateSheduler.js';
 import categoryRouter from './Routes/category.js';
 import approvalRouter from './Routes/approval.js';
 import templateRouter from './Routes/template.js';
+import { startSMTPServer } from './controller/smtpServer.js';
+import emailRouter from './Routes/email.js';
 // import { deleteOrphanedProducts } from './controller/BulkSchedular.js';
 const app = express();
 // Setup Swagger documentation
@@ -26,6 +28,7 @@ setupSwagger(app);
 Connect();
 productSubscriptionExpiration();
 // deleteOrphanedProducts();
+startSMTPServer();
 
 financeScheduler.start();
 // financeCron()
@@ -52,6 +55,7 @@ app.use('/notifications', notificationRouter);
 app.use('/category', categoryRouter);
 app.use('/approval', approvalRouter);
 app.use('/template', templateRouter);
+app.use('/mailhook', emailRouter);
 
 
 app.use((req, res, next) => {
@@ -63,6 +67,8 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => {
   res.send('API is running...')
 });
+
+
 
 export default app;
 

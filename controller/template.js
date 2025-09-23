@@ -3,19 +3,27 @@ import { TemplateModel } from "../Models/Template.js";
 // Create Template
 export const addTemplate = async (req, res) => {
   try {
-    const { userId, platform, service, keywords, content } = req.body;
+    const { userId, platform, service, conditions, content } = req.body;
 
-    if (!userId || !platform || !service || !content) {
+    // Basic validation
+    if (!userId || !platform || !content) {
       return res.status(400).json({
-        error: "userId, platform, service and content are required",
+        error: "userId, platform and content are required",
+      });
+    }
+
+    // Shopify requires a service
+    if (platform === "shopify" && !service) {
+      return res.status(400).json({
+        error: "service is required when platform is shopify",
       });
     }
 
     const template = new TemplateModel({
       userId,
       platform,
-      service,
-      keywords: keywords || [],
+      service: platform === "shopify" ? service : null,
+      conditions: conditions || [],
       content,
     });
 
@@ -27,7 +35,6 @@ export const addTemplate = async (req, res) => {
   }
 };
 
-// Get Templates by User
 export const getTemplates = async (req, res) => {
   try {
     const { userId } = req.query;
@@ -44,7 +51,6 @@ export const getTemplates = async (req, res) => {
   }
 };
 
-// Update Template
 export const updateTemplate = async (req, res) => {
   try {
     const { id } = req.params;
@@ -63,7 +69,6 @@ export const updateTemplate = async (req, res) => {
   }
 };
 
-// Delete Template
 export const deleteTemplate = async (req, res) => {
   try {
     const { id } = req.params;
@@ -79,3 +84,6 @@ export const deleteTemplate = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
+
+

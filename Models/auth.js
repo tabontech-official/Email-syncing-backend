@@ -17,20 +17,15 @@ const authSchema = new mongoose.Schema(
       type: String,
       minlength: [6, 'Password must be at least 6 characters long'],
     },
-    roe: {
+    role: {
       type: String,
       enum: ['user', 'admin'],
       default: 'user',
     },
-    googleId: { type: String, unique: true },
-    tokens: {
-      access_token: { type: String },
-      refresh_token: { type: String },
-      scope: { type: String },
-      token_type: { type: String },
-      expiry_date: { type: Number },
-    },
-    selectedPlatform: { type: String, enum: ['shopify', 'other'] }, // Store the platform only
+    selectedPlatform: { type: String, enum: ['shopify', 'other'] },
+    mailhook: { type: String },
+    isVerified: { type: Boolean, default: false }
+
   },
   {
     timestamps: true,
