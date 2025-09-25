@@ -1,11 +1,21 @@
 import mongoose from "mongoose";
 
+const ConditionSchema = new mongoose.Schema(
+  {
+    field: { type: String, required: true },
+    operator: { type: String, required: true },
+    value: { type: String, required: true },
+    join: { type: String, enum: ["AND", "OR", null], default: null },
+  },
+  { _id: false } // 👈 prevents automatic _id for each condition
+);
+
 const ModuleSchema = new mongoose.Schema({
   id: { type: String, required: true },
   app: {
     name: String,
     color: String,
-    icon: String, 
+    icon: String,
   },
   type: String,
   description: String,
@@ -17,7 +27,7 @@ const ModuleSchema = new mongoose.Schema({
 
   filter: {
     label: String,
-    conditions: [String],
+    conditions: [ConditionSchema], // 👈 FIXED
     template: String,
   },
 });
@@ -29,7 +39,7 @@ const BranchSchema = new mongoose.Schema({
   modules: [ModuleSchema],
   filter: {
     label: String,
-    conditions: [String],
+    conditions: [ConditionSchema], // 👈 FIXED
     template: String,
   },
 });
@@ -37,11 +47,11 @@ const BranchSchema = new mongoose.Schema({
 const ScenarioSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    name: { type: String, required: true },
+    name: { type: String },
     description: String,
     type: {
       type: String,
-      enum: ["other", "shopify"], // 👈 only two values allowed
+      enum: ["other", "shopify"], // 👈 still fine
       default: "other",
     },
     routerBranches: [BranchSchema],

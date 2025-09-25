@@ -4,7 +4,10 @@ import { simpleParser } from 'mailparser';
 import { authModel } from '../Models/auth.js';
 import { EmailModel } from '../Models/Email.js';
 import { TemplateModel } from '../Models/Template.js';
+import { google } from 'googleapis';
+import { ConnectionModel } from '../Models/Connection.js';
 import multer from 'multer';
+import { scenarioModel } from '../Models/Scenario.js';
 
 function checkCondition(condition, email) {
   console.log('🔎 Checking condition:', condition, 'against email:', email);
@@ -217,14 +220,21 @@ function parseKeyValuePairs(text = '') {
 }
 
 // ---------------- Webhook ----------------
+
+
 export const mailHookWebhook = async (req, res) => {
   try {
+    console.log("========== 📩 Incoming Webhook ==========");
+    console.log("🔎 Raw body:", JSON.stringify(req.body, null, 2));
+
     const rawEmail = req.body.email || null;
     let parsed = {};
 
     if (rawEmail) {
+      console.log("📨 Parsing raw email via simpleParser...");
       parsed = await simpleParser(rawEmail);
     } else {
+      console.log("📨 Using structured body...");
       parsed = {
         from: { value: [{ address: req.body.from, name: req.body.from }] },
         to: { value: [{ address: req.body.to, name: req.body.to }] },
@@ -235,32 +245,54 @@ export const mailHookWebhook = async (req, res) => {
     }
 
     // ---------------- Sender ----------------
-    const senderAddress = parsed.from?.value?.[0]?.address || '';
-    const senderName = parsed.from?.value?.[0]?.name || '';
+    const senderAddress = parsed.from?.value?.[0]?.address || "";
+    const senderName = parsed.from?.value?.[0]?.name || "";
     const { firstName: senderFirstName, lastName: senderLastName } =
       splitName(senderName);
 
     // ---------------- Recipient / Mailhook ----------------
-    const headerRecipient = parsed.to?.value?.[0]?.address || '';
+    const headerRecipient = parsed.to?.value?.[0]?.address || "";
     let mailhookAddress =
-      req.body.envelope?.to || req.body.to || headerRecipient;
+      req.body.envelope?.to ||
+      (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
+      headerRecipient;
 
-    if (mailhookAddress.includes('<')) {
-      mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
+    console.log("📬 Raw Recipients:", req.body.to);
+    console.log("📬 Envelope To:", req.body.envelope?.to);
+    console.log("📬 Header Recipient:", headerRecipient);
+    console.log("📬 Initial mailhookAddress:", mailhookAddress);
+
+    // Agar array hai → brandfer domain wala prefer karo
+    if (Array.isArray(req.body.to)) {
+      const brandferAddress = req.body.to.find((a) =>
+        a.includes("@mail.brandfer.com")
+      );
+      if (brandferAddress) {
+        console.log("✅ Picked brandfer address:", brandferAddress);
+        mailhookAddress = brandferAddress;
+      }
     }
+
+    // Clean up <...>
+    if (mailhookAddress.includes("<")) {
+      mailhookAddress = mailhookAddress.split("<")[1].replace(">", "").trim();
+    }
+
+    mailhookAddress = mailhookAddress.trim().toLowerCase();
+    console.log("🎯 Final mailhookAddress:", mailhookAddress);
 
     const { firstName: recipientFirstName, lastName: recipientLastName } =
       splitName(mailhookAddress);
 
     // ---------------- Other Fields ----------------
-    const subject = parsed.subject || '';
-    const textBody = parsed.text || '';
-    const htmlBody = parsed.html || '';
+    const subject = parsed.subject || "";
+    const textBody = parsed.text || "";
+    const htmlBody = parsed.html || "";
     const cc = parsed.cc?.value?.map((c) => c.address) || [];
     const bcc = parsed.bcc?.value?.map((b) => b.address) || [];
     const date = parsed.date || new Date();
-    const messageId = parsed.messageId || '';
-    const inReplyTo = parsed.inReplyTo || '';
+    const messageId = parsed.messageId || "";
+    const inReplyTo = parsed.inReplyTo || "";
     const references = parsed.references || [];
     const attachments =
       parsed.attachments?.map((a) => ({
@@ -272,7 +304,7 @@ export const mailHookWebhook = async (req, res) => {
     // ---------------- Gmail Forwarding Verification ----------------
     let verificationCode = null;
     let verificationUrl = null;
-    if (subject.includes('Gmail Forwarding Confirmation')) {
+    if (subject.includes("Gmail Forwarding Confirmation")) {
       const codeMatch = textBody.match(/Confirmation code:\s*(\d+)/i);
       if (codeMatch) verificationCode = codeMatch[1];
       const urlMatch = textBody.match(
@@ -284,7 +316,7 @@ export const mailHookWebhook = async (req, res) => {
     // ---------------- Extra Fields from Text ----------------
     const extraFields = parseKeyValuePairs(textBody);
 
-    console.log('📩 Full Parsed Email:', {
+    console.log("📦 Final Parsed Email Object:", {
       senderFirstName,
       senderLastName,
       senderAddress,
@@ -298,15 +330,16 @@ export const mailHookWebhook = async (req, res) => {
       verificationUrl,
       extraFields,
       textBody,
-      htmlBody, // now should show parsed values
+      htmlBody,
     });
 
     // ---------------- Find User by Mailhook ----------------
     const user = await authModel.findOne({ mailhook: mailhookAddress });
     if (!user) {
-      console.warn('⚠️ No user found for mailhook:', mailhookAddress);
-      return res.status(200).send('No matching user found');
+      console.warn("⚠️ No user found for mailhook:", mailhookAddress);
+      return res.status(200).send("No matching user found");
     }
+    console.log("👤 User found:", user._id.toString(), user.email);
 
     // ---------------- Template Matching ----------------
     const templates = await TemplateModel.find({
@@ -324,6 +357,7 @@ export const mailHookWebhook = async (req, res) => {
         break;
       }
     }
+    console.log("📝 Matched Template:", matchedTemplate?._id || "None");
 
     // ---------------- Save to DB ----------------
     const emailDoc = new EmailModel({
@@ -347,15 +381,186 @@ export const mailHookWebhook = async (req, res) => {
       attachments,
       verificationCode,
       verificationUrl,
-      extraFields, // ✅ store parsed fields
+      extraFields,
     });
 
     await emailDoc.save();
     console.log(`💾 Email saved with ID: ${emailDoc._id}`);
 
-    res.status(200).send('Email processed and saved');
+    // ---------------- Run Scenarios ----------------
+    console.log("🚀 Executing scenarios...");
+    await executeScenarios({
+      userId: user._id,
+      from: senderAddress, // customer email
+      subject,
+      body: textBody || htmlBody || "",
+    });
+    console.log("✅ Scenarios executed for:", senderAddress);
+
+    res.status(200).send("Email processed and saved");
   } catch (err) {
-    console.error('❌ Error in mailHookWebhook:', err);
-    res.status(500).send('Error processing email');
+    console.error("❌ Error in mailHookWebhook:", err);
+    res.status(500).send("Error processing email");
   }
 };
+
+export const executeScenarios = async (emailData) => {
+  try {
+    console.log("========== 🚀 Executing Scenarios ==========");
+    console.log("📩 Incoming emailData:", emailData);
+
+    const { userId, from, subject, body } = emailData;
+
+    // 1. User ke scenarios fetch karo
+    console.log("🔍 Fetching scenarios for user:", userId);
+    const scenarios = await scenarioModel.find({ userId });
+    console.log(`📦 Found ${scenarios.length} scenarios for user ${userId}`);
+
+    for (const scenario of scenarios) {
+      console.log("👉 Checking scenario:", scenario._id, scenario.name);
+
+      for (const branch of scenario.routerBranches) {
+        console.log("   🔎 Checking branch:", branch.id);
+
+        if (!branch.filter || !branch.filter.conditions) {
+          console.log("   ⚠️ No filter conditions found, skipping branch.");
+          continue;
+        }
+
+        console.log(
+          "   📜 Branch filter conditions:",
+          JSON.stringify(branch.filter.conditions, null, 2)
+        );
+
+        // 2. Condition match karo
+        const matches = branch.filter.conditions.every((cond) => {
+          console.log(
+            `      ➡️ Checking condition: Field=${cond.field}, Operator=${cond.operator}, Value=${cond.value}`
+          );
+
+          const fieldValue =
+            cond.field === "Body"
+              ? (body || "").toLowerCase()
+              : cond.field === "Subject"
+              ? (subject || "").toLowerCase()
+              : "";
+
+          const condValue = (cond.value || "").toLowerCase();
+
+          if (cond.field === "Body" && cond.operator === "Contains") {
+            const result = fieldValue.includes(condValue);
+            console.log(
+              `      📖 Body="${body}" | Contains "${cond.value}" → ${result}`
+            );
+            return result;
+          }
+
+          if (cond.field === "Subject" && cond.operator === "Contains") {
+            const result = fieldValue.includes(condValue);
+            console.log(
+              `      📖 Subject="${subject}" | Contains "${cond.value}" → ${result}`
+            );
+            return result;
+          }
+
+          if (cond.field === "Subject" && cond.operator === "Equal to") {
+            const result = fieldValue === condValue;
+            console.log(
+              `      📖 Subject="${subject}" | Equal to "${cond.value}" → ${result}`
+            );
+            return result;
+          }
+
+          if (cond.field === "Body" && cond.operator === "Equal to") {
+            const result = fieldValue === condValue;
+            console.log(
+              `      📖 Body="${body}" | Equal to "${cond.value}" → ${result}`
+            );
+            return result;
+          }
+
+          console.log("      ❌ Unsupported condition, skipping:", cond);
+          return false;
+        });
+
+        if (matches) {
+          console.log("   ✅ Condition matched for branch:", branch.id);
+
+          for (const module of branch.modules) {
+            console.log("      ⚙️ Executing module:", module.id, module.type);
+
+            if (module.type === "Send an Email") {
+              // 3. Connection find karo
+              console.log("      🔍 Finding connection:", module.connectionId);
+              const connection = await ConnectionModel.findById(
+                module.connectionId
+              );
+
+              if (!connection) {
+                console.error(
+                  "      ❌ Connection not found:",
+                  module.connectionId
+                );
+                continue;
+              }
+              console.log("      ✅ Connection found:", connection.email);
+
+              // 4. Gmail API client banao
+              console.log("      🔑 Setting up Gmail OAuth client...");
+              const oauth2Client = new google.auth.OAuth2(
+                process.env.GOOGLE_CLIENT_ID,
+                process.env.GOOGLE_CLIENT_SECRET,
+                process.env.GOOGLE_REDIRECT_URI
+              );
+              oauth2Client.setCredentials(connection.tokens);
+
+              const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+              // 5. Raw email bana ke bhejo
+              console.log("      ✉️ Preparing raw email...");
+              const rawMessage = [
+                `From: ${connection.email}`,
+                `To: ${from}`, // 👈 customer ka address
+                `Subject: Re: ${subject}`,
+                "Content-Type: text/html; charset=UTF-8",
+                "",
+                module.template || "Thanks for your email!",
+              ]
+                .join("\n")
+                .trim();
+
+              console.log("      📝 Raw email:\n", rawMessage);
+
+              const encodedMessage = Buffer.from(rawMessage)
+                .toString("base64")
+                .replace(/\+/g, "-")
+                .replace(/\//g, "_")
+                .replace(/=+$/, "");
+
+              console.log("      🔐 Encoded message ready");
+
+              await gmail.users.messages.send({
+                userId: "me",
+                requestBody: { raw: encodedMessage },
+              });
+
+              console.log(
+                `      📤 Auto-response sent to ${from} via ${connection.email}`
+              );
+            } else {
+              console.log("      ⚠️ Unsupported module type:", module.type);
+            }
+          }
+        } else {
+          console.log("   ⏭️ Condition not matched for branch:", branch.id);
+        }
+      }
+    }
+
+    console.log("✅ All scenarios executed.");
+  } catch (err) {
+    console.error("❌ Error in executeScenarios:", err);
+  }
+};
+
+

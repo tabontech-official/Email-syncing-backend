@@ -216,246 +216,155 @@ export const verifyUser = async (req, res) => {
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-// // const CLIENT_ID = "1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com";
-// // const CLIENT_SECRET = "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";
-// // const REDIRECT_URI = "http://localhost:5000/auth/google/callback";
-// console.log('CLIENT_ID', CLIENT_ID);
-// console.log('CLIENT_SECRET', CLIENT_SECRET);
-// console.log('REDIRECT_URI', REDIRECT_URI);
+const CLIENT_ID = "1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com";
+const CLIENT_SECRET = "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";
+const REDIRECT_URI = "http://localhost:5000/auth/google/callback";
+console.log('CLIENT_ID', CLIENT_ID);
+console.log('CLIENT_SECRET', CLIENT_SECRET);
+console.log('REDIRECT_URI', REDIRECT_URI);
 
-// const oauth2Client = new google.auth.OAuth2(
-//   CLIENT_ID,
-//   CLIENT_SECRET,
-//   REDIRECT_URI
-// );
+const oauth2Client = new google.auth.OAuth2(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI
+);
 
-// // const SCOPES = [
-// //   'https://www.googleapis.com/auth/gmail.addons.current.action.compose',
-// //   'https://www.googleapis.com/auth/gmail.addons.current.message.action',
-// //   // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
-// //   'https://www.googleapis.com/auth/gmail.addons.current.message.readonly',
-// //   'https://www.googleapis.com/auth/gmail.labels',
-// //   'https://www.googleapis.com/auth/gmail.send',
-// //   'https://www.googleapis.com/auth/gmail.readonly',
-// //   'https://www.googleapis.com/auth/gmail.compose',
-// //   'https://www.googleapis.com/auth/gmail.insert',
-// //   'https://www.googleapis.com/auth/gmail.modify',
-// //   'https://www.googleapis.com/auth/gmail.metadata',
-// //   'https://www.googleapis.com/auth/gmail.settings.basic',
-// //   'https://www.googleapis.com/auth/gmail.settings.sharing',
-// // 'https://mail.google.com/' ,
-// //   'https://www.googleapis.com/auth/userinfo.email',
-// //   'https://www.googleapis.com/auth/userinfo.profile'
-// // ];
 
-// const SCOPES = [
-//   'https://www.googleapis.com/auth/gmail.readonly', 
-//   'https://www.googleapis.com/auth/gmail.modify',
-//   'https://www.googleapis.com/auth/gmail.send', 
-//   'https://www.googleapis.com/auth/userinfo.email', 
-//   'https://www.googleapis.com/auth/userinfo.profile',
-//   'https://mail.google.com/',
-// ];
+const SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly', 
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.send', 
+  'https://www.googleapis.com/auth/userinfo.email', 
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://mail.google.com/',
+];
 
-// export const googleAuth = (req, res) => {
-//   const { userId } = req.query; // frontend must send ?userId=xxxx
+export const googleAuth = (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).send("userId is required");
 
-//   if (!userId) {
-//     return res.status(400).send("userId is required");
-//   }
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: SCOPES,
+    prompt: "consent",
+    state: JSON.stringify({ userId }),
+  });
 
-//   const authUrl = oauth2Client.generateAuthUrl({
-//     access_type: "offline",
-//     scope: SCOPES,
-//     prompt: "consent", 
-//     state: JSON.stringify({ userId }), 
-//   });
+  res.redirect(authUrl);
+};
 
-//   console.log("Generated Google OAuth URL:", authUrl);
+export const googleAuthCallback = async (req, res) => {
+  const { code, state } = req.query;
 
-//   res.redirect(authUrl);
-// };
-// // export const googleAuthCallback = async (req, res) => {
-// //   const { code, state } = req.query; 
+  let userId;
+  try {
+    const parsedState = JSON.parse(state);
+    userId = parsedState.userId;
+  } catch (err) {
+    return res.status(400).send("Invalid state parameter");
+  }
 
-// //   let userId;
-// //   try {
-// //     const parsedState = JSON.parse(state);
-// //     userId = parsedState.userId;
-// //   } catch (err) {
-// //     console.error("❌ Failed to parse state:", err);
-// //     return res.status(400).send("Invalid state parameter");
-// //   }
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      CLIENT_ID,
+      CLIENT_SECRET,
+      REDIRECT_URI
+    );
 
-// //   try {
-// //     // Exchange code for tokens
-// //     const { tokens } = await oauth2Client.getToken(code);
-// //     oauth2Client.setCredentials(tokens);
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
 
-// //     // Get Google profile
-// //     const peopleApi = google.people({ version: "v1", auth: oauth2Client });
-// //     const response = await peopleApi.people.get({
-// //       resourceName: "people/me",
-// //       personFields: "emailAddresses,names",
-// //     });
+    if (!tokens.refresh_token) {
+      return res.redirect("http://localhost:3006/connection?status=no_refresh_token");
+    }
 
-// //     const userEmail = response.data.emailAddresses?.[0]?.value;
-// //     const userName = response.data.names?.[0]?.displayName || "";
+    const peopleApi = google.people({ version: "v1", auth: oauth2Client });
+    const response = await peopleApi.people.get({
+      resourceName: "people/me",
+      personFields: "emailAddresses,names",
+    });
 
-// //     if (!userEmail) {
-// //       return res.status(400).send("No email found in Google profile");
-// //     }
+    const userEmail = response.data.emailAddresses?.[0]?.value;
+    const userName = response.data.names?.[0]?.displayName || "";
 
-// //     // Find or create connection
-// //     let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+    if (!userEmail) return res.status(400).send("No email found in Google profile");
 
-// //     if (!connection) {
-// //       connection = new ConnectionModel({
-// //         userId,
-// //         provider: "gmail",
-// //         email: userEmail,
-// //         name: userName,
-// //         tokens,
-// //       });
-// //     } else {
-// //       connection.tokens = tokens;
-// //       connection.status = "active";
-// //     }
+    let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+    if (!connection) {
+      connection = new ConnectionModel({
+        userId,
+        provider: "gmail",
+        email: userEmail,
+        name: userName,
+        tokens,
+        status: "active",
+        createdAt: new Date(),
+      });
+    } else {
+      connection.tokens = tokens;
+      connection.status = "active";
+      connection.lastConnected = new Date();
+    }
 
-// //     await connection.save();
+    await connection.save();
+    console.log("✅ Gmail connected:", userEmail);
 
-// //     await startWatch(tokens);
-
-// //     return res.redirect("http://localhost:3006/connection");
-// //   } catch (error) {
-// //     console.error("❌ Error during Google auth callback:", error);
-// //     return res.redirect("http://localhost:3006/connection?status=error");
-// //   }
-// // };
+return res.redirect(
+  `http://localhost:3006/scenarios/others?status=success&connectionId=${connection._id}`
+);
+  } catch (error) {
+    console.error("❌ Error during Google auth callback:", error);
+    return res.redirect("http://localhost:3006/connection?status=error");
+  }
+};
 
 
 
-// // export const EmailWebhook = async (req, res) => {
-// //   console.log(
-// //     '➡️ [EmailWebhook] Incoming Request Body:',
-// //     JSON.stringify(req.body, null, 2)
-// //   );
 
-// //   try {
-// //     const message = req.body.message;
-// //     console.log('📩 [Step 1] Extracted message:', message);
 
-// //     if (!message || !message.data) {
-// //       console.warn('⚠️ [Step 1] No Pub/Sub message or data field found.');
-// //       return res.status(400).send('No Pub/Sub message');
-// //     }
+export const getAuthorizedClient = async (connection) => {
+  const oAuth2Client = new google.auth.OAuth2(
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REDIRECT_URI
+  );
 
-// //     const decoded = Buffer.from(message.data, 'base64').toString('utf-8');
-// //     console.log('📦 [Step 2] Decoded Base64 Data:', decoded);
+  oAuth2Client.setCredentials({
+    refresh_token: connection.tokens.refresh_token,
+  });
 
-// //     let data;
-// //     try {
-// //       data = JSON.parse(decoded);
-// //       console.log('🔔 [Step 2] Parsed Pub/Sub Data:', data);
-// //     } catch (parseErr) {
-// //       console.error('❌ [Step 2] Failed to parse Pub/Sub data:', parseErr);
-// //       return res.status(400).send('Invalid Pub/Sub message format');
-// //     }
+  await oAuth2Client.getAccessToken(); // naya token banega
+  return oAuth2Client;
+};
 
-// //     console.log('🔎 [Step 3] Looking up user for email:', data.emailAddress);
-// //     const user = await authModel.findOne({ email: data.emailAddress });
+export const sendEmail = async (connection, to, subject, body) => {
+  const client = await getAuthorizedClient(connection);
+  const gmail = google.gmail({ version: "v1", auth: client });
 
-// //     if (!user) {
-// //       console.warn('⚠️ [Step 3] No user found for email:', data.emailAddress);
-// //       return res.status(200).send();
-// //     }
-// //     console.log('✅ [Step 3] User found:', user.email);
+  const message = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    body,
+  ].join("\n");
 
-// //     console.log('🔐 [Step 4] Creating OAuth2 client...');
-// //     const oauth2Client = new google.auth.OAuth2(
-// //       CLIENT_ID,
-// //       CLIENT_SECRET,
-// //       REDIRECT_URI
-// //     );
-// //     oauth2Client.setCredentials(user.tokens);
-// //     console.log('🔑 [Step 4] OAuth2 credentials set.');
+  const encodedMessage = Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 
-// //     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-// //     console.log('📮 [Step 4] Gmail client initialized.');
+  const res = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw: encodedMessage },
+  });
 
-// //     console.log(
-// //       '📡 [Step 5] Fetching Gmail history for historyId:',
-// //       data.historyId
-// //     );
+  console.log("✅ Email sent:", res.data.id);
+  return res.data;
+};
 
-// //     let history;
-// //     try {
-// //       history = await gmail.users.history.list({
-// //         userId: 'me',
-// //         startHistoryId: data.historyId,
-// //         historyTypes: ['messageAdded', 'labelAdded', 'labelRemoved'], 
-// //       });
-// //     } catch (err) {
-// //       console.error('❌ [Step 5] Failed to fetch Gmail history:', err.message);
-// //       return res.status(200).send();
-// //     }
 
-// //     console.log('📨 [Step 5] Gmail History API Response:', history.data);
-
-// //     if (history.data.historyId) {
-// //       await authModel.updateOne(
-// //         { email: user.email },
-// //         { $set: { lastHistoryId: history.data.historyId } }
-// //       );
-// //       console.log(
-// //         "💾 [Step 5] Updated user's lastHistoryId:",
-// //         history.data.historyId
-// //       );
-// //     }
-
-// //     if (!history.data.history) {
-// //       console.log(
-// //         'ℹ️ [Step 5] No history records found → fallback to listing latest emails.'
-// //       );
-
-// //       const list = await gmail.users.messages.list({
-// //         userId: 'me',
-// //         maxResults: 5,
-// //       });
-
-// //       if (list.data.messages) {
-// //         for (const msg of list.data.messages) {
-// //           await processMessage(gmail, msg.id, user);
-// //         }
-// //       }
-
-// //       return res.status(200).send();
-// //     }
-
-// //     // Step 6: Loop through records
-// //     for (const record of history.data.history) {
-// //       console.log(
-// //         '🔎 [Step 6] Processing record:',
-// //         JSON.stringify(record, null, 2)
-// //       );
-
-// //       if (!record.messagesAdded) {
-// //         console.warn('⚠️ [Step 6] Record has no messagesAdded.');
-// //         continue;
-// //       }
-
-// //       for (const added of record.messagesAdded) {
-// //         await processMessage(gmail, added.message.id, user);
-// //       }
-// //     }
-
-// //     console.log('🏁 [Step 9] Webhook processing complete.');
-// //     res.status(200).send();
-// //   } catch (err) {
-// //     console.error('❌ [Global Catch] Webhook Error:', err);
-// //     res.status(500).send('Server error');
-// //   }
-// // };
 
 // export const validateConnection = async (connectionId) => {
 //   try {
@@ -492,82 +401,26 @@ export const verifyUser = async (req, res) => {
 //     return false;
 //   }
 // };
-// export const googleAuthCallback = async (req, res) => {
-//   const { code, state } = req.query; 
 
-//   let userId;
-//   try {
-//     const parsedState = JSON.parse(state);
-//     userId = parsedState.userId;
-//   } catch (err) {
-//     console.error("❌ Failed to parse state:", err);
-//     return res.status(400).send("Invalid state parameter");
-//   }
+// const SCOPES = [
+//   'https://www.googleapis.com/auth/gmail.addons.current.action.compose',
+//   'https://www.googleapis.com/auth/gmail.addons.current.message.action',
+//   // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
+//   'https://www.googleapis.com/auth/gmail.addons.current.message.readonly',
+//   'https://www.googleapis.com/auth/gmail.labels',
+//   'https://www.googleapis.com/auth/gmail.send',
+//   'https://www.googleapis.com/auth/gmail.readonly',
+//   'https://www.googleapis.com/auth/gmail.compose',
+//   'https://www.googleapis.com/auth/gmail.insert',
+//   'https://www.googleapis.com/auth/gmail.modify',
+//   'https://www.googleapis.com/auth/gmail.metadata',
+//   'https://www.googleapis.com/auth/gmail.settings.basic',
+//   'https://www.googleapis.com/auth/gmail.settings.sharing',
+// 'https://mail.google.com/' ,
+//   'https://www.googleapis.com/auth/userinfo.email',
+//   'https://www.googleapis.com/auth/userinfo.profile'
+// ];
 
-//   try {
-//     // IMPORTANT: Create OAuth2 client with proper configuration
-//     const oauth2Client = new google.auth.OAuth2(
-//       CLIENT_ID,
-//       CLIENT_SECRET,
-//       REDIRECT_URI
-//     );
-
-//     // Exchange code for tokens
-//     const { tokens } = await oauth2Client.getToken(code);
-    
-//     // Ensure we have a refresh token
-//     if (!tokens.refresh_token) {
-//       console.error("❌ No refresh token received. User needs to re-authenticate with prompt=consent");
-//       return res.redirect("http://localhost:3006/connection?status=no_refresh_token");
-//     }
-
-//     oauth2Client.setCredentials(tokens);
-
-//     // Get Google profile
-//     const peopleApi = google.people({ version: "v1", auth: oauth2Client });
-//     const response = await peopleApi.people.get({
-//       resourceName: "people/me",
-//       personFields: "emailAddresses,names",
-//     });
-
-//     const userEmail = response.data.emailAddresses?.[0]?.value;
-//     const userName = response.data.names?.[0]?.displayName || "";
-
-//     if (!userEmail) {
-//       return res.status(400).send("No email found in Google profile");
-//     }
-
-//     // Find or create connection
-//     let connection = await ConnectionModel.findOne({ userId, email: userEmail });
-
-//     if (!connection) {
-//       connection = new ConnectionModel({
-//         userId,
-//         provider: "gmail",
-//         email: userEmail,
-//         name: userName,
-//         tokens,
-//         status: "active",
-//         createdAt: new Date(),
-//       });
-//     } else {
-//       connection.tokens = tokens;
-//       connection.status = "active";
-//       connection.lastConnected = new Date();
-//     }
-
-//     await connection.save();
-//     console.log("✅ Connection saved with refresh token");
-
-//     // Start Gmail watch
-//     await startWatch(tokens);
-
-//     return res.redirect("http://localhost:3006/connection?status=success");
-//   } catch (error) {
-//     console.error("❌ Error during Google auth callback:", error);
-//     return res.redirect("http://localhost:3006/connection?status=error");
-//   }
-// };
 
 // export const EmailWebhook = async (req, res) => {
 //   console.log(
@@ -735,83 +588,83 @@ export const verifyUser = async (req, res) => {
 //   ).toString('utf8');
 // };
 
-// // export const processMessage = async (gmail, msgId, user) => {
-// //   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
+// export const processMessage = async (gmail, msgId, user) => {
+//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
 
-// //   let fullMessage;
-// //   try {
-// //     fullMessage = await gmail.users.messages.get({
-// //       userId: 'me',
-// //       id: msgId,
-// //       format: 'full', 
-// //     });
-// //   } catch (err) {
-// //     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
-// //     return;
-// //   }
+//   let fullMessage;
+//   try {
+//     fullMessage = await gmail.users.messages.get({
+//       userId: 'me',
+//       id: msgId,
+//       format: 'full', 
+//     });
+//   } catch (err) {
+//     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
+//     return;
+//   }
 
-// //   const headers = fullMessage.data.payload.headers || [];
-// //   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-// //   const from = headers.find((h) => h.name === 'From')?.value || '';
-// //   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
-// //   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
-// //   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
-// //   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
-// //   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
-// //   const snippet = fullMessage.data.snippet || '';
+//   const headers = fullMessage.data.payload.headers || [];
+//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+//   const from = headers.find((h) => h.name === 'From')?.value || '';
+//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
+//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
+//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
+//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
+//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
+//   const snippet = fullMessage.data.snippet || '';
 
-// //   let body = '';
+//   let body = '';
 
-// //   const getBody = (parts) => {
-// //     if (!parts) return;
-// //     for (const part of parts) {
-// //       if (part.mimeType === 'text/plain' && part.body?.data) {
-// //         body += decodeBase64(part.body.data) + '\n';
-// //       }
-// //       if (part.mimeType === 'text/html' && part.body?.data) {
-// //         body += decodeBase64(part.body.data) + '\n';
-// //       }
-// //       if (part.parts) {
-// //         getBody(part.parts);
-// //       }
-// //     }
-// //   };
+//   const getBody = (parts) => {
+//     if (!parts) return;
+//     for (const part of parts) {
+//       if (part.mimeType === 'text/plain' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.mimeType === 'text/html' && part.body?.data) {
+//         body += decodeBase64(part.body.data) + '\n';
+//       }
+//       if (part.parts) {
+//         getBody(part.parts);
+//       }
+//     }
+//   };
 
-// //   if (fullMessage.data.payload?.parts) {
-// //     getBody(fullMessage.data.payload.parts);
-// //   } else if (fullMessage.data.payload?.body?.data) {
-// //     body = decodeBase64(fullMessage.data.payload.body.data);
-// //   }
+//   if (fullMessage.data.payload?.parts) {
+//     getBody(fullMessage.data.payload.parts);
+//   } else if (fullMessage.data.payload?.body?.data) {
+//     body = decodeBase64(fullMessage.data.payload.body.data);
+//   }
 
-// //   console.log(' [ProcessMessage] Subject:', subject);
+//   console.log(' [ProcessMessage] Subject:', subject);
 
-// //   if (!subject.toLowerCase().includes('shopify expert directory')) {
-// //     console.log(' [ProcessMessage] Subject does not match filter, skipping.');
-// //     return;
-// //   }
+//   if (!subject.toLowerCase().includes('shopify expert directory')) {
+//     console.log(' [ProcessMessage] Subject does not match filter, skipping.');
+//     return;
+//   }
 
-// //   try {
-// //     const saved = await EmailModel.create({
-// //       userId: user._id,
-// //       subject,
-// //       from,
-// //       to,
-// //       cc,
-// //       bcc,
-// //       body,
-// //       snippet,
-// //       dateReceived,
-// //       threadId: fullMessage.data.threadId,
-// //       messageId: msgId,
-// //     });
-// //     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
-// //   } catch (dbErr) {
-// //     console.error(
-// //       ' [ProcessMessage] Failed to save email to DB:',
-// //       dbErr.message
-// //     );
-// //   }
-// // };
+//   try {
+//     const saved = await EmailModel.create({
+//       userId: user._id,
+//       subject,
+//       from,
+//       to,
+//       cc,
+//       bcc,
+//       body,
+//       snippet,
+//       dateReceived,
+//       threadId: fullMessage.data.threadId,
+//       messageId: msgId,
+//     });
+//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
+//   } catch (dbErr) {
+//     console.error(
+//       ' [ProcessMessage] Failed to save email to DB:',
+//       dbErr.message
+//     );
+//   }
+// };
 
 
 // const processMessage = async (gmail, msgId, connection) => {
