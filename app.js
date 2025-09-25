@@ -20,6 +20,7 @@ import approvalRouter from './Routes/approval.js';
 import templateRouter from './Routes/template.js';
 import { startSMTPServer } from './controller/smtpServer.js';
 import emailRouter from './Routes/email.js';
+import scenarioRouter from './Routes/Scenario.js';
 // import { deleteOrphanedProducts } from './controller/BulkSchedular.js';
 const app = express();
 // Setup Swagger documentation
@@ -56,6 +57,7 @@ app.use('/category', categoryRouter);
 app.use('/approval', approvalRouter);
 app.use('/template', templateRouter);
 app.use('/mailhook', emailRouter);
+app.use('/scenario', scenarioRouter);
 
 
 app.use((req, res, next) => {
