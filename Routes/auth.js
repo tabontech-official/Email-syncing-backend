@@ -1,5 +1,5 @@
 import express from 'express';
-import { getConnections, getUserById, googleAuth, googleAuthCallback, signIn, signUp, verifyUser } from '../controller/auth.js';
+import { addSmtpConnection, getConnections, getUserById, googleAuth, googleAuthCallback, signIn, signUp, verifyUser } from '../controller/auth.js';
 
 const authRouter = express.Router();
 
@@ -8,7 +8,7 @@ authRouter.post('/signIn', signIn);
 authRouter.post('/signUp', signUp);
 authRouter.get('/getUsers/:id', getUserById);
 authRouter.patch('/verify/:id', verifyUser);
-
+authRouter.post('/saveSmtpConnection',addSmtpConnection)
 
 authRouter.get('/google', googleAuth);
 

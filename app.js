@@ -7,7 +7,7 @@ import morgan from 'morgan';
 import authRouter from './Routes/auth.js';
 import productRouter from './Routes/product.js';
 import orderRouter from './Routes/order.js';
-import Connect from './connection/connect.js'; // Import the Connect function
+import Connect from './connection/connect.js'; 
 import setupSwagger from './swaggerConfig.js';
 import { productSubscriptionExpiration } from './controller/scheduleFunction.js';
 import promoRouter from './Routes/promotion.js';
@@ -21,28 +21,19 @@ import templateRouter from './Routes/template.js';
 import { startSMTPServer } from './controller/smtpServer.js';
 import emailRouter from './Routes/email.js';
 import scenarioRouter from './Routes/Scenario.js';
-// import { deleteOrphanedProducts } from './controller/BulkSchedular.js';
+import { startDelayWorker } from './controller/delayWorker.js';
 const app = express();
-// Setup Swagger documentation
 setupSwagger(app);
-// Initialize MongoDB connection
 Connect();
-productSubscriptionExpiration();
-// deleteOrphanedProducts();
-startSMTPServer();
 
+startDelayWorker()
 financeScheduler.start();
-// financeCron()
-app.use(bodyParser.json()); // To handle JSON request bodies
+app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(morgan('combined'));
 app.use(helmet());
 app.use(compression());
 app.use(cors());
-// app.use(cors({
-//   origin: true, 
-//   credentials: true, 
-// }));
 
 app.use('/uploads', express.static('uploads'));
 app.use(express.json({limit:"5000000mb"}));
@@ -61,7 +52,7 @@ app.use('/scenario', scenarioRouter);
 
 
 app.use((req, res, next) => {
-  res.setTimeout(300000, () => {  // 300000 ms = 5 minutes
+  res.setTimeout(300000, () => {  
     res.status(504).send('Request timed out');
   });
   next();

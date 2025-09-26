@@ -385,7 +385,33 @@ export const getConnections = async (req, res) => {
   }
 };
 
+export const addSmtpConnection=async(req,res)=>{
+  try {
+    const { userId, email, username, password, host, port, name } = req.body;
 
+    if (!userId || !email || !username || !password || !host || !port) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const conn = await ConnectionModel.findOneAndUpdate(
+      { userId, email },
+      {
+        userId,
+        email,
+        name,
+        provider: "outlook", 
+        smtp: { host, port, username, password },
+        status: "active",
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, connection: conn });
+  } catch (err) {
+    console.error(" Error saving SMTP connection:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+}
 
 
 
