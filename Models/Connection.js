@@ -11,5 +11,6 @@ const connectionSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+connectionSchema.index({ userId: 1, email: 1 }, { unique: true });
 
 export const ConnectionModel = mongoose.model("Connection", connectionSchema);

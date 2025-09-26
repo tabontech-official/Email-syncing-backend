@@ -17,6 +17,9 @@ const ModuleSchema = new mongoose.Schema({
     color: String,
     icon: String,
   },
+    subject: { type: String, default: "" },  // ✅ Added subject here
+  to: { type: String, required: false }, // recipient email
+
   type: String,
   description: String,
   connectionId: String,

@@ -78,7 +78,6 @@ export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Find user
     const user = await authModel.findById(id);
 
     if (!user) {
@@ -114,7 +113,7 @@ export const verifyUser = async (req, res) => {
 
     const user = await authModel.findByIdAndUpdate(
       id,
-      { isVerified: true },   // ✅ add isVerified field
+      { isVerified: true },
       { new: true }
     );
 
@@ -253,6 +252,9 @@ export const googleAuth = (req, res) => {
   res.redirect(authUrl);
 };
 
+
+
+// Controller
 export const googleAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
@@ -271,13 +273,17 @@ export const googleAuthCallback = async (req, res) => {
       REDIRECT_URI
     );
 
+    // Exchange auth code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
     if (!tokens.refresh_token) {
-      return res.redirect("http://localhost:3006/connection?status=no_refresh_token");
+      return res.redirect(
+        "http://localhost:3006/connection?status=no_refresh_token"
+      );
     }
 
+    // Fetch Gmail user profile
     const peopleApi = google.people({ version: "v1", auth: oauth2Client });
     const response = await peopleApi.people.get({
       resourceName: "people/me",
@@ -287,9 +293,12 @@ export const googleAuthCallback = async (req, res) => {
     const userEmail = response.data.emailAddresses?.[0]?.value;
     const userName = response.data.names?.[0]?.displayName || "";
 
-    if (!userEmail) return res.status(400).send("No email found in Google profile");
+    if (!userEmail)
+      return res.status(400).send("No email found in Google profile");
 
+    // Ensure unique Gmail per userId
     let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+
     if (!connection) {
       connection = new ConnectionModel({
         userId,
@@ -309,9 +318,9 @@ export const googleAuthCallback = async (req, res) => {
     await connection.save();
     console.log("✅ Gmail connected:", userEmail);
 
-return res.redirect(
-  `http://localhost:3006/scenarios/others?status=success&connectionId=${connection._id}`
-);
+    return res.redirect(
+      `http://localhost:3006/scenarios/others?status=success&connectionId=${connection._id}`
+    );
   } catch (error) {
     console.error("❌ Error during Google auth callback:", error);
     return res.redirect("http://localhost:3006/connection?status=error");
@@ -363,6 +372,27 @@ export const sendEmail = async (connection, to, subject, body) => {
   console.log("✅ Email sent:", res.data.id);
   return res.data;
 };
+
+
+export const getConnections = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const connections = await ConnectionModel.find({ userId });
+    res.json(connections);
+  } catch (err) {
+    console.error("❌ Failed to fetch connections:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+
+
+
+
+
+
+
 
 
 
@@ -885,16 +915,7 @@ export const sendEmail = async (connection, to, subject, body) => {
 //   return res.data;
 // }
 
-// export const getConnections = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-//     const connections = await ConnectionModel.find({ userId });
-//     res.json(connections);
-//   } catch (err) {
-//     console.error("❌ Failed to fetch connections:", err.message);
-//     res.status(500).json({ error: "Server error" });
-//   }
-// };
+
 
 // export const getEmail = async (req, res) => {
 //   let tokens;

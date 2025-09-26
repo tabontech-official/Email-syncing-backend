@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserById, googleAuth, googleAuthCallback, signIn, signUp, verifyUser } from '../controller/auth.js';
+import { getConnections, getUserById, googleAuth, googleAuthCallback, signIn, signUp, verifyUser } from '../controller/auth.js';
 
 const authRouter = express.Router();
 
@@ -16,7 +16,7 @@ authRouter.get('/google/callback', googleAuthCallback);
 
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);
-// authRouter.get('/getConnection/:userId', getConnections);
+authRouter.get('/getConnection/:userId', getConnections);
 // authRouter.post('/addPlatform', savePlatformForUser);
 
 export default authRouter;
