@@ -407,30 +407,28 @@ export const mailHookWebhook = async (req, res) => {
 };
 
 
+
 export const executeScenarios = async (emailData) => {
   try {
-    console.log("========== 🚀 Executing Scenarios ==========");
-    console.log("📩 Incoming emailData:", emailData);
+    console.log("Incoming emailData:", emailData);
 
     const { userId, from, subject, body } = emailData;
 
-    // 1. User ke scenarios fetch karo
-    console.log("🔍 Fetching scenarios for user:", userId);
+    console.log("Fetching scenarios for user:", userId);
     const scenarios = await scenarioModel.find({ userId });
-    console.log(`📦 Found ${scenarios.length} scenarios for user ${userId}`);
+    console.log(`Found ${scenarios.length} scenarios for user ${userId}`);
 
     for (const scenario of scenarios) {
       console.log("👉 Checking scenario:", scenario._id, scenario.name);
 
       for (const branch of scenario.routerBranches) {
-        console.log("   🔎 Checking branch:", branch.id);
+        console.log("Checking branch:", branch.id);
 
         if (!branch.filter || !branch.filter.conditions) {
-          console.log("   ⚠️ No filter conditions found, skipping branch.");
+          console.log("No filter conditions found, skipping branch.");
           continue;
         }
 
-        // 2. Condition match karo
         const matches = branch.filter.conditions.every((cond) => {
           const fieldValue =
             cond.field === "Body"
@@ -448,34 +446,33 @@ export const executeScenarios = async (emailData) => {
         });
 
         if (!matches) {
-          console.log("   ⏭️ Condition not matched for branch:", branch.id);
+          console.log("Condition not matched for branch:", branch.id);
           continue;
         }
 
-        console.log("   ✅ Condition matched for branch:", branch.id);
+        console.log("Condition matched for branch:", branch.id);
 
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
           console.log("      ⚙️ Executing module:", module.id, module.type);
 
           if (module.type === "Delay") {
-            // 🔥 Delay ko DB me schedule karo
             const delayMs = convertToMs(module.delayValue, module.delayUnit);
 
             await DelayJobModel.create({
               userId,
               emailData,
-              modulesLeft: branch.modules.slice(i + 1), // baaki modules
+              modulesLeft: branch.modules.slice(i + 1),
               scheduledAt: new Date(Date.now() + delayMs),
             });
 
             console.log(
-              `⏳ Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
+              `Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
             );
-            break; // current branch stop, baaki cron se chalega
+            break; 
           }
 
-          if (module.type === "Send an Email") {
+          if (module.type === "Send an Email" || module.type === "Custom Email") {
             await sendEmailModule(module, from, subject);
           } else {
             console.log("      ⚠️ Unsupported module type:", module.type);
@@ -484,9 +481,9 @@ export const executeScenarios = async (emailData) => {
       }
     }
 
-    console.log("✅ All scenarios executed.");
+    console.log(" All scenarios executed.");
   } catch (err) {
-    console.error("❌ Error in executeScenarios:", err);
+    console.error(" Error in executeScenarios:", err);
   }
 };
 
@@ -498,238 +495,117 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
+
+
 export const sendEmailModule = async (module, to, originalSubject) => {
   const connection = await ConnectionModel.findById(module.connectionId);
   if (!connection) {
-    console.error("      ❌ Connection not found:", module.connectionId);
     return;
   }
 
-  // ✅ Subject priority
   const finalSubject =
     module.subject && module.subject.trim() !== ""
       ? module.subject
       : `Re: ${originalSubject || "No Subject"}`;
 
   if (connection.provider === "gmail") {
-    // ---------------- Gmail (OAuth2) ----------------
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI
-    );
-    oauth2Client.setCredentials(connection.tokens);
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI
+      );
+      oauth2Client.setCredentials(connection.tokens);
 
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-    const rawMessage = [
-      `From: ${connection.email}`,
-      `To: ${to}`,
-      `Subject: ${finalSubject}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "",
-      module.template || "Thanks for your email!",
-    ]
-      .join("\n")
-      .trim();
+      const rawMessage = [
+        `From: ${connection.email}`,
+        `To: ${to}`,
+        `Subject: ${finalSubject}`,
+        "Content-Type: text/html; charset=UTF-8",
+        "",
+        module.template || "Thanks for your email!",
+      ]
+        .join("\n")
+        .trim();
 
-    const encodedMessage = Buffer.from(rawMessage)
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
+      const encodedMessage = Buffer.from(rawMessage)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
 
-    await gmail.users.messages.send({
-      userId: "me",
-      requestBody: { raw: encodedMessage },
-    });
+      await gmail.users.messages.send({
+        userId: "me",
+        requestBody: { raw: encodedMessage },
+      });
 
-    console.log(
-      `📤 Gmail: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
-    );
-  } else if (connection.provider === "outlook" || connection.provider === "smtp") {
-    // ---------------- Outlook / Custom SMTP ----------------
-    const transporter = nodemailer.createTransport({
-      host: "smtp.office365.com",
-      port: 587,
-      secure: false, // STARTTLS
-      auth: {
-        user: connection.email,
-        pass: connection.tokens.password, // 🔑 stored when saving connection
-      },
-    });
+      console.log(
+        `📤 Gmail: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+      );
+    } catch (err) {
+      console.error("❌ Gmail send error:", err);
+    }
+  }
 
-    await transporter.sendMail({
-      from: connection.email,
-      to,
-      subject: finalSubject,
-      html: module.template || "Thanks for your email!",
-    });
+  else if (connection.provider === "outlook") {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: connection.smtp?.host || "smtp.office365.com",
+        port: connection.smtp?.port || 587,
+        secure: connection.smtp?.port === 465, 
+        auth: {
+          user: connection.smtp?.username || connection.email,
+          pass: connection.smtp?.password,
+        },
+      });
 
-    console.log(
-      `📤 Outlook/SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
-    );
-  } else {
-    console.warn("⚠️ Unsupported provider:", connection.provider);
+      await transporter.sendMail({
+        from: connection.email,
+        to,
+        subject: finalSubject,
+        html: module.template || "Thanks for your email!",
+      });
+
+      console.log(
+        `Outlook/SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+      );
+    } catch (err) {
+      console.error(" Outlook/SMTP send error:", err);
+    }
+  }
+
+  else if (connection.provider === "smtp") {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: connection.smtpHost || connection.smtp?.host,
+        port: connection.smtpPort || connection.smtp?.port || 587,
+        secure: (connection.smtpPort || connection.smtp?.port) === 465,
+        auth: {
+          user: connection.smtpUser || connection.smtp?.username || connection.email,
+          pass: connection.smtpPass || connection.smtp?.password,
+        },
+      });
+
+      await transporter.sendMail({
+        from: connection.email,
+        to,
+        subject: finalSubject,
+        html: module.template || "Thanks for your email!",
+      });
+
+      console.log(
+        `📤 SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+      );
+    } catch (err) {
+      console.error("❌ SMTP send error:", err);
+    }
+  }
+
+  else {
+    console.warn(" Unsupported provider:", connection.provider);
   }
 };
 
 
-// export const executeScenarios = async (emailData) => {
-//   try {
-//     console.log("========== 🚀 Executing Scenarios ==========");
-//     console.log("📩 Incoming emailData:", emailData);
-
-//     const { userId, from, subject, body } = emailData;
-
-//     // 1. User ke scenarios fetch karo
-//     console.log("🔍 Fetching scenarios for user:", userId);
-//     const scenarios = await scenarioModel.find({ userId });
-//     console.log(`📦 Found ${scenarios.length} scenarios for user ${userId}`);
-
-//     for (const scenario of scenarios) {
-//       console.log("👉 Checking scenario:", scenario._id, scenario.name);
-
-//       for (const branch of scenario.routerBranches) {
-//         console.log("   🔎 Checking branch:", branch.id);
-
-//         if (!branch.filter || !branch.filter.conditions) {
-//           console.log("   ⚠️ No filter conditions found, skipping branch.");
-//           continue;
-//         }
-
-//         console.log(
-//           "   📜 Branch filter conditions:",
-//           JSON.stringify(branch.filter.conditions, null, 2)
-//         );
-
-//         // 2. Condition match karo
-//         const matches = branch.filter.conditions.every((cond) => {
-//           console.log(
-//             `      ➡️ Checking condition: Field=${cond.field}, Operator=${cond.operator}, Value=${cond.value}`
-//           );
-
-//           const fieldValue =
-//             cond.field === "Body"
-//               ? (body || "").toLowerCase()
-//               : cond.field === "Subject"
-//               ? (subject || "").toLowerCase()
-//               : "";
-
-//           const condValue = (cond.value || "").toLowerCase();
-
-//           if (cond.field === "Body" && cond.operator === "Contains") {
-//             const result = fieldValue.includes(condValue);
-//             console.log(
-//               `      📖 Body="${body}" | Contains "${cond.value}" → ${result}`
-//             );
-//             return result;
-//           }
-
-//           if (cond.field === "Subject" && cond.operator === "Contains") {
-//             const result = fieldValue.includes(condValue);
-//             console.log(
-//               `      📖 Subject="${subject}" | Contains "${cond.value}" → ${result}`
-//             );
-//             return result;
-//           }
-
-//           if (cond.field === "Subject" && cond.operator === "Equal to") {
-//             const result = fieldValue === condValue;
-//             console.log(
-//               `      📖 Subject="${subject}" | Equal to "${cond.value}" → ${result}`
-//             );
-//             return result;
-//           }
-
-//           if (cond.field === "Body" && cond.operator === "Equal to") {
-//             const result = fieldValue === condValue;
-//             console.log(
-//               `      📖 Body="${body}" | Equal to "${cond.value}" → ${result}`
-//             );
-//             return result;
-//           }
-
-//           console.log("      ❌ Unsupported condition, skipping:", cond);
-//           return false;
-//         });
-
-//         if (matches) {
-//           console.log("   ✅ Condition matched for branch:", branch.id);
-
-//           for (const module of branch.modules) {
-//             console.log("      ⚙️ Executing module:", module.id, module.type);
-
-//             if (module.type === "Send an Email") {
-//               // 3. Connection find karo
-//               console.log("      🔍 Finding connection:", module.connectionId);
-//               const connection = await ConnectionModel.findById(
-//                 module.connectionId
-//               );
-
-//               if (!connection) {
-//                 console.error(
-//                   "      ❌ Connection not found:",
-//                   module.connectionId
-//                 );
-//                 continue;
-//               }
-//               console.log("      ✅ Connection found:", connection.email);
-
-//               // 4. Gmail API client banao
-//               console.log("      🔑 Setting up Gmail OAuth client...");
-//               const oauth2Client = new google.auth.OAuth2(
-//                 process.env.GOOGLE_CLIENT_ID,
-//                 process.env.GOOGLE_CLIENT_SECRET,
-//                 process.env.GOOGLE_REDIRECT_URI
-//               );
-//               oauth2Client.setCredentials(connection.tokens);
-
-//               const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-//               // 5. Raw email bana ke bhejo
-//               console.log("      ✉️ Preparing raw email...");
-//               const rawMessage = [
-//                 `From: ${connection.email}`,
-//                 `To: ${from}`, // 👈 customer ka address
-//                 `Subject: Re: ${subject}`,
-//                 "Content-Type: text/html; charset=UTF-8",
-//                 "",
-//                 module.template || "Thanks for your email!",
-//               ]
-//                 .join("\n")
-//                 .trim();
-
-//               console.log("      📝 Raw email:\n", rawMessage);
-
-//               const encodedMessage = Buffer.from(rawMessage)
-//                 .toString("base64")
-//                 .replace(/\+/g, "-")
-//                 .replace(/\//g, "_")
-//                 .replace(/=+$/, "");
-
-//               console.log("      🔐 Encoded message ready");
-
-//               await gmail.users.messages.send({
-//                 userId: "me",
-//                 requestBody: { raw: encodedMessage },
-//               });
-
-//               console.log(
-//                 `      📤 Auto-response sent to ${from} via ${connection.email}`
-//               );
-//             } else {
-//               console.log("      ⚠️ Unsupported module type:", module.type);
-//             }
-//           }
-//         } else {
-//           console.log("   ⏭️ Condition not matched for branch:", branch.id);
-//         }
-//       }
-//     }
-
-//     console.log("✅ All scenarios executed.");
-//   } catch (err) {
-//     console.error("❌ Error in executeScenarios:", err);
-//   }
-// };
