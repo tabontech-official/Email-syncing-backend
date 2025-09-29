@@ -505,6 +505,7 @@ export const executeScenarios = async (emailData) => {
           continue;
         }
 
+        // 📝 Match conditions
         const matches = branch.filter.conditions.every((cond) => {
           const fieldValue =
             cond.field === "Body"
@@ -528,6 +529,7 @@ export const executeScenarios = async (emailData) => {
 
         console.log("✅ Condition matched for branch:", branch.id);
 
+        // 🔄 Execute modules
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
           console.log("      ⚙️ Executing module:", module.id, module.type);
@@ -546,14 +548,13 @@ export const executeScenarios = async (emailData) => {
             console.log(
               `⏳ Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
             );
-            break;
+            break; // ⏹ Stop current flow, rest handled by delay worker
           }
 
           // 📧 Email Modules
           if (module.type === "Send an Email" || module.type === "Custom Email") {
             let finalTemplate = module.template;
 
-            // 👉 Agar Shopify hai aur module.template ek ObjectId hai
             if (
               scenario.type === "shopify" &&
               mongoose.isValidObjectId(module.template)
@@ -561,30 +562,30 @@ export const executeScenarios = async (emailData) => {
               const tpl = await TemplateModel.findById(module.template);
 
               if (tpl) {
-                console.log(`📑 Template ID loaded: ${tpl._id}`);
+                console.log(`📑 Template ID loaded: ${tpl._id} (${tpl.name})`);
 
                 // 🔑 Type decide karo
                 let tplType = tpl.type;
                 if (!tplType) {
-                  if (tpl.name.toLowerCase().includes("initial"))
-                    tplType = "initial";
-                  else if (tpl.name.toLowerCase().includes("first"))
-                    tplType = "first";
-                  else if (tpl.name.toLowerCase().includes("second"))
-                    tplType = "second";
+                  if (tpl.name.toLowerCase().includes("initial")) tplType = "initial";
+                  else if (tpl.name.toLowerCase().includes("first")) tplType = "first";
+                  else if (tpl.name.toLowerCase().includes("second")) tplType = "second";
                 }
 
-                // 🔍 Service-specific template dhoondo (content yahan se ayega)
-                let serviceTemplate = await TemplateModel.findOne({
-                  userId,
-                  platform: "shopify",
-                  service: tpl.service,
-                  type: tplType,
-                  active: true,
-                });
+                // 🔍 Service-specific template dhoondo
+                let serviceTemplate = null;
+                if (tpl.service && tpl.service !== "General") {
+                  serviceTemplate = await TemplateModel.findOne({
+                    userId,
+                    platform: "shopify",
+                    service: tpl.service,
+                    type: tplType,
+                    active: true,
+                  });
+                }
 
                 // ❗Fallback: General
-                if (!serviceTemplate && tpl.service !== "General") {
+                if (!serviceTemplate) {
                   serviceTemplate = await TemplateModel.findOne({
                     userId,
                     platform: "shopify",
@@ -610,7 +611,7 @@ export const executeScenarios = async (emailData) => {
               }
             }
 
-            // Call email sender
+            // 📤 Call email sender
             await sendEmailModule(
               { ...module, template: finalTemplate },
               from,
