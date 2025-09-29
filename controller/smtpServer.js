@@ -10,7 +10,7 @@ import multer from 'multer';
 import { scenarioModel } from '../Models/Scenario.js';
 import { DelayJobModel } from '../Models/DelayJob.js';
 import nodemailer from "nodemailer";
-
+import mongoose from 'mongoose';
 function checkCondition(condition, email) {
   console.log('🔎 Checking condition:', condition, 'against email:', email);
 
