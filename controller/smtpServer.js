@@ -486,55 +486,54 @@ export const mailHookWebhook = async (req, res) => {
 
 export const executeScenarios = async (emailData) => {
   try {
-    console.log('Incoming emailData:', emailData);
+    console.log("Incoming emailData:", emailData);
 
     const { userId, from, subject, body } = emailData;
 
-    console.log('Fetching scenarios for user:', userId);
+    console.log("Fetching scenarios for user:", userId);
     const scenarios = await scenarioModel.find({ userId });
     console.log(`Found ${scenarios.length} scenarios for user ${userId}`);
 
     for (const scenario of scenarios) {
-      console.log('👉 Checking scenario:', scenario._id, scenario.name);
+      console.log("👉 Checking scenario:", scenario._id, scenario.name);
 
       for (const branch of scenario.routerBranches) {
-        console.log('Checking branch:', branch.id);
+        console.log("Checking branch:", branch.id);
 
         if (!branch.filter || !branch.filter.conditions) {
-          console.log('No filter conditions found, skipping branch.');
+          console.log("No filter conditions found, skipping branch.");
           continue;
         }
 
         const matches = branch.filter.conditions.every((cond) => {
           const fieldValue =
-            cond.field === 'Body'
-              ? (body || '').toLowerCase()
-              : cond.field === 'Subject'
-                ? (subject || '').toLowerCase()
-                : '';
+            cond.field === "Body"
+              ? (body || "").toLowerCase()
+              : cond.field === "Subject"
+              ? (subject || "").toLowerCase()
+              : "";
 
-          const condValue = (cond.value || '').toLowerCase();
+          const condValue = (cond.value || "").toLowerCase();
 
-          if (cond.operator === 'Contains')
-            return fieldValue.includes(condValue);
-          if (cond.operator === 'Equal to') return fieldValue === condValue;
+          if (cond.operator === "Contains") return fieldValue.includes(condValue);
+          if (cond.operator === "Equal to") return fieldValue === condValue;
 
           return false;
         });
 
         if (!matches) {
-          console.log('Condition not matched for branch:', branch.id);
+          console.log("Condition not matched for branch:", branch.id);
           continue;
         }
 
-        console.log('✅ Condition matched for branch:', branch.id);
+        console.log("✅ Condition matched for branch:", branch.id);
 
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
-          console.log('      ⚙️ Executing module:', module.id, module.type);
+          console.log("      ⚙️ Executing module:", module.id, module.type);
 
           // ⏳ Delay Module
-          if (module.type === 'Delay') {
+          if (module.type === "Delay") {
             const delayMs = convertToMs(module.delayValue, module.delayUnit);
 
             await DelayJobModel.create({
@@ -551,50 +550,61 @@ export const executeScenarios = async (emailData) => {
           }
 
           // 📧 Email Modules
-          if (
-            module.type === 'Send an Email' ||
-            module.type === 'Custom Email'
-          ) {
+          if (module.type === "Send an Email" || module.type === "Custom Email") {
             let finalTemplate = module.template;
 
             // 👉 Agar Shopify hai aur module.template ek ObjectId hai
             if (
-              scenario.type === 'shopify' &&
+              scenario.type === "shopify" &&
               mongoose.isValidObjectId(module.template)
             ) {
               const tpl = await TemplateModel.findById(module.template);
 
               if (tpl) {
-                console.log(`📑 Loaded Shopify template: ${tpl.name}`);
+                console.log(`📑 Template ID loaded: ${tpl._id}`);
 
-                // 🔑 Fallback: type ko name se guess karo
+                // 🔑 Type decide karo
                 let tplType = tpl.type;
                 if (!tplType) {
-                  if (tpl.name.toLowerCase().includes('initial'))
-                    tplType = 'initial';
-                  else if (tpl.name.toLowerCase().includes('first'))
-                    tplType = 'first';
-                  else if (tpl.name.toLowerCase().includes('second'))
-                    tplType = 'second';
+                  if (tpl.name.toLowerCase().includes("initial"))
+                    tplType = "initial";
+                  else if (tpl.name.toLowerCase().includes("first"))
+                    tplType = "first";
+                  else if (tpl.name.toLowerCase().includes("second"))
+                    tplType = "second";
                 }
 
-                // same service + type ka template uthao
-                const serviceTemplate = await TemplateModel.findOne({
+                // 🔍 Service-specific template dhoondo (content yahan se ayega)
+                let serviceTemplate = await TemplateModel.findOne({
                   userId,
-                  platform: 'shopify',
+                  platform: "shopify",
                   service: tpl.service,
-                  type: tplType, // initial / first / second
+                  type: tplType,
                   active: true,
                 });
+
+                // ❗Fallback: General
+                if (!serviceTemplate && tpl.service !== "General") {
+                  serviceTemplate = await TemplateModel.findOne({
+                    userId,
+                    platform: "shopify",
+                    service: "General",
+                    type: tplType,
+                    active: true,
+                  });
+                  if (serviceTemplate) {
+                    console.log(`🔄 Fallback → General [General - ${tplType}]`);
+                  }
+                }
 
                 if (serviceTemplate) {
                   finalTemplate = serviceTemplate.content;
                   console.log(
-                    `✅ Using user’s Shopify template [${tpl.service} - ${tplType}]`
+                    `✅ Final Template Chosen → [${serviceTemplate.service} - ${tplType}]`
                   );
                 } else {
                   console.warn(
-                    `⚠️ No active Shopify template found for ${tpl.service} - ${tplType}`
+                    `⚠️ No active template found for ${tpl.service} - ${tplType}`
                   );
                 }
               }
@@ -607,17 +617,18 @@ export const executeScenarios = async (emailData) => {
               subject
             );
           } else {
-            console.log('      ⚠️ Unsupported module type:', module.type);
+            console.log("      ⚠️ Unsupported module type:", module.type);
           }
         }
       }
     }
 
-    console.log('🚀 All scenarios executed.');
+    console.log("🚀 All scenarios executed.");
   } catch (err) {
-    console.error('❌ Error in executeScenarios:', err);
+    console.error("❌ Error in executeScenarios:", err);
   }
 };
+
 const convertToMs = (value, unit) => {
   if (!value) return 0;
   if (unit === 'seconds') return value * 1000;
