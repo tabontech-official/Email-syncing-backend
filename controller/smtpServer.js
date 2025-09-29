@@ -618,7 +618,6 @@ export const executeScenarios = async (emailData) => {
     console.error('❌ Error in executeScenarios:', err);
   }
 };
-
 const convertToMs = (value, unit) => {
   if (!value) return 0;
   if (unit === 'seconds') return value * 1000;
