@@ -10,12 +10,77 @@ import { TemplateModel } from '../Models/Template.js';
 import nodemailer from "nodemailer";
 
 
+
+
+// defaultTemplates.js
+export const defaultServices = [
+  "Troubleshooting",
+  "Theme customization",
+  "Store build or redesign",
+  "Store migration",
+  "Website and marketing content",
+  "SEO",
+  "Site performance and speed",
+  "Custom apps and integrations",
+  "Store settings configuration",
+  "Product and collection setup",
+  "Social media marketing",
+  "Product descriptions",
+  "Search engine advertising",
+  "POS setup and migration",
+  "Custom domain setup",
+  "Conversion rate optimization",
+  "Analytics and tracking",
+  "Sales channel setup",
+  "Logo and visual branding",
+  "Business strategy guidance",
+  "Website audit and optimization strategy",
+  "Sales tax guidance",
+  "Product photography",
+  "Email marketing",
+  "3D modelling",
+  "Banner ads",
+  "Video and illustrations",
+  "Content marketing",
+  "Product sourcing guidance",
+];
+
+
+
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
     expiresIn: '1d',
   });
   return token;
 };
+
+// export const signUp = async (req, res) => {
+//   try {
+//     const userExist = await authModel.findOne({ email: req.body.email });
+//     if (userExist) {
+//       throw new Error("User already exists with this email");
+//     }
+
+//     const newUser = new authModel(req.body);
+
+//     const savedUser = await newUser.save();
+
+//     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
+
+//     await savedUser.save();
+
+//     const token = createToken({ _id: savedUser._id, role: savedUser.role });
+
+//     res.send({
+//       message: "Successfully registered",
+//       token,
+//       data: savedUser,
+//     });
+//   } catch (error) {
+//     return res.status(400).json({ error: error.message });
+//   }
+// };
+
 
 export const signUp = async (req, res) => {
   try {
@@ -25,12 +90,43 @@ export const signUp = async (req, res) => {
     }
 
     const newUser = new authModel(req.body);
-
     const savedUser = await newUser.save();
 
     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
-
     await savedUser.save();
+
+    // create default templates for each service
+    const templates = [];
+    defaultServices.forEach((service) => {
+      // Email template
+      templates.push({
+        userId: savedUser._id,
+        platform: "shopify",
+        service,
+        name: `${service} - Email`, // 👈 name
+        conditions: [
+          { field: "body", operator: "contains", value: service },
+        ],
+        content: `This is the default EMAIL template for ${service}. You can edit this content.`,
+        active: false,
+      });
+
+      // Follow-up template
+      templates.push({
+        userId: savedUser._id,
+        platform: "shopify",
+        service,
+        name: `${service} - Follow up`, // 👈 name
+        conditions: [
+          { field: "body", operator: "contains", value: service },
+        ],
+        content: `This is the default FOLLOW-UP template for ${service}. You can edit this content.`,
+        active: false,
+      });
+    });
+
+    // insert into DB
+    await TemplateModel.insertMany(templates);
 
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
@@ -43,6 +139,7 @@ export const signUp = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
+
 
 export const signIn = async (req, res) => {
   try {
@@ -106,8 +203,7 @@ export const getUserById = async (req, res) => {
 };
 
 
-// PATCH /auth/verify/:id
-export const verifyUser = async (req, res) => {
+ export const verifyUser = async (req, res) => {
   try {
     const { id } = req.params;
 
