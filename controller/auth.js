@@ -14,6 +14,7 @@ import nodemailer from "nodemailer";
 
 // defaultTemplates.js
 export const defaultServices = [
+  "General", // 👈 ab general bhi ek service hai
   "Troubleshooting",
   "Theme customization",
   "Store build or redesign",
@@ -44,7 +45,6 @@ export const defaultServices = [
   "Content marketing",
   "Product sourcing guidance",
 ];
-
 
 
 const createToken = (payLoad) => {
@@ -95,37 +95,24 @@ export const signUp = async (req, res) => {
     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
     await savedUser.save();
 
-    // create default templates for each service
     const templates = [];
-    defaultServices.forEach((service) => {
-      // Email template
-      templates.push({
-        userId: savedUser._id,
-        platform: "shopify",
-        service,
-        name: `${service} - Email`, // 👈 name
-        conditions: [
-          { field: "body", operator: "contains", value: service },
-        ],
-        content: `This is the default EMAIL template for ${service}. You can edit this content.`,
-        active: false,
-      });
 
-      // Follow-up template
-      templates.push({
-        userId: savedUser._id,
-        platform: "shopify",
-        service,
-        name: `${service} - Follow up`, // 👈 name
-        conditions: [
-          { field: "body", operator: "contains", value: service },
-        ],
-        content: `This is the default FOLLOW-UP template for ${service}. You can edit this content.`,
-        active: false,
+    defaultServices.forEach((service) => {
+      ["Initial Email", "First Email", "Second Email"].forEach((emailName, idx) => {
+        templates.push({
+          userId: savedUser._id,
+          platform: "shopify",
+          service,
+          name: `${service} - ${emailName}`,
+          type: idx === 0 ? "initial" : idx === 1 ? "first" : "second",
+          conditions: [],
+          content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
+          active: true,
+          locked: service === "General", 
+        });
       });
     });
 
-    // insert into DB
     await TemplateModel.insertMany(templates);
 
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
@@ -139,6 +126,7 @@ export const signUp = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
+
 
 
 export const signIn = async (req, res) => {

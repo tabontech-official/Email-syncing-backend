@@ -24,8 +24,11 @@ const authSchema = new mongoose.Schema(
     },
     selectedPlatform: { type: String, enum: ['shopify', 'other'] },
     mailhook: { type: String },
-    isVerified: { type: Boolean, default: false }
-
+    isVerified: { type: Boolean, default: false },
+    locked: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
