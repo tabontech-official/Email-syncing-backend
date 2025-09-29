@@ -554,45 +554,53 @@ export const executeScenarios = async (emailData) => {
           }
 
           // 📧 Email Modules
-          if (module.type === "Send an Email" || module.type === "Custom Email") {
-            let finalTemplate = module.template;
+       if (module.type === "Send an Email" || module.type === "Custom Email") {
+  let finalTemplate = module.template;
 
-            // 👉 Agar Shopify hai aur module.template ek ObjectId hai
-            if (scenario.type === "shopify" && mongoose.isValidObjectId(module.template)) {
-              const tpl = await TemplateModel.findById(module.template);
+  // 👉 Agar Shopify hai aur module.template ek ObjectId hai
+  if (scenario.type === "shopify" && mongoose.isValidObjectId(module.template)) {
+    const tpl = await TemplateModel.findById(module.template);
 
-              if (tpl) {
-                console.log(`📑 Loaded Shopify template: ${tpl.name}`);
+    if (tpl) {
+      console.log(`📑 Loaded Shopify template: ${tpl.name}`);
 
-                // same service + type ka template uthao
-                const serviceTemplate = await TemplateModel.findOne({
-                  userId,
-                  platform: "shopify",
-                  service: tpl.service,
-                  type: tpl.type, // initial / first / second
-                  active: true,
-                });
+      // 🔑 Fallback: type ko name se guess karo
+      let tplType = tpl.type;
+      if (!tplType) {
+        if (tpl.name.toLowerCase().includes("initial")) tplType = "initial";
+        else if (tpl.name.toLowerCase().includes("first")) tplType = "first";
+        else if (tpl.name.toLowerCase().includes("second")) tplType = "second";
+      }
 
-                if (serviceTemplate) {
-                  finalTemplate = serviceTemplate.content;
-                  console.log(
-                    `✅ Using user’s Shopify template [${tpl.service} - ${tpl.type}]`
-                  );
-                } else {
-                  console.warn(
-                    `⚠️ No active Shopify template found for ${tpl.service} - ${tpl.type}`
-                  );
-                }
-              }
-            }
+      // same service + type ka template uthao
+      const serviceTemplate = await TemplateModel.findOne({
+        userId,
+        platform: "shopify",
+        service: tpl.service,
+        type: tplType, // initial / first / second
+        active: true,
+      });
 
-            // Call email sender
-            await sendEmailModule(
-              { ...module, template: finalTemplate },
-              from,
-              subject
-            );
-          } else {
+      if (serviceTemplate) {
+        finalTemplate = serviceTemplate.content;
+        console.log(
+          `✅ Using user’s Shopify template [${tpl.service} - ${tplType}]`
+        );
+      } else {
+        console.warn(
+          `⚠️ No active Shopify template found for ${tpl.service} - ${tplType}`
+        );
+      }
+    }
+  }
+
+  // Call email sender
+  await sendEmailModule(
+    { ...module, template: finalTemplate },
+    from,
+    subject
+  );
+} else {
             console.log("      ⚠️ Unsupported module type:", module.type);
           }
         }
