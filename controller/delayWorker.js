@@ -66,8 +66,8 @@ import cron from "node-cron";
 import mongoose from "mongoose";
 import { sendEmailModule } from "./smtpServer.js";
 import { DelayJobModel } from "../Models/DelayJob.js";
-import { scenarioModel } from "../Models/scenarioModel.js";
 import { TemplateModel } from "../Models/Template.js";
+import { scenarioModel } from "../Models/Scenario.js";
 
 export const startDelayWorker = () => {
   cron.schedule("* * * * *", async () => {
