@@ -1,51 +1,50 @@
 import { authModel } from '../Models/auth.js';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
+import fetch from 'node-fetch';
+
 import fs from 'fs';
 import { PubSub } from '@google-cloud/pubsub';
 import axios from 'axios';
 import { EmailModel } from '../Models/Email.js';
 import { ConnectionModel } from '../Models/Connection.js';
 import { TemplateModel } from '../Models/Template.js';
-import nodemailer from "nodemailer";
-
-
-
+import nodemailer from 'nodemailer';
+import path from 'path';
 
 // defaultTemplates.js
 export const defaultServices = [
-  "General", // 👈 ab general bhi ek service hai
-  "Troubleshooting",
-  "Theme customization",
-  "Store build or redesign",
-  "Store migration",
-  "Website and marketing content",
-  "SEO",
-  "Site performance and speed",
-  "Custom apps and integrations",
-  "Store settings configuration",
-  "Product and collection setup",
-  "Social media marketing",
-  "Product descriptions",
-  "Search engine advertising",
-  "POS setup and migration",
-  "Custom domain setup",
-  "Conversion rate optimization",
-  "Analytics and tracking",
-  "Sales channel setup",
-  "Logo and visual branding",
-  "Business strategy guidance",
-  "Website audit and optimization strategy",
-  "Sales tax guidance",
-  "Product photography",
-  "Email marketing",
-  "3D modelling",
-  "Banner ads",
-  "Video and illustrations",
-  "Content marketing",
-  "Product sourcing guidance",
+  'General', // 👈 ab general bhi ek service hai
+  'Troubleshooting',
+  'Theme customization',
+  'Store build or redesign',
+  'Store migration',
+  'Website and marketing content',
+  'SEO',
+  'Site performance and speed',
+  'Custom apps and integrations',
+  'Store settings configuration',
+  'Product and collection setup',
+  'Social media marketing',
+  'Product descriptions',
+  'Search engine advertising',
+  'POS setup and migration',
+  'Custom domain setup',
+  'Conversion rate optimization',
+  'Analytics and tracking',
+  'Sales channel setup',
+  'Logo and visual branding',
+  'Business strategy guidance',
+  'Website audit and optimization strategy',
+  'Sales tax guidance',
+  'Product photography',
+  'Email marketing',
+  '3D modelling',
+  'Banner ads',
+  'Video and illustrations',
+  'Content marketing',
+  'Product sourcing guidance',
 ];
-
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
@@ -81,12 +80,11 @@ const createToken = (payLoad) => {
 //   }
 // };
 
-
 export const signUp = async (req, res) => {
   try {
     const userExist = await authModel.findOne({ email: req.body.email });
     if (userExist) {
-      throw new Error("User already exists with this email");
+      throw new Error('User already exists with this email');
     }
 
     const newUser = new authModel(req.body);
@@ -98,19 +96,21 @@ export const signUp = async (req, res) => {
     const templates = [];
 
     defaultServices.forEach((service) => {
-      ["Initial Email", "First Email", "Second Email"].forEach((emailName, idx) => {
-        templates.push({
-          userId: savedUser._id,
-          platform: "shopify",
-          service,
-          name: `${service} - ${emailName}`,
-          type: idx === 0 ? "initial" : idx === 1 ? "first" : "second",
-          conditions: [],
-          content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
-          active: true,
-          locked: service === "General", 
-        });
-      });
+      ['Initial Email', 'First Email', 'Second Email'].forEach(
+        (emailName, idx) => {
+          templates.push({
+            userId: savedUser._id,
+            platform: 'shopify',
+            service,
+            name: `${service} - ${emailName}`,
+            type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
+            conditions: [],
+            content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
+            active: true,
+            locked: service === 'General',
+          });
+        }
+      );
     });
 
     await TemplateModel.insertMany(templates);
@@ -118,7 +118,7 @@ export const signUp = async (req, res) => {
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
-      message: "Successfully registered",
+      message: 'Successfully registered',
       token,
       data: savedUser,
     });
@@ -126,8 +126,6 @@ export const signUp = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
-
-
 
 export const signIn = async (req, res) => {
   try {
@@ -158,7 +156,6 @@ export const signIn = async (req, res) => {
   }
 };
 
-
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -166,18 +163,18 @@ export const getUserById = async (req, res) => {
     const user = await authModel.findById(id);
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const latestEmail = await EmailModel.findOne({
       userId: id,
       verificationUrl: { $ne: null },
     })
-      .sort({ createdAt: -1 }) 
+      .sort({ createdAt: -1 })
       .lean();
 
     res.status(200).json({
-      message: "User fetched successfully",
+      message: 'User fetched successfully',
       data: {
         ...user.toObject(),
         verificationUrl: latestEmail?.verificationUrl || null,
@@ -185,13 +182,12 @@ export const getUserById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching user:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
-
- export const verifyUser = async (req, res) => {
+export const verifyUser = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -202,106 +198,50 @@ export const getUserById = async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     res.status(200).json({
-      message: "User verified successfully",
+      message: 'User verified successfully',
       data: user,
     });
   } catch (error) {
-    console.error("Error verifying user:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error('Error verifying user:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+export const logout = async (req, res) => {
+  try {
+   const { userId } = req.params; 
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.clearCookie('token', { path: '/' });
+
+    res.status(200).json({ message: 'Logout successfully', userId });
+  } catch (error) {
+    console.error('Error during logout:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+};
 
 
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-const CLIENT_ID = "1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-const REDIRECT_URI = "http://localhost:5000/auth/google/callback";
+const CLIENT_ID =
+  '1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com';
+const CLIENT_SECRET = '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';
+const REDIRECT_URI = 'http://localhost:5000/auth/google/callback';
 console.log('CLIENT_ID', CLIENT_ID);
 console.log('CLIENT_SECRET', CLIENT_SECRET);
 console.log('REDIRECT_URI', REDIRECT_URI);
@@ -312,31 +252,28 @@ const oauth2Client = new google.auth.OAuth2(
   REDIRECT_URI
 );
 
-
 const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly', 
+  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.send', 
-  'https://www.googleapis.com/auth/userinfo.email', 
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
   'https://mail.google.com/',
 ];
 
 export const googleAuth = (req, res) => {
   const { userId } = req.query;
-  if (!userId) return res.status(400).send("userId is required");
+  if (!userId) return res.status(400).send('userId is required');
 
   const authUrl = oauth2Client.generateAuthUrl({
-    access_type: "offline",
+    access_type: 'offline',
     scope: SCOPES,
-    prompt: "consent",
+    prompt: 'consent',
     state: JSON.stringify({ userId }),
   });
 
   res.redirect(authUrl);
 };
-
-
 
 // Controller
 export const googleAuthCallback = async (req, res) => {
@@ -347,7 +284,7 @@ export const googleAuthCallback = async (req, res) => {
     const parsedState = JSON.parse(state);
     userId = parsedState.userId;
   } catch (err) {
-    return res.status(400).send("Invalid state parameter");
+    return res.status(400).send('Invalid state parameter');
   }
 
   try {
@@ -363,57 +300,56 @@ export const googleAuthCallback = async (req, res) => {
 
     if (!tokens.refresh_token) {
       return res.redirect(
-        "http://localhost:3006/connection?status=no_refresh_token"
+        'http://localhost:3006/connection?status=no_refresh_token'
       );
     }
 
     // Fetch Gmail user profile
-    const peopleApi = google.people({ version: "v1", auth: oauth2Client });
+    const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
     const response = await peopleApi.people.get({
-      resourceName: "people/me",
-      personFields: "emailAddresses,names",
+      resourceName: 'people/me',
+      personFields: 'emailAddresses,names',
     });
 
     const userEmail = response.data.emailAddresses?.[0]?.value;
-    const userName = response.data.names?.[0]?.displayName || "";
+    const userName = response.data.names?.[0]?.displayName || '';
 
     if (!userEmail)
-      return res.status(400).send("No email found in Google profile");
+      return res.status(400).send('No email found in Google profile');
 
     // Ensure unique Gmail per userId
-    let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+    let connection = await ConnectionModel.findOne({
+      userId,
+      email: userEmail,
+    });
 
     if (!connection) {
       connection = new ConnectionModel({
         userId,
-        provider: "gmail",
+        provider: 'gmail',
         email: userEmail,
         name: userName,
         tokens,
-        status: "active",
+        status: 'active',
         createdAt: new Date(),
       });
     } else {
       connection.tokens = tokens;
-      connection.status = "active";
+      connection.status = 'active';
       connection.lastConnected = new Date();
     }
 
     await connection.save();
-    console.log("✅ Gmail connected:", userEmail);
+    console.log('✅ Gmail connected:', userEmail);
 
     return res.redirect(
       `http://localhost:3006/scenarios/others?status=success&connectionId=${connection._id}`
     );
   } catch (error) {
-    console.error("❌ Error during Google auth callback:", error);
-    return res.redirect("http://localhost:3006/connection?status=error");
+    console.error('❌ Error during Google auth callback:', error);
+    return res.redirect('http://localhost:3006/connection?status=error');
   }
 };
-
-
-
-
 
 export const getAuthorizedClient = async (connection) => {
   const oAuth2Client = new google.auth.OAuth2(
@@ -432,31 +368,30 @@ export const getAuthorizedClient = async (connection) => {
 
 export const sendEmail = async (connection, to, subject, body) => {
   const client = await getAuthorizedClient(connection);
-  const gmail = google.gmail({ version: "v1", auth: client });
+  const gmail = google.gmail({ version: 'v1', auth: client });
 
   const message = [
     `To: ${to}`,
     `Subject: ${subject}`,
-    "Content-Type: text/html; charset=utf-8",
-    "",
+    'Content-Type: text/html; charset=utf-8',
+    '',
     body,
-  ].join("\n");
+  ].join('\n');
 
   const encodedMessage = Buffer.from(message)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 
   const res = await gmail.users.messages.send({
-    userId: "me",
+    userId: 'me',
     requestBody: { raw: encodedMessage },
   });
 
-  console.log("✅ Email sent:", res.data.id);
+  console.log('✅ Email sent:', res.data.id);
   return res.data;
 };
-
 
 export const getConnections = async (req, res) => {
   try {
@@ -464,17 +399,19 @@ export const getConnections = async (req, res) => {
     const connections = await ConnectionModel.find({ userId });
     res.json(connections);
   } catch (err) {
-    console.error("❌ Failed to fetch connections:", err.message);
-    res.status(500).json({ error: "Server error" });
+    console.error('❌ Failed to fetch connections:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-export const addSmtpConnection=async(req,res)=>{
+export const addSmtpConnection = async (req, res) => {
   try {
     const { userId, email, username, password, host, port, name } = req.body;
 
     if (!userId || !email || !username || !password || !host || !port) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing required fields' });
     }
 
     const conn = await ConnectionModel.findOneAndUpdate(
@@ -483,28 +420,19 @@ export const addSmtpConnection=async(req,res)=>{
         userId,
         email,
         name,
-        provider: "outlook", 
+        provider: 'outlook',
         smtp: { host, port, username, password },
-        status: "active",
+        status: 'active',
       },
       { upsert: true, new: true }
     );
 
     res.json({ success: true, connection: conn });
   } catch (err) {
-    console.error(" Error saving SMTP connection:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error(' Error saving SMTP connection:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
-}
-
-
-
-
-
-
-
-
-
+};
 
 // export const validateConnection = async (connectionId) => {
 //   try {
@@ -518,7 +446,7 @@ export const addSmtpConnection=async(req,res)=>{
 //       CLIENT_SECRET,
 //       REDIRECT_URI
 //     );
-    
+
 //     oauth2Client.setCredentials(connection.tokens);
 //     setupTokenRefresh(oauth2Client, connectionId);
 
@@ -561,7 +489,6 @@ export const addSmtpConnection=async(req,res)=>{
 //   'https://www.googleapis.com/auth/userinfo.profile'
 // ];
 
-
 // export const EmailWebhook = async (req, res) => {
 //   console.log(
 //     '➡️ [EmailWebhook] Incoming Request Body:',
@@ -590,8 +517,8 @@ export const addSmtpConnection=async(req,res)=>{
 //     }
 
 //     console.log('🔎 [Step 3] Looking up connection for email:', data.emailAddress);
-//     const connection = await ConnectionModel.findOne({ 
-//       email: data.emailAddress, 
+//     const connection = await ConnectionModel.findOne({
+//       email: data.emailAddress,
 //       provider: 'gmail',
 //       status: 'active'
 //     });
@@ -610,14 +537,14 @@ export const addSmtpConnection=async(req,res)=>{
 //     );
 
 //     oauth2Client.setCredentials(connection.tokens);
-    
+
 //     oauth2Client.on('tokens', async (tokens) => {
 //       console.log('🔄 [Step 4] Refreshing tokens...');
 //       try {
 //         await ConnectionModel.updateOne(
 //           { _id: connection._id },
-//           { 
-//             $set: { 
+//           {
+//             $set: {
 //               tokens: {
 //                 ...connection.tokens,
 //                 ...tokens
@@ -647,7 +574,7 @@ export const addSmtpConnection=async(req,res)=>{
 //       });
 //     } catch (err) {
 //       console.error('❌ [Step 5] Failed to fetch Gmail history:', err.message);
-      
+
 //       if (err.code === 401 || err.message.includes('refresh token')) {
 //         console.log('🔄 [Step 5] Attempting token refresh...');
 //         try {
@@ -719,7 +646,6 @@ export const addSmtpConnection=async(req,res)=>{
 //   }
 // };
 
-
 // const decodeBase64 = (data) => {
 //   if (!data) return '';
 //   return Buffer.from(
@@ -736,7 +662,7 @@ export const addSmtpConnection=async(req,res)=>{
 //     fullMessage = await gmail.users.messages.get({
 //       userId: 'me',
 //       id: msgId,
-//       format: 'full', 
+//       format: 'full',
 //     });
 //   } catch (err) {
 //     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
@@ -805,7 +731,6 @@ export const addSmtpConnection=async(req,res)=>{
 //     );
 //   }
 // };
-
 
 // const processMessage = async (gmail, msgId, connection) => {
 //   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
@@ -974,8 +899,8 @@ export const addSmtpConnection=async(req,res)=>{
 //     try {
 //       await ConnectionModel.updateOne(
 //         { _id: connectionId },
-//         { 
-//           $set: { 
+//         {
+//           $set: {
 //             tokens: tokens,
 //             lastTokenRefresh: new Date()
 //           }
@@ -987,7 +912,6 @@ export const addSmtpConnection=async(req,res)=>{
 //     }
 //   });
 // };
-
 
 // const makeMessage = (to, subject, body) => {
 //   const message = [
@@ -1002,7 +926,6 @@ export const addSmtpConnection=async(req,res)=>{
 //   // Base64 encode the message
 //   return Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 // };
-
 
 // async function startWatch(oauthTokens) {
 //   const oauth2Client = new google.auth.OAuth2(
@@ -1024,8 +947,6 @@ export const addSmtpConnection=async(req,res)=>{
 //   console.log('✅ Watch started:', res.data);
 //   return res.data;
 // }
-
-
 
 // export const getEmail = async (req, res) => {
 //   let tokens;
