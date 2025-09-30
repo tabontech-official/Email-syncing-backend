@@ -407,240 +407,6 @@ export const mailHookWebhook = async (req, res) => {
   }
 };
 
-// export const executeScenarios = async (emailData) => {
-//   try {
-//     console.log("========== 🚀 [executeScenarios] START ==========");
-//     console.log("📨 Incoming emailData:", JSON.stringify(emailData, null, 2));
-
-//     const { userId, from, subject, body } = emailData;
-
-//     console.log("🔍 Fetching scenarios for user:", userId);
-//     const scenarios = await scenarioModel.find({ userId });
-//     console.log(`✅ Found ${scenarios.length} scenarios for user ${userId}`);
-
-//     for (const scenario of scenarios) {
-//       console.log("-------------------------------------------------");
-//       console.log(`👉 Checking scenario: ${scenario._id} | Name: ${scenario.name} | Type: ${scenario.type}`);
-
-//       if (!scenario.routerBranches || scenario.routerBranches.length === 0) {
-//         console.log("⚠️ No router branches found in this scenario.");
-//         continue;
-//       }
-
-//       for (const branch of scenario.routerBranches) {
-//         console.log("-------------------------------------------------");
-//         console.log(`🔀 Checking branch: ${branch.id || branch._id}`);
-
-//         if (!branch.filter || !Array.isArray(branch.filter.conditions)) {
-//           console.log("⚠️ No filter conditions found, skipping this branch.");
-//           continue;
-//         }
-
-//         // --- Match branch conditions ---
-//         console.log(`🧪 Evaluating ${branch.filter.conditions.length} condition(s) for this branch...`);
-//         const matches = branch.filter.conditions.every((cond, idx) => {
-//           const fieldValue =
-//             cond.field === "Body"
-//               ? (body || "").toLowerCase()
-//               : cond.field === "Subject"
-//               ? (subject || "").toLowerCase()
-//               : "";
-//           const condValue = (cond.value || "").toLowerCase();
-//           console.log(`   ➡️ Condition[${idx}]: field=${cond.field}, operator=${cond.operator}, value="${cond.value}"`);
-//           console.log(`      ↳ FieldValue="${fieldValue}" | CondValue="${condValue}"`);
-
-//           if (cond.operator === "Contains") return fieldValue.includes(condValue);
-//           if (cond.operator === "Equal to") return fieldValue === condValue;
-//           return false;
-//         });
-
-//         if (!matches) {
-//           console.log("❌ Condition(s) NOT matched for branch:", branch.id);
-//           continue;
-//         }
-
-//         console.log("✅ Condition(s) MATCHED for branch:", branch.id);
-
-//         // --- Execute modules in order ---
-//         if (!branch.modules || branch.modules.length === 0) {
-//           console.log("⚠️ No modules found in this branch.");
-//           continue;
-//         }
-
-//         for (let i = 0; i < branch.modules.length; i++) {
-//           const module = branch.modules[i];
-//           console.log("-------------------------------------------------");
-//           console.log(`⚙️ Executing module [${i + 1}/${branch.modules.length}]:`);
-//           console.log(`   → ID: ${module.id} | Type: ${module.type} | Template: "${module.template}" | ConnID: ${module.connectionId}`);
-
-//           // ----- Delay -----
-// if (module.type === "Delay" || (!module.type && module.app?.name === "Delay")) {
-//   console.log("⏳ Delay module detected...");
-//   const delayMs = convertToMs(module.delayValue, module.delayUnit);
-//   console.log(`⏱ Scheduling delay of ${module.delayValue} ${module.delayUnit} (${delayMs} ms)`);
-
-//   const remainingModules = [];
-
-//   for (const nextModule of branch.modules.slice(i + 1)) {
-//     // Plain object banate hain taake mongoose doc ka issue na ho
-//     const plain = nextModule.toObject ? nextModule.toObject() : { ...nextModule };
-
-//     // ✅ Agar module email bhejne ka hai to Shopify ka template resolve karo
-//     if (plain.type === "Send an Email" || plain.type === "Custom Email") {
-//       let templateContent = plain.template || "Thanks for your email!";
-
-//       if (scenario.type?.toLowerCase() === "shopify") {
-//         console.log(`🛒 [DelayScheduler] Shopify template resolution for delayed module: ${plain.id}`);
-
-//         // 1️⃣ Step type detect karo
-//         let stepType = "initial";
-//         const lower = (plain.template || "").toLowerCase();
-//         if (lower.includes("first")) stepType = "first";
-//         else if (lower.includes("second")) stepType = "second";
-
-//         // 2️⃣ Service detect karo
-//         const defaultServices = [
-//           "General","Troubleshooting","Theme customization","Store build or redesign",
-//           "Store migration","Website and marketing content","SEO","Site performance and speed",
-//           "Custom apps and integrations","Store settings configuration","Product and collection setup",
-//           "Social media marketing","Product descriptions","Search engine advertising","POS setup and migration",
-//           "Custom domain setup","Conversion rate optimization","Analytics and tracking","Sales channel setup",
-//           "Logo and visual branding","Business strategy guidance","Website audit and optimization strategy",
-//           "Sales tax guidance","Product photography","Email marketing","3D modelling","Banner ads",
-//           "Video and illustrations","Content marketing","Product sourcing guidance"
-//         ];
-//         let matchedService = "General";
-//         const textToSearch = (subject + " " + body).toLowerCase();
-//         const found = defaultServices.find(s => textToSearch.includes(s.toLowerCase()));
-//         if (found) matchedService = found;
-
-//         console.log(`🔹 [DelayScheduler] Matched service: ${matchedService} | Step: ${stepType}`);
-
-//         // 3️⃣ DB se template lao
-//         const tpl = await TemplateModel.findOne({
-//           userId,
-//           platform: "shopify",
-//           service: new RegExp(`^${matchedService}$`, "i"),
-//           name: new RegExp(
-//             stepType === "initial"
-//               ? "Initial Email"
-//               : stepType === "first"
-//               ? "First Email"
-//               : "Second Email",
-//             "i"
-//           ),
-//           active: true
-//         });
-
-//         if (tpl) {
-//           console.log(`✅ [DelayScheduler] Shopify template loaded: ${tpl.name}`);
-//           templateContent = tpl.content;
-//         } else {
-//           console.log(`⚠️ [DelayScheduler] No Shopify template found for ${matchedService} - ${stepType}`);
-//         }
-//       }
-
-//       plain.template = templateContent;
-//     }
-
-//     remainingModules.push(plain);
-//   }
-
-//   await DelayJobModel.create({
-//     userId,
-//     emailData,
-//     modulesLeft: remainingModules,
-//     scheduledAt: new Date(Date.now() + delayMs),
-//   });
-
-//   console.log(`✅ Delay scheduled. ${remainingModules.length} module(s) saved for later`);
-//   break;
-// }
-
-//           // ----- Send Email / Custom Email -----
-//           if (module.type === "Send an Email" || module.type === "Custom Email") {
-//             console.log("📧 Email module detected... Preparing email content");
-
-//             let templateContent = module.template || "Thanks for your email!";
-
-//             // 🌟 Agar scenario Shopify ka hai to user ki Shopify template nikaalo
-//             if (scenario.type && scenario.type.toLowerCase() === "shopify") {
-//               console.log("🛒 Scenario type is Shopify → trying to pick correct template");
-
-//               // 1️⃣ Determine step type from module template
-//               let stepType = "initial";
-//               const lower = (module.template || "").toLowerCase();
-//               if (lower.includes("first")) stepType = "first";
-//               else if (lower.includes("second")) stepType = "second";
-//               console.log(`🔹 Detected step type: ${stepType}`);
-
-//               // 2️⃣ Detect service from email (case-insensitive)
-//               const defaultServices = [
-//                 "General","Troubleshooting","Theme customization","Store build or redesign",
-//                 "Store migration","Website and marketing content","SEO","Site performance and speed",
-//                 "Custom apps and integrations","Store settings configuration","Product and collection setup",
-//                 "Social media marketing","Product descriptions","Search engine advertising","POS setup and migration",
-//                 "Custom domain setup","Conversion rate optimization","Analytics and tracking","Sales channel setup",
-//                 "Logo and visual branding","Business strategy guidance","Website audit and optimization strategy",
-//                 "Sales tax guidance","Product photography","Email marketing","3D modelling","Banner ads",
-//                 "Video and illustrations","Content marketing","Product sourcing guidance"
-//               ];
-//               let matchedService = "General";
-//               const textToSearch = (subject + " " + body).toLowerCase();
-//               const found = defaultServices.find(s =>
-//                 textToSearch.includes(s.toLowerCase())
-//               );
-//               if (found) matchedService = found;
-//               console.log(`🛍️ Matched service from email: ${matchedService}`);
-
-//               // 3️⃣ Fetch template (service + step) from DB
-//               console.log("🔎 Looking for Shopify template in DB...");
-//               const tpl = await TemplateModel.findOne({
-//                 userId,
-//                 platform: "shopify",
-//                 service: new RegExp(`^${matchedService}$`, "i"),
-//                 name: new RegExp(
-//                   stepType === "initial"
-//                     ? "Initial Email"
-//                     : stepType === "first"
-//                     ? "First Email"
-//                     : "Second Email",
-//                   "i"
-//                 ),
-//                 active: true,
-//               });
-
-//               if (tpl) {
-//                 console.log(`✅ Shopify template found: ${tpl.name}`);
-//                 templateContent = tpl.content;
-//               } else {
-//                 console.log(`⚠️ No Shopify template found for ${matchedService} - ${stepType}`);
-//               }
-//             }
-
-//             // ✅ DEBUG LOG before sending email
-//             console.log("📨 Final email body to be sent:");
-//             console.log("--------------------------------");
-//             console.log(templateContent);
-//             console.log("--------------------------------");
-
-//             // --- Send email now ---
-// const plainModule = module.toObject ? module.toObject() : module;
-// await sendEmailModule({ ...plainModule, template: templateContent }, from, subject);
-//           } else {
-//             console.log("⚠️ Unsupported module type:", module.type);
-//           }
-//         }
-//       }
-//     }
-
-//     console.log("✅✅ [executeScenarios] COMPLETED successfully.");
-//     console.log("========== 🚀 [executeScenarios] END ==========");
-//   } catch (err) {
-//     console.error("❌ [executeScenarios] ERROR:", err);
-//   }
-// };
-
 export const executeScenarios = async (emailData) => {
   try {
     console.log('========== 🚀 [executeScenarios] START ==========');
@@ -1259,3 +1025,58 @@ export const sendEmailModule = async (module, to, originalSubject) => {
 
   console.log('🏁 [sendEmailModule] END\n');
 };
+
+
+
+export const getEmailsForUsers=async(req,res)=>{
+   try {
+    const { userId } = req.params;
+
+    console.log(`📩 Fetching all emails + status for user=${userId}`);
+
+    // 1) Get all emails of this user
+    const emails = await EmailModel.find({ userId })
+      .sort({ date: -1 }) // latest first
+      .lean();
+
+    if (!emails || emails.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No emails found for this user",
+      });
+    }
+
+    // 2) Get all automation statuses linked to those emails
+    const emailIds = emails.map((e) => e._id.toString());
+    const statuses = await AutomationStatusModel.find({
+      userId,
+      emailId: { $in: emailIds },
+    })
+      .populate("scenarioId", "name type")
+      .lean();
+
+    // 3) Merge statuses into emails
+    const statusMap = {};
+    statuses.forEach((s) => {
+      if (!statusMap[s.emailId]) statusMap[s.emailId] = [];
+      statusMap[s.emailId].push(s);
+    });
+
+    const result = emails.map((email) => ({
+      ...email,
+      statuses: statusMap[email._id.toString()] || [],
+    }));
+
+    return res.json({
+      success: true,
+      totalEmails: emails.length,
+      data: result,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching user emails + status:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching emails",
+    });
+  }
+}
