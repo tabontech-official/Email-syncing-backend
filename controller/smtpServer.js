@@ -850,17 +850,7 @@ export const sendEmailModule = async (module, to, originalSubject) => {
     moduleId: module?.id,
     connectionId: module?.connectionId,
     to,
-    originalSubject,
-    provider: module?.connectionProvider || 'unknown',
-  });
-
-  // --- Debug: module object full print (first 1 level)
-  console.log('🧩 [sendEmailModule] Module object snapshot:', {
-    id: module?.id,
-    type: module?.type,
-    subject: module?.subject,
-    templatePreview: (module?.template || '').slice(0, 50),
-    connectionId: module?.connectionId,
+    originalSubject
   });
 
   const connection = await ConnectionModel.findById(module.connectionId);
@@ -869,11 +859,11 @@ export const sendEmailModule = async (module, to, originalSubject) => {
     return;
   }
 
-  console.log('🔌 [Connection Loaded]', {
-    _id: connection._id,
-    provider: connection.provider,
-    email: connection.email,
-  });
+  const norm = (v) =>
+    Array.isArray(v) ? v.filter(Boolean).join(', ') : (v || '').toString().trim();
+
+  const cc = norm(module.cc);
+  const bcc = norm(module.bcc);
 
   const finalSubject =
     module.subject && module.subject.trim() !== ''
@@ -885,8 +875,10 @@ export const sendEmailModule = async (module, to, originalSubject) => {
   console.log('✉️ [Email Details]', {
     from: connection.email,
     to,
+    cc,
+    bcc,
     subject: finalSubject,
-    preview: emailBody.slice(0, 100) + (emailBody.length > 100 ? '...' : ''),
+    preview: emailBody.slice(0, 100) + (emailBody.length > 100 ? '...' : '')
   });
 
   if (connection.provider === 'gmail') {
@@ -901,16 +893,18 @@ export const sendEmailModule = async (module, to, originalSubject) => {
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-      const rawMessage = [
+      const lines = [
         `From: ${connection.email}`,
         `To: ${to}`,
+        ...(cc ? [`Cc: ${cc}`] : []),
+        ...(bcc ? [`Bcc: ${bcc}`] : []),
         `Subject: ${finalSubject}`,
+        'MIME-Version: 1.0',
         'Content-Type: text/html; charset=UTF-8',
         '',
-        emailBody,
-      ]
-        .join('\n')
-        .trim();
+        emailBody
+      ];
+      const rawMessage = lines.join('\n').trim();
 
       const encodedMessage = Buffer.from(rawMessage)
         .toString('base64')
@@ -922,69 +916,44 @@ export const sendEmailModule = async (module, to, originalSubject) => {
 
       const result = await gmail.users.messages.send({
         userId: 'me',
-        requestBody: { raw: encodedMessage },
+        requestBody: { raw: encodedMessage }
       });
 
       console.log(
-        `✅ [GMAIL] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | Gmail-Id: ${result?.data?.id}`
+        ` [GMAIL] Email sent | to: ${to} | cc: ${cc || '-'} | bcc: ${bcc || '-'} | subject: "${finalSubject}" | Gmail-Id: ${result?.data?.id}`
       );
     } catch (err) {
       console.error('❌ [GMAIL] send error:', err?.response?.data || err);
     }
-  } else if (connection.provider === 'outlook') {
+  } else if (connection.provider === 'outlook' || connection.provider === 'smtp') {
     try {
-      console.log('🚀 [OUTLOOK] Creating transporter...');
-      const transporter = nodemailer.createTransport({
-        host: connection.smtp?.host || 'smtp.office365.com',
-        port: connection.smtp?.port || 587,
-        secure: connection.smtp?.port === 465,
-        auth: {
-          user: connection.smtp?.username || connection.email,
-          pass: connection.smtp?.password,
-        },
-      });
+      const isOutlook = connection.provider === 'outlook';
+      console.log(`🚀 [${isOutlook ? 'OUTLOOK' : 'SMTP'}] Creating transporter...`);
 
-      const info = await transporter.sendMail({
-        from: connection.email,
-        to,
-        subject: finalSubject,
-        html: emailBody,
-      });
-
-      console.log(
-        `✅ [OUTLOOK] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | MessageId: ${info.messageId}`
-      );
-    } catch (err) {
-      console.error('❌ [OUTLOOK] send error:', err);
-    }
-  } else if (connection.provider === 'smtp') {
-    try {
-      console.log('🚀 [SMTP] Creating transporter...');
       const transporter = nodemailer.createTransport({
-        host: connection.smtpHost || connection.smtp?.host,
+        host: connection.smtpHost || connection.smtp?.host || (isOutlook ? 'smtp.office365.com' : undefined),
         port: connection.smtpPort || connection.smtp?.port || 587,
         secure: (connection.smtpPort || connection.smtp?.port) === 465,
         auth: {
-          user:
-            connection.smtpUser ||
-            connection.smtp?.username ||
-            connection.email,
-          pass: connection.smtpPass || connection.smtp?.password,
-        },
+          user: connection.smtpUser || connection.smtp?.username || connection.email,
+          pass: connection.smtpPass || connection.smtp?.password
+        }
       });
 
       const info = await transporter.sendMail({
         from: connection.email,
         to,
+        cc: cc || undefined,
+        bcc: bcc || undefined,
         subject: finalSubject,
-        html: emailBody,
+        html: emailBody
       });
 
       console.log(
-        `✅ [SMTP] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | MessageId: ${info.messageId}`
+        `✅ [${isOutlook ? 'OUTLOOK' : 'SMTP'}] Email sent | to: ${to} | cc: ${cc || '-'} | bcc: ${bcc || '-'} | subject: "${finalSubject}" | MessageId: ${info.messageId}`
       );
     } catch (err) {
-      console.error('❌ [SMTP] send error:', err);
+      console.error(`❌ [${connection.provider.toUpperCase()}] send error:`, err);
     }
   } else {
     console.warn('⚠️ [sendEmailModule] Unsupported provider:', connection.provider);
