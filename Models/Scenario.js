@@ -7,7 +7,7 @@ const ConditionSchema = new mongoose.Schema(
     value: { type: String, required: true },
     join: { type: String, enum: ["AND", "OR", null], default: null },
   },
-  { _id: false } // 👈 prevents automatic _id for each condition
+  { _id: false } 
 );
 
 const ModuleSchema = new mongoose.Schema({
@@ -31,7 +31,7 @@ const ModuleSchema = new mongoose.Schema({
 
   filter: {
     label: String,
-    conditions: [ConditionSchema], // 👈 FIXED
+    conditions: [ConditionSchema], 
     template: String,
   },
 });
@@ -43,7 +43,7 @@ const BranchSchema = new mongoose.Schema({
   modules: [ModuleSchema],
   filter: {
     label: String,
-    conditions: [ConditionSchema], // 👈 FIXED
+    conditions: [ConditionSchema], 
     template: String,
   },
 });
@@ -55,7 +55,7 @@ const ScenarioSchema = new mongoose.Schema(
     description: String,
     type: {
       type: String,
-      enum: ["other", "shopify"], // 👈 still fine
+      enum: ["other", "shopify"],
       default: "other",
     },
     routerBranches: [BranchSchema],

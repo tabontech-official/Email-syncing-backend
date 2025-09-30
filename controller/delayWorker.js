@@ -1,64 +1,65 @@
-import cron from "node-cron";
-import { sendEmailModule } from "./smtpServer.js";
-import { DelayJobModel } from "../Models/DelayJob.js";
+import cron from 'node-cron';
+import { sendEmailModule } from './smtpServer.js';
+import { DelayJobModel } from '../Models/DelayJob.js';
+import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 
 export const startDelayWorker = () => {
-  cron.schedule("* * * * *", async () => {
+  cron.schedule('* * * * *', async () => {
     try {
       const now = new Date();
       const jobs = await DelayJobModel.find({ scheduledAt: { $lte: now } });
 
-      console.log(` DelayWorker tick → ${jobs.length} job(s) found`);
-
       for (const job of jobs) {
-        console.log(" Running delayed job:", job._id);
-
         for (const module of job.modulesLeft) {
-          console.log(
-            `    Processing module → ID: ${module.id}, Type: ${module.type}`
-          );
-
           if (
-            module.type === "Send an Email" ||
-            module.type === "Custom Email"
+            module.type === 'Send an Email' ||
+            module.type === 'Custom Email'
           ) {
             try {
-              console.log("    Preparing email...");
-              console.log("      From:", module.connectionId); 
-              console.log("      To:", job.emailData.from);
-              console.log("      Subject:", module.subject || job.emailData.subject);
-              console.log(
-                "      Body Preview:",
-                (module.template || "Thanks for your email!").substring(0, 80) +
-                  (module.template?.length > 80 ? "..." : "")
-              );
-
               await sendEmailModule(
                 module,
                 job.emailData.from,
                 job.emailData.subject
               );
 
-              console.log(
-                ` Delayed email sent successfully for job ${job._id} via ${module.connectionId} (${module.type})`
-              );
+              const statusDoc = await AutomationStatusModel.findOne({
+                emailId: job.emailId,
+                scenarioId: job.scenarioId,
+              });
+
+              if (!statusDoc) {
+              } else {
+                statusDoc.completedModules.push(module.id);
+                statusDoc.pendingModules = statusDoc.pendingModules.filter(
+                  (m) => m !== module.id
+                );
+
+                if (
+                  statusDoc.pendingModules.length > 0 &&
+                  statusDoc.completedModules.length > 0
+                ) {
+                  statusDoc.status = 'partial';
+                } else if (
+                  statusDoc.pendingModules.length === 0 &&
+                  statusDoc.completedModules.length > 0
+                ) {
+                  statusDoc.status = 'completed';
+                }
+
+                statusDoc.lastExecutedAt = new Date();
+                await statusDoc.save();
+              }
             } catch (err) {
-              console.error(" Error executing delayed module:", err);
+              await AutomationStatusModel.findOneAndUpdate(
+                { emailId: job.emailId, scenarioId: job.scenarioId },
+                { $set: { status: 'failed', lastExecutedAt: new Date() } }
+              );
             }
-          } else if (module.type === "Delay") {
-            console.log("⏸ Nested delay found, skipping (already scheduled)");
-          } else {
-            console.log("Unsupported delayed module type:", module.type);
           }
         }
 
         await DelayJobModel.deleteOne({ _id: job._id });
-        console.log(`Completed and removed job ${job._id}`);
       }
-    } catch (err) {
-      console.error(" Worker error:", err);
-    }
+    } catch (err) {}
   });
-
-  console.log("⏳ Delay worker started (runs every minute)");
 };

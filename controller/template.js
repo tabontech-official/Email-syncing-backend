@@ -1,6 +1,5 @@
 import { TemplateModel } from "../Models/Template.js";
 
-// Create Template
 export const addTemplate = async (req, res) => {
   try {
     const { userId, platform, service, conditions, content } = req.body;
@@ -64,7 +63,6 @@ export const updateTemplate = async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    console.error("❌ Failed to update template:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -80,7 +78,7 @@ export const deleteTemplate = async (req, res) => {
 
     res.json({ success: true, msg: "Template deleted" });
   } catch (err) {
-    console.error("❌ Failed to delete template:", err.message);
+    console.error(" Failed to delete template:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 };

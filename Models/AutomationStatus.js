@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const automationStatusSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  emailId: { type: String, required: true }, // track email uniquely
+  emailId: { type: String, required: true }, 
   scenarioId: { type: mongoose.Schema.Types.ObjectId, ref: "Scenario" },
   branchId: { type: String },
   status: {
@@ -11,8 +11,8 @@ const automationStatusSchema = new mongoose.Schema({
     enum: ["pending", "partial", "completed", "failed"],
     default: "pending",
   },
-  completedModules: [{ type: String }],   // store executed module ids
-  pendingModules: [{ type: String }],     // store remaining modules
+  completedModules: [{ type: String }],   
+  pendingModules: [{ type: String }],  
   lastExecutedAt: { type: Date, default: Date.now },
 });
 

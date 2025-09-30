@@ -10,7 +10,7 @@ const templateSchema = new mongoose.Schema(
     platform: { type: String, enum: ['shopify', 'other'], required: true },
     name: { type: String, required: true },
 
-    service: { type: String }, // not required anymore
+    service: { type: String },
     conditions: [
       {
         field: {
