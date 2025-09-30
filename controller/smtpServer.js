@@ -405,85 +405,6 @@ export const mailHookWebhook = async (req, res) => {
   }
 };
 
-export const executeScenarios = async (emailData) => {
-  try {
-    console.log("Incoming emailData:", emailData);
-
-    const { userId, from, subject, body } = emailData;
-
-    console.log("Fetching scenarios for user:", userId);
-    const scenarios = await scenarioModel.find({ userId });
-    console.log(`Found ${scenarios.length} scenarios for user ${userId}`);
-
-    for (const scenario of scenarios) {
-      console.log("👉 Checking scenario:", scenario._id, scenario.name);
-
-      for (const branch of scenario.routerBranches) {
-        console.log("Checking branch:", branch.id);
-
-        if (!branch.filter || !branch.filter.conditions) {
-          console.log("No filter conditions found, skipping branch.");
-          continue;
-        }
-
-        const matches = branch.filter.conditions.every((cond) => {
-          const fieldValue =
-            cond.field === "Body"
-              ? (body || "").toLowerCase()
-              : cond.field === "Subject"
-              ? (subject || "").toLowerCase()
-              : "";
-
-          const condValue = (cond.value || "").toLowerCase();
-
-          if (cond.operator === "Contains") return fieldValue.includes(condValue);
-          if (cond.operator === "Equal to") return fieldValue === condValue;
-
-          return false;
-        });
-
-        if (!matches) {
-          console.log("Condition not matched for branch:", branch.id);
-          continue;
-        }
-
-        console.log("Condition matched for branch:", branch.id);
-
-        for (let i = 0; i < branch.modules.length; i++) {
-          const module = branch.modules[i];
-          console.log("      ⚙️ Executing module:", module.id, module.type);
-
-          if (module.type === "Delay") {
-            const delayMs = convertToMs(module.delayValue, module.delayUnit);
-
-            await DelayJobModel.create({
-              userId,
-              emailData,
-              modulesLeft: branch.modules.slice(i + 1),
-              scheduledAt: new Date(Date.now() + delayMs),
-            });
-
-            console.log(
-              `Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
-            );
-            break;
-          }
-
-          if (module.type === "Send an Email" || module.type === "Custom Email") {
-            await sendEmailModule(module, from, subject);
-          } else {
-            console.log("      ⚠️ Unsupported module type:", module.type);
-          }
-        }
-      }
-    }
-
-    console.log(" All scenarios executed.");
-  } catch (err) {
-    console.error(" Error in executeScenarios:", err);
-  }
-};
-
 // export const executeScenarios = async (emailData) => {
 //   try {
 //     console.log("Incoming emailData:", emailData);
@@ -505,7 +426,6 @@ export const executeScenarios = async (emailData) => {
 //           continue;
 //         }
 
-//         // 📝 Match conditions
 //         const matches = branch.filter.conditions.every((cond) => {
 //           const fieldValue =
 //             cond.field === "Body"
@@ -527,14 +447,12 @@ export const executeScenarios = async (emailData) => {
 //           continue;
 //         }
 
-//         console.log("✅ Condition matched for branch:", branch.id);
+//         console.log("Condition matched for branch:", branch.id);
 
-//         // 🔄 Execute modules
 //         for (let i = 0; i < branch.modules.length; i++) {
 //           const module = branch.modules[i];
 //           console.log("      ⚙️ Executing module:", module.id, module.type);
 
-//           // ⏳ Delay Module
 //           if (module.type === "Delay") {
 //             const delayMs = convertToMs(module.delayValue, module.delayUnit);
 
@@ -546,77 +464,13 @@ export const executeScenarios = async (emailData) => {
 //             });
 
 //             console.log(
-//               `⏳ Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
+//               `Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
 //             );
-//             break; // ⏹ Stop current flow, rest handled by delay worker
+//             break;
 //           }
 
-//           // 📧 Email Modules
 //           if (module.type === "Send an Email" || module.type === "Custom Email") {
-//             let finalTemplate = module.template;
-
-//             if (
-//               scenario.type === "shopify" &&
-//               mongoose.isValidObjectId(module.template)
-//             ) {
-//               const tpl = await TemplateModel.findById(module.template);
-
-//               if (tpl) {
-//                 console.log(`📑 Template ID loaded: ${tpl._id} (${tpl.name})`);
-
-//                 // 🔑 Type decide karo
-//                 let tplType = tpl.type;
-//                 if (!tplType) {
-//                   if (tpl.name.toLowerCase().includes("initial")) tplType = "initial";
-//                   else if (tpl.name.toLowerCase().includes("first")) tplType = "first";
-//                   else if (tpl.name.toLowerCase().includes("second")) tplType = "second";
-//                 }
-
-//                 // 🔍 Service-specific template dhoondo
-//                 let serviceTemplate = null;
-//                 if (tpl.service && tpl.service !== "General") {
-//                   serviceTemplate = await TemplateModel.findOne({
-//                     userId,
-//                     platform: "shopify",
-//                     service: tpl.service,
-//                     type: tplType,
-//                     active: true,
-//                   });
-//                 }
-
-//                 // ❗Fallback: General
-//                 if (!serviceTemplate) {
-//                   serviceTemplate = await TemplateModel.findOne({
-//                     userId,
-//                     platform: "shopify",
-//                     service: "General",
-//                     type: tplType,
-//                     active: true,
-//                   });
-//                   if (serviceTemplate) {
-//                     console.log(`🔄 Fallback → General [General - ${tplType}]`);
-//                   }
-//                 }
-
-//                 if (serviceTemplate) {
-//                   finalTemplate = serviceTemplate.content;
-//                   console.log(
-//                     `✅ Final Template Chosen → [${serviceTemplate.service} - ${tplType}]`
-//                   );
-//                 } else {
-//                   console.warn(
-//                     `⚠️ No active template found for ${tpl.service} - ${tplType}`
-//                   );
-//                 }
-//               }
-//             }
-
-//             // 📤 Call email sender
-//             await sendEmailModule(
-//               { ...module, template: finalTemplate },
-//               from,
-//               subject
-//             );
+//             await sendEmailModule(module, from, subject);
 //           } else {
 //             console.log("      ⚠️ Unsupported module type:", module.type);
 //           }
@@ -624,11 +478,255 @@ export const executeScenarios = async (emailData) => {
 //       }
 //     }
 
-//     console.log("🚀 All scenarios executed.");
+//     console.log(" All scenarios executed.");
 //   } catch (err) {
-//     console.error("❌ Error in executeScenarios:", err);
+//     console.error(" Error in executeScenarios:", err);
 //   }
 // };
+
+
+
+
+
+export const executeScenarios = async (emailData) => {
+  try {
+    console.log("========== 🚀 [executeScenarios] START ==========");
+    console.log("📨 Incoming emailData:", JSON.stringify(emailData, null, 2));
+
+    const { userId, from, subject, body } = emailData;
+
+    console.log("🔍 Fetching scenarios for user:", userId);
+    const scenarios = await scenarioModel.find({ userId });
+    console.log(`✅ Found ${scenarios.length} scenarios for user ${userId}`);
+
+    for (const scenario of scenarios) {
+      console.log("-------------------------------------------------");
+      console.log(`👉 Checking scenario: ${scenario._id} | Name: ${scenario.name} | Type: ${scenario.type}`);
+
+      if (!scenario.routerBranches || scenario.routerBranches.length === 0) {
+        console.log("⚠️ No router branches found in this scenario.");
+        continue;
+      }
+
+      for (const branch of scenario.routerBranches) {
+        console.log("-------------------------------------------------");
+        console.log(`🔀 Checking branch: ${branch.id || branch._id}`);
+
+        if (!branch.filter || !Array.isArray(branch.filter.conditions)) {
+          console.log("⚠️ No filter conditions found, skipping this branch.");
+          continue;
+        }
+
+        // --- Match branch conditions ---
+        console.log(`🧪 Evaluating ${branch.filter.conditions.length} condition(s) for this branch...`);
+        const matches = branch.filter.conditions.every((cond, idx) => {
+          const fieldValue =
+            cond.field === "Body"
+              ? (body || "").toLowerCase()
+              : cond.field === "Subject"
+              ? (subject || "").toLowerCase()
+              : "";
+          const condValue = (cond.value || "").toLowerCase();
+          console.log(`   ➡️ Condition[${idx}]: field=${cond.field}, operator=${cond.operator}, value="${cond.value}"`);
+          console.log(`      ↳ FieldValue="${fieldValue}" | CondValue="${condValue}"`);
+
+          if (cond.operator === "Contains") return fieldValue.includes(condValue);
+          if (cond.operator === "Equal to") return fieldValue === condValue;
+          return false;
+        });
+
+        if (!matches) {
+          console.log("❌ Condition(s) NOT matched for branch:", branch.id);
+          continue;
+        }
+
+        console.log("✅ Condition(s) MATCHED for branch:", branch.id);
+
+        // --- Execute modules in order ---
+        if (!branch.modules || branch.modules.length === 0) {
+          console.log("⚠️ No modules found in this branch.");
+          continue;
+        }
+
+        for (let i = 0; i < branch.modules.length; i++) {
+          const module = branch.modules[i];
+          console.log("-------------------------------------------------");
+          console.log(`⚙️ Executing module [${i + 1}/${branch.modules.length}]:`);
+          console.log(`   → ID: ${module.id} | Type: ${module.type} | Template: "${module.template}" | ConnID: ${module.connectionId}`);
+
+          // ----- Delay -----
+if (module.type === "Delay" || (!module.type && module.app?.name === "Delay")) {
+  console.log("⏳ Delay module detected...");
+  const delayMs = convertToMs(module.delayValue, module.delayUnit);
+  console.log(`⏱ Scheduling delay of ${module.delayValue} ${module.delayUnit} (${delayMs} ms)`);
+
+  const remainingModules = [];
+
+  for (const nextModule of branch.modules.slice(i + 1)) {
+    // Plain object banate hain taake mongoose doc ka issue na ho
+    const plain = nextModule.toObject ? nextModule.toObject() : { ...nextModule };
+
+    // ✅ Agar module email bhejne ka hai to Shopify ka template resolve karo
+    if (plain.type === "Send an Email" || plain.type === "Custom Email") {
+      let templateContent = plain.template || "Thanks for your email!";
+
+      if (scenario.type?.toLowerCase() === "shopify") {
+        console.log(`🛒 [DelayScheduler] Shopify template resolution for delayed module: ${plain.id}`);
+
+        // 1️⃣ Step type detect karo
+        let stepType = "initial";
+        const lower = (plain.template || "").toLowerCase();
+        if (lower.includes("first")) stepType = "first";
+        else if (lower.includes("second")) stepType = "second";
+
+        // 2️⃣ Service detect karo
+        const defaultServices = [
+          "General","Troubleshooting","Theme customization","Store build or redesign",
+          "Store migration","Website and marketing content","SEO","Site performance and speed",
+          "Custom apps and integrations","Store settings configuration","Product and collection setup",
+          "Social media marketing","Product descriptions","Search engine advertising","POS setup and migration",
+          "Custom domain setup","Conversion rate optimization","Analytics and tracking","Sales channel setup",
+          "Logo and visual branding","Business strategy guidance","Website audit and optimization strategy",
+          "Sales tax guidance","Product photography","Email marketing","3D modelling","Banner ads",
+          "Video and illustrations","Content marketing","Product sourcing guidance"
+        ];
+        let matchedService = "General";
+        const textToSearch = (subject + " " + body).toLowerCase();
+        const found = defaultServices.find(s => textToSearch.includes(s.toLowerCase()));
+        if (found) matchedService = found;
+
+        console.log(`🔹 [DelayScheduler] Matched service: ${matchedService} | Step: ${stepType}`);
+
+        // 3️⃣ DB se template lao
+        const tpl = await TemplateModel.findOne({
+          userId,
+          platform: "shopify",
+          service: new RegExp(`^${matchedService}$`, "i"),
+          name: new RegExp(
+            stepType === "initial"
+              ? "Initial Email"
+              : stepType === "first"
+              ? "First Email"
+              : "Second Email",
+            "i"
+          ),
+          active: true
+        });
+
+        if (tpl) {
+          console.log(`✅ [DelayScheduler] Shopify template loaded: ${tpl.name}`);
+          templateContent = tpl.content;
+        } else {
+          console.log(`⚠️ [DelayScheduler] No Shopify template found for ${matchedService} - ${stepType}`);
+        }
+      }
+
+      plain.template = templateContent;
+    }
+
+    remainingModules.push(plain);
+  }
+
+  await DelayJobModel.create({
+    userId,
+    emailData,
+    modulesLeft: remainingModules,
+    scheduledAt: new Date(Date.now() + delayMs),
+  });
+
+  console.log(`✅ Delay scheduled. ${remainingModules.length} module(s) saved for later`);
+  break; 
+}
+
+
+
+          // ----- Send Email / Custom Email -----
+          if (module.type === "Send an Email" || module.type === "Custom Email") {
+            console.log("📧 Email module detected... Preparing email content");
+
+            let templateContent = module.template || "Thanks for your email!";
+
+            // 🌟 Agar scenario Shopify ka hai to user ki Shopify template nikaalo
+            if (scenario.type && scenario.type.toLowerCase() === "shopify") {
+              console.log("🛒 Scenario type is Shopify → trying to pick correct template");
+
+              // 1️⃣ Determine step type from module template
+              let stepType = "initial";
+              const lower = (module.template || "").toLowerCase();
+              if (lower.includes("first")) stepType = "first";
+              else if (lower.includes("second")) stepType = "second";
+              console.log(`🔹 Detected step type: ${stepType}`);
+
+              // 2️⃣ Detect service from email (case-insensitive)
+              const defaultServices = [
+                "General","Troubleshooting","Theme customization","Store build or redesign",
+                "Store migration","Website and marketing content","SEO","Site performance and speed",
+                "Custom apps and integrations","Store settings configuration","Product and collection setup",
+                "Social media marketing","Product descriptions","Search engine advertising","POS setup and migration",
+                "Custom domain setup","Conversion rate optimization","Analytics and tracking","Sales channel setup",
+                "Logo and visual branding","Business strategy guidance","Website audit and optimization strategy",
+                "Sales tax guidance","Product photography","Email marketing","3D modelling","Banner ads",
+                "Video and illustrations","Content marketing","Product sourcing guidance"
+              ];
+              let matchedService = "General";
+              const textToSearch = (subject + " " + body).toLowerCase();
+              const found = defaultServices.find(s =>
+                textToSearch.includes(s.toLowerCase())
+              );
+              if (found) matchedService = found;
+              console.log(`🛍️ Matched service from email: ${matchedService}`);
+
+              // 3️⃣ Fetch template (service + step) from DB
+              console.log("🔎 Looking for Shopify template in DB...");
+              const tpl = await TemplateModel.findOne({
+                userId,
+                platform: "shopify",
+                service: new RegExp(`^${matchedService}$`, "i"),
+                name: new RegExp(
+                  stepType === "initial"
+                    ? "Initial Email"
+                    : stepType === "first"
+                    ? "First Email"
+                    : "Second Email",
+                  "i"
+                ),
+                active: true,
+              });
+
+              if (tpl) {
+                console.log(`✅ Shopify template found: ${tpl.name}`);
+                templateContent = tpl.content;
+              } else {
+                console.log(`⚠️ No Shopify template found for ${matchedService} - ${stepType}`);
+              }
+            }
+
+            // ✅ DEBUG LOG before sending email
+            console.log("📨 Final email body to be sent:");
+            console.log("--------------------------------");
+            console.log(templateContent);
+            console.log("--------------------------------");
+
+            // --- Send email now ---
+const plainModule = module.toObject ? module.toObject() : module;
+await sendEmailModule({ ...plainModule, template: templateContent }, from, subject);
+          } else {
+            console.log("⚠️ Unsupported module type:", module.type);
+          }
+        }
+      }
+    }
+
+    console.log("✅✅ [executeScenarios] COMPLETED successfully.");
+    console.log("========== 🚀 [executeScenarios] END ==========");
+  } catch (err) {
+    console.error("❌ [executeScenarios] ERROR:", err);
+  }
+};
+
+
+
+
 
 const convertToMs = (value, unit) => {
   if (!value) return 0;
@@ -638,19 +736,162 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
+// export const sendEmailModule = async (module, to, originalSubject) => {
+//   const connection = await ConnectionModel.findById(module.connectionId);
+//   if (!connection) {
+//     return;
+//   }
+
+//   const finalSubject =
+//     module.subject && module.subject.trim() !== ''
+//       ? module.subject
+//       : `Re: ${originalSubject || 'No Subject'}`;
+
+//   if (connection.provider === 'gmail') {
+//     try {
+//       const oauth2Client = new google.auth.OAuth2(
+//         process.env.GOOGLE_CLIENT_ID,
+//         process.env.GOOGLE_CLIENT_SECRET,
+//         process.env.GOOGLE_REDIRECT_URI
+//       );
+//       oauth2Client.setCredentials(connection.tokens);
+
+//       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+//       const rawMessage = [
+//         `From: ${connection.email}`,
+//         `To: ${to}`,
+//         `Subject: ${finalSubject}`,
+//         'Content-Type: text/html; charset=UTF-8',
+//         '',
+//         module.template || 'Thanks for your email!',
+//       ]
+//         .join('\n')
+//         .trim();
+
+//       const encodedMessage = Buffer.from(rawMessage)
+//         .toString('base64')
+//         .replace(/\+/g, '-')
+//         .replace(/\//g, '_')
+//         .replace(/=+$/, '');
+
+//       await gmail.users.messages.send({
+//         userId: 'me',
+//         requestBody: { raw: encodedMessage },
+//       });
+
+//       console.log(
+//         `📤 Gmail: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+//       );
+//     } catch (err) {
+//       console.error('❌ Gmail send error:', err);
+//     }
+//   } else if (connection.provider === 'outlook') {
+//     try {
+//       const transporter = nodemailer.createTransport({
+//         host: connection.smtp?.host || 'smtp.office365.com',
+//         port: connection.smtp?.port || 587,
+//         secure: connection.smtp?.port === 465,
+//         auth: {
+//           user: connection.smtp?.username || connection.email,
+//           pass: connection.smtp?.password,
+//         },
+//       });
+
+//       await transporter.sendMail({
+//         from: connection.email,
+//         to,
+//         subject: finalSubject,
+//         html: module.template || 'Thanks for your email!',
+//       });
+
+//       console.log(
+//         `Outlook/SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+//       );
+//     } catch (err) {
+//       console.error(' Outlook/SMTP send error:', err);
+//     }
+//   } else if (connection.provider === 'smtp') {
+//     try {
+//       const transporter = nodemailer.createTransport({
+//         host: connection.smtpHost || connection.smtp?.host,
+//         port: connection.smtpPort || connection.smtp?.port || 587,
+//         secure: (connection.smtpPort || connection.smtp?.port) === 465,
+//         auth: {
+//           user:
+//             connection.smtpUser ||
+//             connection.smtp?.username ||
+//             connection.email,
+//           pass: connection.smtpPass || connection.smtp?.password,
+//         },
+//       });
+
+//       await transporter.sendMail({
+//         from: connection.email,
+//         to,
+//         subject: finalSubject,
+//         html: module.template || 'Thanks for your email!',
+//       });
+
+//       console.log(
+//         `📤 SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+//       );
+//     } catch (err) {
+//       console.error('❌ SMTP send error:', err);
+//     }
+//   } else {
+//     console.warn(' Unsupported provider:', connection.provider);
+//   }
+// };
+
+
 export const sendEmailModule = async (module, to, originalSubject) => {
+  console.log('📨 [sendEmailModule] START', {
+    moduleId: module?.id,
+    connectionId: module?.connectionId,
+    to,
+    originalSubject,
+    provider: module?.connectionProvider || 'unknown',
+  });
+
+  // --- Debug: module object full print (first 1 level)
+  console.log('🧩 [sendEmailModule] Module object snapshot:', {
+    id: module?.id,
+    type: module?.type,
+    subject: module?.subject,
+    templatePreview: (module?.template || '').slice(0, 50),
+    connectionId: module?.connectionId,
+  });
+
   const connection = await ConnectionModel.findById(module.connectionId);
   if (!connection) {
+    console.warn('⚠️ [sendEmailModule] No connection found for module:', module?.id);
     return;
   }
+
+  console.log('🔌 [Connection Loaded]', {
+    _id: connection._id,
+    provider: connection.provider,
+    email: connection.email,
+  });
 
   const finalSubject =
     module.subject && module.subject.trim() !== ''
       ? module.subject
       : `Re: ${originalSubject || 'No Subject'}`;
 
+  const emailBody = module.template || 'Thanks for your email!';
+
+  console.log('✉️ [Email Details]', {
+    from: connection.email,
+    to,
+    subject: finalSubject,
+    preview: emailBody.slice(0, 100) + (emailBody.length > 100 ? '...' : ''),
+  });
+
   if (connection.provider === 'gmail') {
     try {
+      console.log('🚀 [GMAIL] Preparing OAuth2 client...');
       const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
@@ -666,7 +907,7 @@ export const sendEmailModule = async (module, to, originalSubject) => {
         `Subject: ${finalSubject}`,
         'Content-Type: text/html; charset=UTF-8',
         '',
-        module.template || 'Thanks for your email!',
+        emailBody,
       ]
         .join('\n')
         .trim();
@@ -677,19 +918,22 @@ export const sendEmailModule = async (module, to, originalSubject) => {
         .replace(/\//g, '_')
         .replace(/=+$/, '');
 
-      await gmail.users.messages.send({
+      console.log('📦 [GMAIL] Encoded message length:', encodedMessage.length);
+
+      const result = await gmail.users.messages.send({
         userId: 'me',
         requestBody: { raw: encodedMessage },
       });
 
       console.log(
-        `📤 Gmail: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+        `✅ [GMAIL] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | Gmail-Id: ${result?.data?.id}`
       );
     } catch (err) {
-      console.error('❌ Gmail send error:', err);
+      console.error('❌ [GMAIL] send error:', err?.response?.data || err);
     }
   } else if (connection.provider === 'outlook') {
     try {
+      console.log('🚀 [OUTLOOK] Creating transporter...');
       const transporter = nodemailer.createTransport({
         host: connection.smtp?.host || 'smtp.office365.com',
         port: connection.smtp?.port || 587,
@@ -700,21 +944,22 @@ export const sendEmailModule = async (module, to, originalSubject) => {
         },
       });
 
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: connection.email,
         to,
         subject: finalSubject,
-        html: module.template || 'Thanks for your email!',
+        html: emailBody,
       });
 
       console.log(
-        `Outlook/SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+        `✅ [OUTLOOK] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | MessageId: ${info.messageId}`
       );
     } catch (err) {
-      console.error(' Outlook/SMTP send error:', err);
+      console.error('❌ [OUTLOOK] send error:', err);
     }
   } else if (connection.provider === 'smtp') {
     try {
+      console.log('🚀 [SMTP] Creating transporter...');
       const transporter = nodemailer.createTransport({
         host: connection.smtpHost || connection.smtp?.host,
         port: connection.smtpPort || connection.smtp?.port || 587,
@@ -728,20 +973,29 @@ export const sendEmailModule = async (module, to, originalSubject) => {
         },
       });
 
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: connection.email,
         to,
         subject: finalSubject,
-        html: module.template || 'Thanks for your email!',
+        html: emailBody,
       });
 
       console.log(
-        `📤 SMTP: Email sent to ${to} via ${connection.email} | subject: "${finalSubject}"`
+        `✅ [SMTP] Email sent to ${to} via ${connection.email} | subject: "${finalSubject}" | MessageId: ${info.messageId}`
       );
     } catch (err) {
-      console.error('❌ SMTP send error:', err);
+      console.error('❌ [SMTP] send error:', err);
     }
   } else {
-    console.warn(' Unsupported provider:', connection.provider);
+    console.warn('⚠️ [sendEmailModule] Unsupported provider:', connection.provider);
   }
+
+  console.log('🏁 [sendEmailModule] END\n');
 };
+
+
+
+
+
+
+
