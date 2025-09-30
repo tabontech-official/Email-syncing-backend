@@ -11,6 +11,7 @@ import { scenarioModel } from '../Models/Scenario.js';
 import { DelayJobModel } from '../Models/DelayJob.js';
 import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
+import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 function checkCondition(condition, email) {
   console.log('🔎 Checking condition:', condition, 'against email:', email);
 
@@ -395,6 +396,8 @@ export const mailHookWebhook = async (req, res) => {
       from: senderAddress, // customer email
       subject,
       body: textBody || htmlBody || '',
+        emailId: emailDoc._id.toString(), 
+
     });
     console.log('✅ Scenarios executed for:', senderAddress);
 
@@ -404,85 +407,6 @@ export const mailHookWebhook = async (req, res) => {
     res.status(500).send('Error processing email');
   }
 };
-
-// export const executeScenarios = async (emailData) => {
-//   try {
-//     console.log("Incoming emailData:", emailData);
-
-//     const { userId, from, subject, body } = emailData;
-
-//     console.log("Fetching scenarios for user:", userId);
-//     const scenarios = await scenarioModel.find({ userId });
-//     console.log(`Found ${scenarios.length} scenarios for user ${userId}`);
-
-//     for (const scenario of scenarios) {
-//       console.log("👉 Checking scenario:", scenario._id, scenario.name);
-
-//       for (const branch of scenario.routerBranches) {
-//         console.log("Checking branch:", branch.id);
-
-//         if (!branch.filter || !branch.filter.conditions) {
-//           console.log("No filter conditions found, skipping branch.");
-//           continue;
-//         }
-
-//         const matches = branch.filter.conditions.every((cond) => {
-//           const fieldValue =
-//             cond.field === "Body"
-//               ? (body || "").toLowerCase()
-//               : cond.field === "Subject"
-//               ? (subject || "").toLowerCase()
-//               : "";
-
-//           const condValue = (cond.value || "").toLowerCase();
-
-//           if (cond.operator === "Contains") return fieldValue.includes(condValue);
-//           if (cond.operator === "Equal to") return fieldValue === condValue;
-
-//           return false;
-//         });
-
-//         if (!matches) {
-//           console.log("Condition not matched for branch:", branch.id);
-//           continue;
-//         }
-
-//         console.log("Condition matched for branch:", branch.id);
-
-//         for (let i = 0; i < branch.modules.length; i++) {
-//           const module = branch.modules[i];
-//           console.log("      ⚙️ Executing module:", module.id, module.type);
-
-//           if (module.type === "Delay") {
-//             const delayMs = convertToMs(module.delayValue, module.delayUnit);
-
-//             await DelayJobModel.create({
-//               userId,
-//               emailData,
-//               modulesLeft: branch.modules.slice(i + 1),
-//               scheduledAt: new Date(Date.now() + delayMs),
-//             });
-
-//             console.log(
-//               `Delay scheduled: ${module.delayValue} ${module.delayUnit}, remaining modules saved for later`
-//             );
-//             break;
-//           }
-
-//           if (module.type === "Send an Email" || module.type === "Custom Email") {
-//             await sendEmailModule(module, from, subject);
-//           } else {
-//             console.log("      ⚠️ Unsupported module type:", module.type);
-//           }
-//         }
-//       }
-//     }
-
-//     console.log(" All scenarios executed.");
-//   } catch (err) {
-//     console.error(" Error in executeScenarios:", err);
-//   }
-// };
 
 
 
@@ -723,6 +647,7 @@ await sendEmailModule({ ...plainModule, template: templateContent }, from, subje
     console.error("❌ [executeScenarios] ERROR:", err);
   }
 };
+
 
 
 
