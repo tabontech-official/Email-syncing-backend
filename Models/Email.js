@@ -30,9 +30,22 @@ const emailSchema = new mongoose.Schema(
         size: Number,
       },
     ],
+    parentEmailId: { 
+  type: mongoose.Schema.Types.ObjectId, 
+  ref: "Email", 
+  default: null 
+},
+    isForwarded: { type: Boolean, default: false },
+    forwardedMeta: {
+      from: { type: String, default: null },
+      to: { type: String, default: null },
+      subject: { type: String, default: null },
+      date: { type: String, default: null },
+      body: { type: String, default: null }, // full forwarded block
+    },
     verificationCode: { type: String, default: null },
     verificationUrl: { type: String, default: null },
-      extraFields: { type: Object, default: {} },
+    extraFields: { type: Object, default: {} },
   },
   { timestamps: true }
 );

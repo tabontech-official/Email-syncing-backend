@@ -19,7 +19,9 @@ export const startDelayWorker = () => {
               await sendEmailModule(
                 module,
                 job.emailData.from,
-                job.emailData.subject
+                job.emailData.subject,
+                  job.emailId              
+
               );
 
               const statusDoc = await AutomationStatusModel.findOne({

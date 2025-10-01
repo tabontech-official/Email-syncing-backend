@@ -1,5 +1,5 @@
 import express from "express";
-import { getEmails, getEmailsForUsers, mailHookWebhook } from "../controller/smtpServer.js";
+import { getEmailDataforUser, getEmails, getEmailsForUsers, mailHookWebhook } from "../controller/smtpServer.js";
 import multer from "multer";
 
 const upload = multer();
@@ -7,4 +7,6 @@ const emailRouter = express.Router();
 
 emailRouter.post("/", upload.none(), mailHookWebhook);
 emailRouter.get('/getAllEmails/:userId',getEmailsForUsers)
+emailRouter.get('/getAllEmailsData/:emailId',getEmailDataforUser)
+
 export default emailRouter;
