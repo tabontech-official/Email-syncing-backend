@@ -671,25 +671,66 @@ export const mailHookWebhook = async (req, res) => {
 //     console.error('❌ [executeScenarios] ERROR:', err);
 //   }
 // };
+function fillTemplate(template, fields) {
+  return template.replace(/{{(.*?)}}/g, (_, key) => {
+    const cleanKey = key.trim();
+    return fields[cleanKey] || "";
+  });
+}
 
+function extractFieldsFromEmail(emailObj = {}) {
+  const fields = {};
+
+  // Full Name from sender
+  fields.FullName = emailObj.from?.value?.[0]?.name || "";
+
+  // Business Email
+  fields.BusinessEmail = emailObj.from?.value?.[0]?.address || "";
+
+  // Parse key-value pairs (Budget, Country, etc.)
+  const kv = parseKeyValuePairs(emailObj.text || "");
+  if (kv.budget) fields.Budget = kv.budget;
+  if (kv.country) fields.Country = kv.country;
+
+  // Store name
+  const storeMatch = (emailObj.text || "").match(/store\s+"([^"]+)"/i);
+  if (storeMatch) fields.StoreName = storeMatch[1];
+
+  // Store URL
+  const urlMatch = (emailObj.text || "").match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) fields.StoreURL = urlMatch[0];
+
+  // ProblemGoal → first 2–3 lines of email text
+  const lines = (emailObj.text || "")
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+  fields.ProblemGoal = lines.slice(1, 3).join(" ") || "";
+
+  // Service → subject
+  fields.Service = emailObj.subject || "";
+
+  return fields;
+}
 
 export const executeScenarios = async (emailData) => {
   try {
-    const { userId, from, subject, body, emailId } = emailData;
+    const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
+
+    // 🟪 Extract placeholders once
+    const extractedFields = extractFieldsFromEmail(
+      parsedEmailObj || { text: body, subject, from }
+    );
 
     const scenarios = await scenarioModel.find({ userId });
 
     for (const scenario of scenarios) {
-      if (!scenario.routerBranches || scenario.routerBranches.length === 0) {
-        continue;
-      }
+      if (!scenario.routerBranches || scenario.routerBranches.length === 0) continue;
 
       for (const branch of scenario.routerBranches) {
-        if (!branch.filter || !Array.isArray(branch.filter.conditions)) {
-          continue;
-        }
+        if (!branch.filter || !Array.isArray(branch.filter.conditions)) continue;
 
-        // ✅ Condition match check
+        // ✅ Condition check
         const matches = branch.filter.conditions.every((cond) => {
           const fieldValue =
             cond.field === "Body"
@@ -707,7 +748,7 @@ export const executeScenarios = async (emailData) => {
         if (!matches) continue;
         if (!branch.modules || branch.modules.length === 0) continue;
 
-        // ✅ Status doc create
+        // ✅ Status doc
         let statusDoc = await AutomationStatusModel.create({
           userId,
           emailId,
@@ -722,13 +763,12 @@ export const executeScenarios = async (emailData) => {
           const module = branch.modules[i];
 
           try {
-            // ---------------- Delay Module ----------------
+            // ---------------- Delay ----------------
             if (
               module.type === "Delay" ||
               (!module.type && module.app?.name === "Delay")
             ) {
               const delayMs = convertToMs(module.delayValue, module.delayUnit);
-
               const remainingModules = [];
 
               for (const nextModule of branch.modules.slice(i + 1)) {
@@ -736,7 +776,6 @@ export const executeScenarios = async (emailData) => {
                   ? nextModule.toObject()
                   : { ...nextModule };
 
-                // ✅ Email module inside Delay
                 if (
                   plain.type === "Send an Email" ||
                   plain.type === "Custom Email"
@@ -750,37 +789,17 @@ export const executeScenarios = async (emailData) => {
                     else if (lower.includes("second")) stepType = "second";
 
                     const defaultServices = [
-                      "General",
-                      "Troubleshooting",
-                      "Theme customization",
-                      "Store build or redesign",
-                      "Store migration",
-                      "Website and marketing content",
-                      "SEO",
-                      "Site performance and speed",
-                      "Custom apps and integrations",
-                      "Store settings configuration",
-                      "Product and collection setup",
-                      "Social media marketing",
-                      "Product descriptions",
-                      "Search engine advertising",
-                      "POS setup and migration",
-                      "Custom domain setup",
-                      "Conversion rate optimization",
-                      "Analytics and tracking",
-                      "Sales channel setup",
-                      "Logo and visual branding",
-                      "Business strategy guidance",
-                      "Website audit and optimization strategy",
-                      "Sales tax guidance",
-                      "Product photography",
-                      "Email marketing",
-                      "3D modelling",
-                      "Banner ads",
-                      "Video and illustrations",
-                      "Content marketing",
-                      "Product sourcing guidance",
+                      "General","Troubleshooting","Theme customization","Store build or redesign",
+                      "Store migration","Website and marketing content","SEO","Site performance and speed",
+                      "Custom apps and integrations","Store settings configuration","Product and collection setup",
+                      "Social media marketing","Product descriptions","Search engine advertising",
+                      "POS setup and migration","Custom domain setup","Conversion rate optimization",
+                      "Analytics and tracking","Sales channel setup","Logo and visual branding",
+                      "Business strategy guidance","Website audit and optimization strategy","Sales tax guidance",
+                      "Product photography","Email marketing","3D modelling","Banner ads",
+                      "Video and illustrations","Content marketing","Product sourcing guidance"
                     ];
+
                     let matchedService = "General";
                     const textToSearch = (subject + " " + body).toLowerCase();
                     const found = defaultServices.find((s) =>
@@ -788,7 +807,6 @@ export const executeScenarios = async (emailData) => {
                     );
                     if (found) matchedService = found;
 
-                    // ✅ Active template fetch
                     const tpl = await TemplateModel.findOne({
                       userId,
                       platform: "shopify",
@@ -804,10 +822,8 @@ export const executeScenarios = async (emailData) => {
                       active: true,
                     });
 
-                    if (tpl) {
-                      templateContent = tpl.content;
-                    } else {
-                      // ✅ Shopify fallback to General
+                    if (tpl) templateContent = tpl.content;
+                    else {
                       const generalTpl = await TemplateModel.findOne({
                         userId,
                         platform: "shopify",
@@ -822,16 +838,12 @@ export const executeScenarios = async (emailData) => {
                         ),
                         active: true,
                       });
-                      if (generalTpl) {
-                        templateContent = generalTpl.content;
-                      }
+                      if (generalTpl) templateContent = generalTpl.content;
                     }
-                  } else {
-                    // ✅ Others: No General fallback
-                    templateContent = plain.template || "";
                   }
 
-                  plain.template = templateContent;
+                  // 🟪 Fill placeholders
+                  plain.template = fillTemplate(templateContent, extractedFields);
                 }
 
                 remainingModules.push(plain);
@@ -855,10 +867,10 @@ export const executeScenarios = async (emailData) => {
                 },
               });
 
-              break; // stop further modules until delay executes
+              break;
             }
 
-            // ---------------- Send Email Module ----------------
+            // ---------------- Send Email ----------------
             if (
               module.type === "Send an Email" ||
               module.type === "Custom Email"
@@ -872,37 +884,17 @@ export const executeScenarios = async (emailData) => {
                 else if (lower.includes("second")) stepType = "second";
 
                 const defaultServices = [
-                  "General",
-                  "Troubleshooting",
-                  "Theme customization",
-                  "Store build or redesign",
-                  "Store migration",
-                  "Website and marketing content",
-                  "SEO",
-                  "Site performance and speed",
-                  "Custom apps and integrations",
-                  "Store settings configuration",
-                  "Product and collection setup",
-                  "Social media marketing",
-                  "Product descriptions",
-                  "Search engine advertising",
-                  "POS setup and migration",
-                  "Custom domain setup",
-                  "Conversion rate optimization",
-                  "Analytics and tracking",
-                  "Sales channel setup",
-                  "Logo and visual branding",
-                  "Business strategy guidance",
-                  "Website audit and optimization strategy",
-                  "Sales tax guidance",
-                  "Product photography",
-                  "Email marketing",
-                  "3D modelling",
-                  "Banner ads",
-                  "Video and illustrations",
-                  "Content marketing",
-                  "Product sourcing guidance",
+                  "General","Troubleshooting","Theme customization","Store build or redesign",
+                  "Store migration","Website and marketing content","SEO","Site performance and speed",
+                  "Custom apps and integrations","Store settings configuration","Product and collection setup",
+                  "Social media marketing","Product descriptions","Search engine advertising",
+                  "POS setup and migration","Custom domain setup","Conversion rate optimization",
+                  "Analytics and tracking","Sales channel setup","Logo and visual branding",
+                  "Business strategy guidance","Website audit and optimization strategy","Sales tax guidance",
+                  "Product photography","Email marketing","3D modelling","Banner ads",
+                  "Video and illustrations","Content marketing","Product sourcing guidance"
                 ];
+
                 let matchedService = "General";
                 const textToSearch = (subject + " " + body).toLowerCase();
                 const found = defaultServices.find((s) =>
@@ -910,7 +902,6 @@ export const executeScenarios = async (emailData) => {
                 );
                 if (found) matchedService = found;
 
-                // ✅ Active template fetch
                 const tpl = await TemplateModel.findOne({
                   userId,
                   platform: "shopify",
@@ -926,10 +917,8 @@ export const executeScenarios = async (emailData) => {
                   active: true,
                 });
 
-                if (tpl) {
-                  templateContent = tpl.content;
-                } else {
-                  // ✅ Shopify fallback to General
+                if (tpl) templateContent = tpl.content;
+                else {
                   const generalTpl = await TemplateModel.findOne({
                     userId,
                     platform: "shopify",
@@ -944,14 +933,12 @@ export const executeScenarios = async (emailData) => {
                     ),
                     active: true,
                   });
-                  if (generalTpl) {
-                    templateContent = generalTpl.content;
-                  }
+                  if (generalTpl) templateContent = generalTpl.content;
                 }
-              } else {
-                // ✅ Others: No fallback
-                templateContent = module.template || "";
               }
+
+              // 🟪 Fill placeholders
+              templateContent = fillTemplate(templateContent, extractedFields);
 
               const plainModule = module.toObject ? module.toObject() : module;
               await sendEmailModule(
@@ -991,17 +978,14 @@ export const executeScenarios = async (emailData) => {
           }
         }
 
-        // ✅ Final check for completion
+        // ✅ Final check
         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
         if (
           finalDoc.pendingModules.length === 0 &&
           finalDoc.status !== "failed"
         ) {
           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-            $set: {
-              status: "completed",
-              lastExecutedAt: new Date(),
-            },
+            $set: { status: "completed", lastExecutedAt: new Date() },
           });
         }
       }
