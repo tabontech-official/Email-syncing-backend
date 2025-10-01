@@ -94,18 +94,70 @@ export const getSingleScenario = async (req, res) => {
   }
 };
 
+// export const updateScenario = async (req, res) => {
+//   try {
+//     const updated = await scenarioModel.findByIdAndUpdate(
+//       req.params.id,
+//       req.body,
+//       { new: true }
+//     );
+//     res.json(updated);
+//   } catch (error) {
+//     res.status(400).json({ error: error.message });
+//   }
+// };
+
+
 export const updateScenario = async (req, res) => {
   try {
+    console.log("🔹 [updateScenario] Called");
+    console.log("📌 Params ID:", req.params.id);
+    console.log("📌 Incoming Body:", JSON.stringify(req.body, null, 2));
+
     const updated = await scenarioModel.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true }
+      { $set: {
+          name: req.body.name,
+          description: req.body.description,
+          type: req.body.type,
+          routerBranches: req.body.routerBranches.map(branch => ({
+            id: branch.id,
+            hasModule: branch.hasModule,
+            condition: branch.condition,
+            filter: branch.filter,
+            modules: (branch.modules || []).map(m => ({
+              id: m.id,
+              type: m.type,
+              description: m.description,
+              subject: m.subject,
+              cc: m.cc,
+              bcc: m.bcc,
+              connectionId: Array.isArray(m.connectionId) ? m.connectionId[0] : m.connectionId,
+              template: m.template,
+              delayValue: m.delayValue,
+              delayUnit: m.delayUnit,
+              app: m.app,
+            }))
+          }))
+        }
+      },
+      { new: true, runValidators: true }
     );
+
+    if (!updated) {
+      console.log("⚠️ No scenario found for ID:", req.params.id);
+      return res.status(404).json({ error: "Scenario not found" });
+    }
+
+    console.log("✅ Updated Scenario:", JSON.stringify(updated, null, 2));
     res.json(updated);
+
   } catch (error) {
+    console.error("❌ [updateScenario] Error:", error.message);
     res.status(400).json({ error: error.message });
   }
 };
+
 
 export const deleteScenario = async (req, res) => {
   try {
