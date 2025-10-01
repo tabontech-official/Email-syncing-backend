@@ -673,6 +673,9 @@ export const mailHookWebhook = async (req, res) => {
 //     console.error('❌ [executeScenarios] ERROR:', err);
 //   }
 // };
+
+
+
 function fillTemplate(template, fields) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
     const cleanKey = key.trim();
@@ -721,7 +724,6 @@ export const executeScenarios = async (emailData) => {
   try {
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
-    // 🟪 Extract placeholders once
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
