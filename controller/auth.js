@@ -353,9 +353,26 @@ export const googleAuthCallback = async (req, res) => {
     await connection.save();
     console.log('✅ Gmail connected:', userEmail);
 
-    return res.redirect(
-      `http://localhost:3006/scenarios/others?status=success&connectionId=${connection._id}`
-    );
+  return res.send(`
+  <html>
+    <body style="font-family: sans-serif; text-align: center; padding: 40px;">
+      <h2>Gmail connected successfully!</h2>
+      <p>You can close this window.</p>
+      <script>
+        if (window.opener) {
+          // inform parent page
+          window.opener.postMessage(
+            { type: "google-auth-success", connectionId: "${connection._id}" },
+            "*"
+          );
+          // close after short delay
+          setTimeout(() => window.close(), 1000);
+        }
+      </script>
+    </body>
+  </html>
+`);
+
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
     return res.redirect('http://localhost:3006/connection?status=error');
