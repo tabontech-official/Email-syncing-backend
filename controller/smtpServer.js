@@ -367,6 +367,8 @@ export const mailHookWebhook = async (req, res) => {
       subject,
       body: textBody || htmlBody || '',
       emailId: emailDoc._id.toString(),
+        parsedEmailObj: parsed,   
+
     });
     console.log('✅ Scenarios executed for email:', emailDoc._id.toString());
 
@@ -681,37 +683,39 @@ function fillTemplate(template, fields) {
 function extractFieldsFromEmail(emailObj = {}) {
   const fields = {};
 
-  // Full Name from sender
-  fields.FullName = emailObj.from?.value?.[0]?.name || "";
+  // ✅ Full Name & Email
+  if (emailObj.from?.value?.[0]) {
+    fields.FullName = emailObj.from.value[0].name || "";
+    fields.BusinessEmail = emailObj.from.value[0].address || "";
+  } else if (typeof emailObj.from === "string") {
+    const match = emailObj.from.match(/^(.*?)\s*<(.+)>$/);
+    fields.FullName = match ? match[1].trim() : "";
+    fields.BusinessEmail = match ? match[2].trim() : emailObj.from;
+  }
 
-  // Business Email
-  fields.BusinessEmail = emailObj.from?.value?.[0]?.address || "";
-
-  // Parse key-value pairs (Budget, Country, etc.)
+  // ✅ Budget, Country
   const kv = parseKeyValuePairs(emailObj.text || "");
   if (kv.budget) fields.Budget = kv.budget;
   if (kv.country) fields.Country = kv.country;
 
-  // Store name
+  // ✅ Store name
   const storeMatch = (emailObj.text || "").match(/store\s+"([^"]+)"/i);
   if (storeMatch) fields.StoreName = storeMatch[1];
 
-  // Store URL
+  // ✅ Store URL
   const urlMatch = (emailObj.text || "").match(/https?:\/\/[^\s]+/i);
   if (urlMatch) fields.StoreURL = urlMatch[0];
 
-  // ProblemGoal → first 2–3 lines of email text
-  const lines = (emailObj.text || "")
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean);
+  // ✅ ProblemGoal
+  const lines = (emailObj.text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   fields.ProblemGoal = lines.slice(1, 3).join(" ") || "";
 
-  // Service → subject
+  // ✅ Service
   fields.Service = emailObj.subject || "";
 
   return fields;
 }
+
 
 export const executeScenarios = async (emailData) => {
   try {
