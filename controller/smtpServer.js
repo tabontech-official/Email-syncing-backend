@@ -1324,17 +1324,82 @@ export const sendEmailModule = async (
   console.log('🏁 [sendEmailModule] END\n');
 };
 
+// export const getEmailsForUsers = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+
+//     const emails = await EmailModel.find({
+//       userId,
+//       isForwarded: false,
+//       parentEmailId: null,
+//     })
+//       .sort({ date: -1 })
+//       .lean();
+
+//     if (!emails || emails.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No parent emails found for this user",
+//       });
+//     }
+
+//     const emailIds = emails.map((e) => e._id.toString());
+
+//     const statuses = await AutomationStatusModel.find({
+//       userId,
+//       emailId: { $in: emailIds },
+//     })
+//       .populate("scenarioId", "name type")
+//       .lean();
+
+//     const statusMap = {};
+//     statuses.forEach((s) => {
+//       if (!statusMap[s.emailId]) statusMap[s.emailId] = [];
+//       statusMap[s.emailId].push(s);
+//     });
+
+//     const result = emails.map((email) => ({
+//       ...email,
+//       statuses: statusMap[email._id.toString()] || [],
+//     }));
+
+//     return res.json({
+//       success: true,
+//       totalEmails: emails.length,
+//       data: result,
+//     });
+//   } catch (err) {
+//     console.error("❌ getEmailsForUsers error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching parent emails",
+//     });
+//   }
+// };
+
 export const getEmailsForUsers = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { page = 1, limit = 10 } = req.query; // pagination params
 
-    // 👉 Sirf parent emails fetch karo (jo mailhook se aayi hain)
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // 🔹 1. Total parent emails count (for pagination)
+    const totalEmails = await EmailModel.countDocuments({
+      userId,
+      isForwarded: false,
+      parentEmailId: null,
+    });
+
+    // 🔹 2. Paginated parent emails
     const emails = await EmailModel.find({
       userId,
       isForwarded: false,
       parentEmailId: null,
     })
       .sort({ date: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
       .lean();
 
     if (!emails || emails.length === 0) {
@@ -1346,6 +1411,7 @@ export const getEmailsForUsers = async (req, res) => {
 
     const emailIds = emails.map((e) => e._id.toString());
 
+    // 🔹 3. Fetch statuses for these paginated emails
     const statuses = await AutomationStatusModel.find({
       userId,
       emailId: { $in: emailIds },
@@ -1353,23 +1419,74 @@ export const getEmailsForUsers = async (req, res) => {
       .populate("scenarioId", "name type")
       .lean();
 
-    // ✅ Map statuses with emailId
+    // 🔹 4. Map statuses to emails
     const statusMap = {};
     statuses.forEach((s) => {
       if (!statusMap[s.emailId]) statusMap[s.emailId] = [];
       statusMap[s.emailId].push(s);
     });
 
-    // ✅ Attach statuses to each email
     const result = emails.map((email) => ({
       ...email,
       statuses: statusMap[email._id.toString()] || [],
     }));
 
+    // 🔹 5. Fetch ALL emails (for stats, not paginated)
+    const allEmails = await EmailModel.find({
+      userId,
+      isForwarded: false,
+      parentEmailId: null,
+    })
+      .lean();
+
+    // Stats calculation
+    let stats = {
+      total: allEmails.length,
+      processed: 0,
+      partial: 0,
+      failed: 0,
+      pending: 0,
+    };
+
+    // Get all statuses for all emails
+    const allStatuses = await AutomationStatusModel.find({
+      userId,
+      emailId: { $in: allEmails.map((e) => e._id.toString()) },
+    }).lean();
+
+    const allStatusMap = {};
+    allStatuses.forEach((s) => {
+      if (!allStatusMap[s.emailId]) allStatusMap[s.emailId] = [];
+      allStatusMap[s.emailId].push(s);
+    });
+
+    // Assign stats
+   allEmails.forEach((email) => {
+  const sList = allStatusMap[email._id.toString()] || [];
+
+  if (!sList.length) {
+    stats.pending++;
+  } else if (sList.every((s) => s.status === "completed")) {
+    stats.processed++;
+  } else if (sList.every((s) => s.status === "failed")) {
+    stats.failed++;
+  } else if (sList.some((s) => s.status === "partial")) {
+    stats.partial++;
+  } else if (sList.every((s) => s.status === "pending")) {
+    stats.pending++;
+  } else {
+    stats.pending++;
+  }
+});
+
+    // 🔹 6. Response
     return res.json({
       success: true,
-      totalEmails: emails.length,
-      data: result,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalEmails / parseInt(limit)),
+      totalEmails,
+      stats, // 👈 Cards ke liye
+      data: result, // 👈 Table ke liye
     });
   } catch (err) {
     console.error("❌ getEmailsForUsers error:", err);
@@ -1379,6 +1496,7 @@ export const getEmailsForUsers = async (req, res) => {
     });
   }
 };
+
 
 
 
