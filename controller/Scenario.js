@@ -167,3 +167,28 @@ export const deleteScenario = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+
+export const getShopifyScenarioByUserId = async (req, res) => {
+  try {
+    // frontend se userId aayega (req.body ya req.query me)
+    const { userId } = req.body; // ya req.query.userId agar query se bhejna ho
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const scenario = await scenarioModel.findOne({
+      userId: userId,
+      type: "shopify",
+    });
+
+    if (!scenario) {
+      return res.status(404).json({ message: "Shopify scenario not found" });
+    }
+
+    res.json(scenario);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

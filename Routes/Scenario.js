@@ -5,6 +5,7 @@ import {
   getSingleScenario,
   updateScenario,
   deleteScenario,
+  getShopifyScenarioByUserId,
 } from '../controller/Scenario.js';
 
 const scenarioRouter = express.Router();
@@ -14,6 +15,7 @@ scenarioRouter.post('/', addScenario);
 scenarioRouter.get('/user/:userId', getUserScenarios);
 
 scenarioRouter.get('/detail/:id', getSingleScenario);
+scenarioRouter.post('/details', getShopifyScenarioByUserId);
 
 scenarioRouter.put('/detail/:id', updateScenario);
 

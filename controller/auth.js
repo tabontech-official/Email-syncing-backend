@@ -11,6 +11,7 @@ import { ConnectionModel } from '../Models/Connection.js';
 import { TemplateModel } from '../Models/Template.js';
 import nodemailer from 'nodemailer';
 import path from 'path';
+import { scenarioModel } from '../Models/Scenario.js';
 
 // defaultTemplates.js
 export const defaultServices = [
@@ -53,25 +54,46 @@ const createToken = (payLoad) => {
   return token;
 };
 
+
 // export const signUp = async (req, res) => {
 //   try {
 //     const userExist = await authModel.findOne({ email: req.body.email });
 //     if (userExist) {
-//       throw new Error("User already exists with this email");
+//       throw new Error('User already exists with this email');
 //     }
 
 //     const newUser = new authModel(req.body);
-
 //     const savedUser = await newUser.save();
 
 //     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
-
 //     await savedUser.save();
+
+//     const templates = [];
+
+//     defaultServices.forEach((service) => {
+//       ['Initial Email', 'First Email', 'Second Email'].forEach(
+//         (emailName, idx) => {
+//           templates.push({
+//             userId: savedUser._id,
+//             platform: 'shopify',
+//             service,
+//             name: `${service} - ${emailName}`,
+//             type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
+//             conditions: [],
+//             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
+//             active: true,
+//             locked: service === 'General',
+//           });
+//         }
+//       );
+//     });
+
+//     await TemplateModel.insertMany(templates);
 
 //     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
 //     res.send({
-//       message: "Successfully registered",
+//       message: 'Successfully registered',
 //       token,
 //       data: savedUser,
 //     });
@@ -80,11 +102,12 @@ const createToken = (payLoad) => {
 //   }
 // };
 
+
 export const signUp = async (req, res) => {
   try {
     const userExist = await authModel.findOne({ email: req.body.email });
     if (userExist) {
-      throw new Error('User already exists with this email');
+      throw new Error("User already exists with this email");
     }
 
     const newUser = new authModel(req.body);
@@ -93,32 +116,106 @@ export const signUp = async (req, res) => {
     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
     await savedUser.save();
 
+    // --- Default Templates ---
     const templates = [];
-
     defaultServices.forEach((service) => {
-      ['Initial Email', 'First Email', 'Second Email'].forEach(
+      ["Initial Email", "First Email", "Second Email"].forEach(
         (emailName, idx) => {
           templates.push({
             userId: savedUser._id,
-            platform: 'shopify',
+            platform: "shopify",
             service,
             name: `${service} - ${emailName}`,
-            type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
+            type: idx === 0 ? "initial" : idx === 1 ? "first" : "second",
             conditions: [],
             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
             active: true,
-            locked: service === 'General',
+            locked: service === "General",
           });
         }
       );
     });
-
     await TemplateModel.insertMany(templates);
 
+    // --- Default Shopify Scenario ---
+    const defaultScenario = {
+      userId: savedUser._id,
+      name: "Shopify scenario",
+      description: "",
+      type: "shopify",
+      routerBranches: [
+        {
+          id: 2,
+          hasModule: false,
+          condition: null,
+          modules: [
+            {
+              id: "1759389173211",
+              app: {
+                name: "Gmail",
+                color: "bg-red-500",
+                icon: "Gmail",
+              },
+              subject: "",
+              cc: [],
+              bcc: [],
+              type: "Send an Email",
+              description: "Send an email via Gmail",
+              connectionId: "",
+              template: "Initial Email",
+              delayValue: 5,
+              delayUnit: "seconds",
+              filter: { conditions: [] },
+            },
+            {
+              id: "1759389175969",
+              app: {
+                name: "Delay",
+                color: "bg-blue-500",
+                icon: "Delay",
+              },
+              subject: "",
+              cc: [],
+              bcc: [],
+              type: "",
+              description: "",
+              connectionId: "",
+              template: "",
+              delayValue: 5,
+              delayUnit: "seconds",
+              filter: { conditions: [] },
+            },
+            {
+              id: "1759389185521",
+              app: {
+                name: "Gmail",
+                color: "bg-red-500",
+                icon: "Gmail",
+              },
+              subject: "",
+              cc: [],
+              bcc: [],
+              type: "Send an Email",
+              description: "Send an email via Gmail",
+              connectionId: "",
+              template: "First Email",
+              delayValue: 5,
+              delayUnit: "seconds",
+              filter: { conditions: [] },
+            },
+          ],
+          filter: { conditions: [] },
+        },
+      ],
+    };
+
+    await scenarioModel.create(defaultScenario);
+
+    // --- Token Create ---
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
-      message: 'Successfully registered',
+      message: "Successfully registered",
       token,
       data: savedUser,
     });
@@ -126,6 +223,8 @@ export const signUp = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
+
+
 
 export const signIn = async (req, res) => {
   try {
@@ -213,7 +312,7 @@ export const verifyUser = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
-   const { userId } = req.params; 
+    const { userId } = req.params;
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
@@ -232,18 +331,6 @@ export const logout = async (req, res) => {
     res.status(500).json({ error: 'An error occurred' });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
 
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -286,7 +373,6 @@ export const googleAuth = (req, res) => {
   res.redirect(authUrl);
 };
 
-// Controller
 export const googleAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
@@ -305,7 +391,6 @@ export const googleAuthCallback = async (req, res) => {
       REDIRECT_URI
     );
 
-    // Exchange auth code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
@@ -315,7 +400,6 @@ export const googleAuthCallback = async (req, res) => {
       );
     }
 
-    // Fetch Gmail user profile
     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
     const response = await peopleApi.people.get({
       resourceName: 'people/me',
@@ -328,7 +412,6 @@ export const googleAuthCallback = async (req, res) => {
     if (!userEmail)
       return res.status(400).send('No email found in Google profile');
 
-    // Ensure unique Gmail per userId
     let connection = await ConnectionModel.findOne({
       userId,
       email: userEmail,
@@ -351,9 +434,8 @@ export const googleAuthCallback = async (req, res) => {
     }
 
     await connection.save();
-    console.log('✅ Gmail connected:', userEmail);
 
-  return res.send(`
+    return res.send(`
   <html>
     <body style="font-family: sans-serif; text-align: center; padding: 40px;">
       <h2>Gmail connected successfully!</h2>
@@ -372,7 +454,6 @@ export const googleAuthCallback = async (req, res) => {
     </body>
   </html>
 `);
-
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
     return res.redirect('http://localhost:3006/connection?status=error');
