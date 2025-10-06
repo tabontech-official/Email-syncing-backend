@@ -1522,8 +1522,8 @@ export const getEmailsForUsers = async (req, res) => {
       currentPage: parseInt(page),
       totalPages: Math.ceil(totalEmails / parseInt(limit)),
       totalEmails,
-      stats, 
-      data: result, 
+      stats,
+      data: result,
     });
   } catch (err) {
     console.error('❌ getEmailsForUsers error:', err);
@@ -1534,374 +1534,155 @@ export const getEmailsForUsers = async (req, res) => {
   }
 };
 
+// export const getEmailDataforUser = async (req, res) => {
+//   try {
+//     const { emailId } = req.params;
+
+//     if (!emailId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email ID is required',
+//       });
+//     }
+
+//     if (!mongoose.Types.ObjectId.isValid(emailId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid email ID format',
+//       });
+//     }
+
+//     // 1️⃣ Get the email
+//     const email = await EmailModel.findById(emailId)
+//       .populate('userId', 'name email')
+//       .populate('templateId');
+
+//     if (!email) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Email not found',
+//       });
+//     }
+
+//     // 2️⃣ Find root (walk up till no parent)
+//     let rootEmail = email;
+//     while (rootEmail.parentEmailId) {
+//       rootEmail = await EmailModel.findById(rootEmail.parentEmailId)
+//         .populate('userId', 'name email')
+//         .populate('templateId');
+//     }
+
+//     // 3️⃣ Recursive fetch children (root → all replies/forwards)
+//     const fetchChildren = async (parentId) => {
+//       const children = await EmailModel.find({ parentEmailId: parentId })
+//         .populate('userId', 'name email')
+//         .populate('templateId')
+//         .lean();
+
+//       for (let child of children) {
+//         child.children = await fetchChildren(child._id);
+//       }
+//       return children;
+//     };
+
+//     const childrenChain = await fetchChildren(rootEmail._id);
+
+//     // 4️⃣ Get automation statuses for current email
+//     const statuses = await AutomationStatusModel.find({ emailId })
+//       .populate('scenarioId', 'name description')
+//       .lean();
+
+//     // 5️⃣ Final response
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         rootEmail, // 👈 mailhook wali main parent
+//         children: childrenChain, // 👈 saari responses
+//         currentEmail: email, // 👈 jis id se query aayi thi
+//         statuses,
+//       },
+//     });
+//   } catch (error) {
+//     console.error('Error fetching email data:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Server error while fetching email data',
+//       error: error.message,
+//     });
+//   }
+// };
+
 export const getEmailDataforUser = async (req, res) => {
   try {
-    const { emailId } = req.params;
+    const { userId } = req.params;
 
-    if (!emailId) {
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        message: 'Email ID is required',
+        message: 'User ID is required',
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(emailId)) {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid email ID format',
+        message: 'Invalid user ID format',
       });
     }
 
-    // 1️⃣ Get the email
-    const email = await EmailModel.findById(emailId)
+    // 1️⃣ Get all emails for this user
+    const userEmails = await EmailModel.find({ userId })
       .populate('userId', 'name email')
-      .populate('templateId');
+      .populate('templateId')
+      .lean();
 
-    if (!email) {
+    if (!userEmails.length) {
       return res.status(404).json({
         success: false,
-        message: 'Email not found',
+        message: 'No emails found for this user',
       });
     }
 
-    // 2️⃣ Find root (walk up till no parent)
-    let rootEmail = email;
-    while (rootEmail.parentEmailId) {
-      rootEmail = await EmailModel.findById(rootEmail.parentEmailId)
-        .populate('userId', 'name email')
-        .populate('templateId');
-    }
+    // 2️⃣ Create a lookup map for quick access
+    const emailMap = {};
+    userEmails.forEach(
+      (email) => (emailMap[email._id] = { ...email, children: [] })
+    );
 
-    // 3️⃣ Recursive fetch children (root → all replies/forwards)
-    const fetchChildren = async (parentId) => {
-      const children = await EmailModel.find({ parentEmailId: parentId })
-        .populate('userId', 'name email')
-        .populate('templateId')
-        .lean();
-
-      for (let child of children) {
-        child.children = await fetchChildren(child._id);
+    // 3️⃣ Build the tree (root → replies)
+    const rootEmails = [];
+    userEmails.forEach((email) => {
+      if (email.parentEmailId && emailMap[email.parentEmailId]) {
+        emailMap[email.parentEmailId].children.push(emailMap[email._id]);
+      } else {
+        rootEmails.push(emailMap[email._id]);
       }
-      return children;
-    };
+    });
 
-    const childrenChain = await fetchChildren(rootEmail._id);
-
-    // 4️⃣ Get automation statuses for current email
-    const statuses = await AutomationStatusModel.find({ emailId })
+    // 4️⃣ Fetch automation statuses for all emails
+    const emailIds = userEmails.map((e) => e._id);
+    const statuses = await AutomationStatusModel.find({
+      emailId: { $in: emailIds },
+    })
       .populate('scenarioId', 'name description')
       .lean();
 
-    // 5️⃣ Final response
+    // 5️⃣ Return full user email hierarchy
     res.status(200).json({
       success: true,
       data: {
-        rootEmail, // 👈 mailhook wali main parent
-        children: childrenChain, // 👈 saari responses
-        currentEmail: email, // 👈 jis id se query aayi thi
-        statuses,
+        userId,
+        totalEmails: userEmails.length,
+        rootEmails, // 👈 parent emails (with nested replies)
+        statuses, // 👈 all automation statuses for this user’s emails
       },
     });
   } catch (error) {
-    console.error('Error fetching email data:', error);
+    console.error('Error fetching emails for user:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching email data',
+      message: 'Server error while fetching emails for user',
       error: error.message,
     });
   }
 };
-
-// export const executeScenarios = async (emailData) => {
-//   try {
-//     const { userId, from, subject, body, emailId } = emailData;
-
-//     const scenarios = await scenarioModel.find({ userId });
-
-//     for (const scenario of scenarios) {
-//       if (!scenario.routerBranches || scenario.routerBranches.length === 0) {
-//         continue;
-//       }
-
-//       for (const branch of scenario.routerBranches) {
-//         if (!branch.filter || !Array.isArray(branch.filter.conditions)) {
-//           continue;
-//         }
-
-//         const matches = branch.filter.conditions.every((cond, idx) => {
-//           const fieldValue =
-//             cond.field === 'Body'
-//               ? (body || '').toLowerCase()
-//               : cond.field === 'Subject'
-//                 ? (subject || '').toLowerCase()
-//                 : '';
-//           const condValue = (cond.value || '').toLowerCase();
-
-//           if (cond.operator === 'Contains')
-//             return fieldValue.includes(condValue);
-//           if (cond.operator === 'Equal to') return fieldValue === condValue;
-//           return false;
-//         });
-
-//         if (!matches) {
-//           continue;
-//         }
-
-//         if (!branch.modules || branch.modules.length === 0) {
-//           continue;
-//         }
-
-//         let statusDoc = await AutomationStatusModel.create({
-//           userId,
-//           emailId,
-//           scenarioId: scenario._id,
-//           branchId: branch.id || branch._id,
-//           status: 'pending',
-//           completedModules: [],
-//           pendingModules: branch.modules.map((m) => m.id || m._id),
-//         });
-
-//         for (let i = 0; i < branch.modules.length; i++) {
-//           const module = branch.modules[i];
-
-//           try {
-//             if (
-//               module.type === 'Delay' ||
-//               (!module.type && module.app?.name === 'Delay')
-//             ) {
-//               const delayMs = convertToMs(module.delayValue, module.delayUnit);
-
-//               const remainingModules = [];
-
-//               for (const nextModule of branch.modules.slice(i + 1)) {
-//                 const plain = nextModule.toObject
-//                   ? nextModule.toObject()
-//                   : { ...nextModule };
-
-//                 if (
-//                   plain.type === 'Send an Email' ||
-//                   plain.type === 'Custom Email'
-//                 ) {
-//                   let templateContent =
-//                     plain.template || 'Thanks for your email!';
-
-//                   if (scenario.type?.toLowerCase() === 'shopify') {
-//                     let stepType = 'initial';
-//                     const lower = (plain.template || '').toLowerCase();
-//                     if (lower.includes('first')) stepType = 'first';
-//                     else if (lower.includes('second')) stepType = 'second';
-
-//                     const defaultServices = [
-//                       'General',
-//                       'Troubleshooting',
-//                       'Theme customization',
-//                       'Store build or redesign',
-//                       'Store migration',
-//                       'Website and marketing content',
-//                       'SEO',
-//                       'Site performance and speed',
-//                       'Custom apps and integrations',
-//                       'Store settings configuration',
-//                       'Product and collection setup',
-//                       'Social media marketing',
-//                       'Product descriptions',
-//                       'Search engine advertising',
-//                       'POS setup and migration',
-//                       'Custom domain setup',
-//                       'Conversion rate optimization',
-//                       'Analytics and tracking',
-//                       'Sales channel setup',
-//                       'Logo and visual branding',
-//                       'Business strategy guidance',
-//                       'Website audit and optimization strategy',
-//                       'Sales tax guidance',
-//                       'Product photography',
-//                       'Email marketing',
-//                       '3D modelling',
-//                       'Banner ads',
-//                       'Video and illustrations',
-//                       'Content marketing',
-//                       'Product sourcing guidance',
-//                     ];
-//                     let matchedService = 'General';
-//                     const textToSearch = (subject + ' ' + body).toLowerCase();
-//                     const found = defaultServices.find((s) =>
-//                       textToSearch.includes(s.toLowerCase())
-//                     );
-//                     if (found) matchedService = found;
-
-//                     const tpl = await TemplateModel.findOne({
-//                       userId,
-//                       platform: 'shopify',
-//                       service: new RegExp(`^${matchedService}$`, 'i'),
-//                       name: new RegExp(
-//                         stepType === 'initial'
-//                           ? 'Initial Email'
-//                           : stepType === 'first'
-//                             ? 'First Email'
-//                             : 'Second Email',
-//                         'i'
-//                       ),
-//                       active: true,
-//                     });
-
-//                     if (tpl) {
-//                       templateContent = tpl.content;
-//                     } else {
-//                     }
-//                   }
-//                   plain.template = templateContent;
-//                 }
-
-//                 remainingModules.push(plain);
-//               }
-
-//               await DelayJobModel.create({
-//                 userId,
-//                 emailData,
-//                 emailId,
-//                 scenarioId: scenario._id,
-//                 modulesLeft: remainingModules,
-//                 scheduledAt: new Date(Date.now() + delayMs),
-//               });
-
-//               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                 $push: { completedModules: module.id || module._id },
-//                 $set: {
-//                   pendingModules: remainingModules.map((m) => m.id || m._id),
-//                   status: 'partial',
-//                   lastExecutedAt: new Date(),
-//                 },
-//               });
-
-//               break;
-//             }
-
-//             if (
-//               module.type === 'Send an Email' ||
-//               module.type === 'Custom Email'
-//             ) {
-//               let templateContent = module.template || 'Thanks for your email!';
-
-//               if (scenario.type && scenario.type.toLowerCase() === 'shopify') {
-//                 let stepType = 'initial';
-//                 const lower = (module.template || '').toLowerCase();
-//                 if (lower.includes('first')) stepType = 'first';
-//                 else if (lower.includes('second')) stepType = 'second';
-//                 console.log(`🔹 Detected step type: ${stepType}`);
-
-//                 const defaultServices = [
-//                   'General',
-//                   'Troubleshooting',
-//                   'Theme customization',
-//                   'Store build or redesign',
-//                   'Store migration',
-//                   'Website and marketing content',
-//                   'SEO',
-//                   'Site performance and speed',
-//                   'Custom apps and integrations',
-//                   'Store settings configuration',
-//                   'Product and collection setup',
-//                   'Social media marketing',
-//                   'Product descriptions',
-//                   'Search engine advertising',
-//                   'POS setup and migration',
-//                   'Custom domain setup',
-//                   'Conversion rate optimization',
-//                   'Analytics and tracking',
-//                   'Sales channel setup',
-//                   'Logo and visual branding',
-//                   'Business strategy guidance',
-//                   'Website audit and optimization strategy',
-//                   'Sales tax guidance',
-//                   'Product photography',
-//                   'Email marketing',
-//                   '3D modelling',
-//                   'Banner ads',
-//                   'Video and illustrations',
-//                   'Content marketing',
-//                   'Product sourcing guidance',
-//                 ];
-//                 let matchedService = 'General';
-//                 const textToSearch = (subject + ' ' + body).toLowerCase();
-//                 const found = defaultServices.find((s) =>
-//                   textToSearch.includes(s.toLowerCase())
-//                 );
-//                 if (found) matchedService = found;
-//                 console.log(`🛍️ Matched service from email: ${matchedService}`);
-
-//                 const tpl = await TemplateModel.findOne({
-//                   userId,
-//                   platform: 'shopify',
-//                   service: new RegExp(`^${matchedService}$`, 'i'),
-//                   name: new RegExp(
-//                     stepType === 'initial'
-//                       ? 'Initial Email'
-//                       : stepType === 'first'
-//                         ? 'First Email'
-//                         : 'Second Email',
-//                     'i'
-//                   ),
-//                   active: true,
-//                 });
-
-//                 if (tpl) {
-//                   templateContent = tpl.content;
-//                 }
-//               }
-
-//               const plainModule = module.toObject ? module.toObject() : module;
-//               await sendEmailModule(
-//                 { ...plainModule, template: templateContent },
-//                 from,
-//                 subject
-//               );
-
-//               const updatedDoc = await AutomationStatusModel.findByIdAndUpdate(
-//                 statusDoc._id,
-//                 {
-//                   $push: { completedModules: module.id || module._id },
-//                   $pull: { pendingModules: module.id || module._id },
-//                   $set: { lastExecutedAt: new Date() },
-//                 },
-//                 { new: true }
-//               );
-
-//               if (updatedDoc.pendingModules.length > 0) {
-//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                   $set: { status: 'partial' },
-//                 });
-//               } else {
-//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                   $set: { status: 'completed' },
-//                 });
-//               }
-//             } else {
-//               console.log('⚠️ Unsupported module type:', module.type);
-//             }
-//           } catch (err) {
-//             console.error('❌ Error in module execution:', err);
-//             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//               $set: { status: 'failed', lastExecutedAt: new Date() },
-//             });
-//           }
-//         }
-
-//         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
-//         if (
-//           finalDoc.pendingModules.length === 0 &&
-//           finalDoc.status !== 'failed'
-//         ) {
-//           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//             $set: {
-//               status: 'completed',
-//               lastExecutedAt: new Date(),
-//             },
-//           });
-//         }
-//       }
-//     }
-//   } catch (err) {
-//     console.error('❌ [executeScenarios] ERROR:', err);
-//   }
-// };

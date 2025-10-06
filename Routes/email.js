@@ -7,6 +7,6 @@ const emailRouter = express.Router();
 
 emailRouter.post("/", upload.none(), mailHookWebhook);
 emailRouter.get('/getAllEmails/:userId',getEmailsForUsers)
-emailRouter.get('/getAllEmailsData/:emailId',getEmailDataforUser)
+emailRouter.get('/getAllEmailsData/:userId',getEmailDataforUser)
 
 export default emailRouter;
