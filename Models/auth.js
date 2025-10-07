@@ -29,10 +29,20 @@ const authSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    setup: {
+      stepCompleted: { type: Number, default: 0 },
+     
+      tone: String,
+      services: [String],
+      sendingMode: { type: String, default: 'Auto-Send' },
+      followUps: {
+        first: { delay: Number, unit: String },
+        second: { delay: Number, unit: String },
+      },
+      safetyNet: { type: Boolean, default: true },
+    },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 // Password hashing before saving to the database

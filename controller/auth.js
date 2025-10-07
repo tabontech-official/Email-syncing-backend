@@ -332,6 +332,26 @@ export const logout = async (req, res) => {
   }
 };
 
+
+export const completeSetup=async(req,res)=>{
+    try {
+    const { id } = req.params;
+
+    const user = await authModel.findByIdAndUpdate(
+      id,
+      { $set: req.body }, 
+      { new: true }
+    );
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json({ success: true, data: user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update setup" });
+  }
+}
+
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
