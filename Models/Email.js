@@ -30,11 +30,16 @@ const emailSchema = new mongoose.Schema(
         size: Number,
       },
     ],
-    parentEmailId: { 
-  type: mongoose.Schema.Types.ObjectId, 
-  ref: "Email", 
-  default: null 
-},
+//     parentEmailId: { 
+//   type: mongoose.Schema.Types.ObjectId, 
+//   ref: "Email", 
+//   default: null 
+// },
+
+ parentEmailId: {
+      type: mongoose.Schema.Types.Mixed, // allows ObjectId OR string
+      default: null,
+    },
     isForwarded: { type: Boolean, default: false },
     forwardedMeta: {
       from: { type: String, default: null },
