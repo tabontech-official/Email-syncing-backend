@@ -1065,7 +1065,7 @@ export const sendEmailModule = async (
   originalSubject,
   parentEmailId
 ) => {
-  console.log('➡️ [sendEmailModule] Function called with:', {
+  console.log('[sendEmailModule] Function called with:', {
     moduleId: module?._id || null,
     to,
     originalSubject,
@@ -1075,13 +1075,13 @@ export const sendEmailModule = async (
   const connection = await ConnectionModel.findById(module.connectionId);
   if (!connection) {
     console.error(
-      '❌ [sendEmailModule] No connection found for module:',
+      ' [sendEmailModule] No connection found for module:',
       module.connectionId
     );
     return;
   }
   console.log(
-    '✅ [sendEmailModule] Connection found:',
+    ' [sendEmailModule] Connection found:',
     connection.provider,
     connection.email
   );
@@ -1262,7 +1262,6 @@ export const RunTestMode = async (req, res) => {
       });
     }
 
-    // 1️⃣ Get user's mailhook and details
     const user = await authModel.findById(userId);
     if (!user || !user.mailhook) {
       return res.status(404).json({
@@ -1274,7 +1273,6 @@ export const RunTestMode = async (req, res) => {
     const mailhook = user.mailhook;
     const FullName = user.fullName || "User";
 
-    // 2️⃣ Configure Gmail transporter
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -1283,7 +1281,6 @@ export const RunTestMode = async (req, res) => {
       },
     });
 
-    // 3️⃣ Construct test email
     const subject = "Test Email For - Need help customizing my Shopify theme";
     const textBody = `
 Hello ${FullName},
@@ -1301,7 +1298,6 @@ Zenith Inbox
     const emailId = `test-${Date.now()}`;
     const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
 
-    // 4️⃣ Send the test email to user's mailhook
     await transporter.sendMail({
       from: fromAddress,
       to: mailhook,
@@ -1311,7 +1307,6 @@ Zenith Inbox
 
     console.log(`✅ Test email sent → ${mailhook}`);
 
-    // 5️⃣ 💾 Save the *incoming test email* in DB
     const savedEmail = await EmailModel.create({
       userId,
       senderAddress: fromAddress,
@@ -1326,7 +1321,6 @@ Zenith Inbox
 
     console.log("💾 [RunTestMode] Saved test email in DB:", savedEmail._id);
 
-    // 6️⃣ Trigger the full automation (executeScenarios)
     await executeScenarios({
       userId,
       from: fromAddress,
@@ -1344,7 +1338,6 @@ Zenith Inbox
 
     console.log("🚀 Scenario executed successfully for test email.");
 
-    // 7️⃣ Respond success
     res.json({
       success: true,
       message: `✅ Test email sent, saved, and scenario executed for ${mailhook}`,
