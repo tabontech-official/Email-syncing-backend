@@ -1249,19 +1249,130 @@ export const sendEmailModule = async (
   console.log('🏁 [sendEmailModule] END\n');
 };
 
+// export const RunTestMode = async (req, res) => {
+//   try {
+//     const { userId } = req.body;
 
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Missing userId in request body",
+//       });
+//     }
+
+//     const user = await authModel.findById(userId);
+//     if (!user || !user.mailhook) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Mailhook not found for this user.",
+//       });
+//     }
+
+//     const mailhook = user.mailhook;
+//     const FullName = user.fullName || "User";
+
+//     const transporter = nodemailer.createTransport({
+//       service: "gmail",
+//       auth: {
+//         user: process.env.EMAIL_USER,
+//         pass: process.env.EMAIL_PASS,
+//       },
+//     });
+
+//     const subject = "Test Email For - Need help customizing my Shopify theme";
+//     const textBody = `
+// Hello ${FullName},
+
+// I want to set up a Troubleshooting for my Shopify store "Motion Pine".
+// The store link is https://allspicestore.myshopify.com
+
+// Budget: 100 USD
+// Country: Pakistan
+
+// Thanks,
+// Zenith Inbox
+// `;
+
+//     const emailId = `test-${Date.now()}`;
+//     const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
+
+//     await transporter.sendMail({
+//       from: fromAddress,
+//       to: mailhook,
+//       subject,
+//       text: textBody,
+//     });
+
+//     console.log(`✅ Test email sent → ${mailhook}`);
+
+//     const savedEmail = await EmailModel.create({
+//       userId,
+//       senderAddress: fromAddress,
+//       recipientAddress: mailhook,
+//       subject,
+//       textBody,
+//       htmlBody: textBody.replace(/\n/g, "<br>"),
+//       isForwarded: false,
+//       parentEmailId: emailId,
+//       date: new Date(),
+//     });
+
+//     console.log("💾 [RunTestMode] Saved test email in DB:", savedEmail._id);
+
+//     await executeScenarios({
+//       userId,
+//       from: fromAddress,
+//       subject,
+//       body: textBody,
+//       emailId,
+//       parsedEmailObj: {
+//         from: {
+//           value: [{ name: "Zenith Inbox", address: process.env.EMAIL_USER }],
+//         },
+//         subject,
+//         text: textBody,
+//       },
+//     });
+
+//     console.log("🚀 Scenario executed successfully for test email.");
+
+//     res.json({
+//       success: true,
+//       message: `✅ Test email sent, saved, and scenario executed for ${mailhook}`,
+//       testEmail: savedEmail,
+//     });
+//   } catch (err) {
+//     console.error("❌ Run Test Error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to send test email or execute scenario.",
+//       error: err.message,
+//     });
+//   }
+// };
 
 export const RunTestMode = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const {
+      userId,
+      fullName,
+      businessEmail,
+      storeName,
+      country,
+      service,
+      budget,
+      helpDescription,
+    } = req.body;
 
-    if (!userId) {
+    // ✅ Validate required fields
+    if (!userId || !fullName || !businessEmail || !service) {
       return res.status(400).json({
         success: false,
-        message: "Missing userId in request body",
+        message: "Missing required fields.",
       });
     }
 
+    // ✅ Find user and verify mailhook
     const user = await authModel.findById(userId);
     if (!user || !user.mailhook) {
       return res.status(404).json({
@@ -1271,8 +1382,10 @@ export const RunTestMode = async (req, res) => {
     }
 
     const mailhook = user.mailhook;
-    const FullName = user.fullName || "User";
+    const partnerName = user.fullName || "The Fold Tech";
+    const dummyCustomer = "Dummy Customer";
 
+    // ✅ Setup Nodemailer
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -1281,46 +1394,136 @@ export const RunTestMode = async (req, res) => {
       },
     });
 
-    const subject = "Test Email For - Need help customizing my Shopify theme";
+    // ✅ Subject line
+    const subject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
+
+    // ✅ Email text (for fallback)
     const textBody = `
-Hello ${FullName},
+Hello ${partnerName} and ${dummyCustomer},
 
-I want to set up a Troubleshooting for my Shopify store "Motion Pine".
-The store link is https://allspicestore.myshopify.com
+${dummyCustomer} has expressed interest in your services through the Shopify Partner Directory. ${partnerName}, to initiate the conversation, please follow up with ${dummyCustomer} directly by selecting “Reply all” when you reach out.
 
-Budget: 100 USD
-Country: Pakistan
+All further communications will be between you both directly.
 
-Thanks,
-Zenith Inbox
+Details about ${dummyCustomer}'s request are provided below:
+
+Full name:
+
+${dummyCustomer}
+
+Business email:
+
+${businessEmail}
+
+Store: 
+
+${storeName || "N/A"}
+
+Country:
+
+${country}
+
+Service:
+
+${service}
+
+Budget:
+
+${budget || "Not specified"}
+
+Description:
+
+${helpDescription || "No additional information provided."}
+
+Thank you for being a part of the Shopify Partner Directory.
+
+Sincerely,
+The Shopify Team
+`;
+
+    const htmlBody = `
+<div style="font-family: Arial, Helvetica, sans-serif; color:#2b2b2b; line-height:1.6; background:#fff; padding:20px;">
+  <p>Hello <strong>${partnerName}</strong> and <strong>${dummyCustomer}</strong>,</p>
+
+  <p>
+    ${dummyCustomer} has expressed interest in your services through the
+    <strong>Shopify Partner Directory</strong>. ${partnerName}, to initiate the
+    conversation, please follow up with ${dummyCustomer} directly by selecting
+    <em>“Reply all”</em> when you reach out.
+  </p>
+
+  <p>All further communications will be between you both directly.</p>
+
+  <p>Details about ${dummyCustomer}'s request are provided below:</p>
+
+  <div style="border:1px solid #ddd; border-radius:8px; padding:20px; background-color:#fafafa; margin-top:15px;">
+    <h2 style="margin-top:0; color:#111;">Contact Form Submission</h2>
+
+    <p style="margin:8px 0;"><strong>Full name</strong><br>${dummyCustomer}</p>
+
+    <p style="margin:8px 0;">
+      <strong>Business email</strong><br>
+      <a href="mailto:${businessEmail}" style="color:#006eff; text-decoration:none;">${businessEmail}</a>
+    </p>
+
+    <p style="margin:8px 0;">
+      <strong>Select the store you're working on</strong><br>
+      ${storeName || "N/A"}<br>
+      <a href="https://${storeName ? storeName.toLowerCase().replace(/\s+/g, "") : "example"}.myshopify.com" 
+         style="color:#006eff; text-decoration:none;">
+         https://${storeName ? storeName.toLowerCase().replace(/\s+/g, "") : "example"}.myshopify.com
+      </a>
+    </p>
+
+    <p style="margin:8px 0;"><strong>Country</strong><br>${country}</p>
+
+    <p style="margin:8px 0;"><strong>Select a service offered by ${partnerName}</strong><br>${service}</p>
+
+    <p style="margin:8px 0;"><strong>Budget (USD)</strong><br>${budget || "Not specified"}</p>
+
+  
+  </div>
+
+  <p style="margin-top:20px;">
+    Thank you for being a part of the <strong>Shopify Partner Directory</strong>.
+  </p>
+
+  <p style="font-weight:bold; margin-top:8px;">Sincerely,<br>The Shopify Team</p>
+</div>
 `;
 
     const emailId = `test-${Date.now()}`;
     const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
 
+    // ✅ Send test email
     await transporter.sendMail({
       from: fromAddress,
       to: mailhook,
       subject,
       text: textBody,
+      html: htmlBody,
     });
 
     console.log(`✅ Test email sent → ${mailhook}`);
 
+    // ✅ Save to DB
     const savedEmail = await EmailModel.create({
       userId,
-      senderAddress: fromAddress,
+      senderFirstName: dummyCustomer.split(" ")[0],
+      senderAddress: businessEmail,
       recipientAddress: mailhook,
       subject,
       textBody,
-      htmlBody: textBody.replace(/\n/g, "<br>"),
+      htmlBody,
       isForwarded: false,
       parentEmailId: emailId,
       date: new Date(),
+      isTestEmail: true,
     });
 
-    console.log("💾 [RunTestMode] Saved test email in DB:", savedEmail._id);
+    console.log("💾 Saved test email:", savedEmail._id);
 
+    // ✅ Trigger automation
     await executeScenarios({
       userId,
       from: fromAddress,
@@ -1333,14 +1536,13 @@ Zenith Inbox
         },
         subject,
         text: textBody,
+        html: htmlBody,
       },
     });
 
-    console.log("🚀 Scenario executed successfully for test email.");
-
     res.json({
       success: true,
-      message: `✅ Test email sent, saved, and scenario executed for ${mailhook}`,
+      message: `✅ Test email sent and scenario executed for ${mailhook}`,
       testEmail: savedEmail,
     });
   } catch (err) {
@@ -1358,45 +1560,45 @@ export const getTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
 
+    // ✅ Validate
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "Missing userId in request params",
+        message: 'Missing userId in request params',
       });
     }
 
-    const subject = "Test Email For - Need help customizing my Shopify theme";
-
+    // ✅ Find the latest test email where isTestEmail = true
     const latestEmail = await EmailModel.findOne({
       userId,
-      subject,
-      isForwarded: false, 
+      isTestEmail: true, // ✅ only fetch test emails
     })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1 }) // latest first
       .lean();
 
+    // ✅ Handle not found
     if (!latestEmail) {
       return res.status(404).json({
         success: false,
-        message: "No original test email found for this user.",
+        message: 'No test email found for this user.',
       });
     }
 
+    // ✅ Success response
     res.json({
       success: true,
-      message: "Latest original test email fetched successfully!",
+      message: '✅ Latest test email fetched successfully!',
       email: latestEmail,
     });
   } catch (error) {
-    console.error("❌ [getTestEmail] Error:", error);
+    console.error('❌ [getTestEmail] Error:', error);
     res.status(500).json({
       success: false,
-      message: "Server error while fetching test email.",
+      message: 'Server error while fetching test email.',
       error: error.message,
     });
   }
 };
-
 
 // export const getEmailsForUsers = async (req, res) => {
 //   try {
