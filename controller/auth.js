@@ -2,6 +2,7 @@ import { authModel } from '../Models/auth.js';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
 import fetch from 'node-fetch';
+import { AuthorizationCode } from 'simple-oauth2';
 
 import fs from 'fs';
 import { PubSub } from '@google-cloud/pubsub';
@@ -13,9 +14,8 @@ import nodemailer from 'nodemailer';
 import path from 'path';
 import { scenarioModel } from '../Models/Scenario.js';
 
-// defaultTemplates.js
 export const defaultServices = [
-  'General', // 👈 ab general bhi ek service hai
+  'General',
   'Troubleshooting',
   'Theme customization',
   'Store build or redesign',
@@ -53,7 +53,6 @@ const createToken = (payLoad) => {
   });
   return token;
 };
-
 
 // export const signUp = async (req, res) => {
 //   try {
@@ -102,12 +101,11 @@ const createToken = (payLoad) => {
 //   }
 // };
 
-
 export const signUp = async (req, res) => {
   try {
     const userExist = await authModel.findOne({ email: req.body.email });
     if (userExist) {
-      throw new Error("User already exists with this email");
+      throw new Error('User already exists with this email');
     }
 
     const newUser = new authModel(req.body);
@@ -119,18 +117,18 @@ export const signUp = async (req, res) => {
     // --- Default Templates ---
     const templates = [];
     defaultServices.forEach((service) => {
-      ["Initial Email", "First Email", "Second Email"].forEach(
+      ['Initial Email', 'First Email', 'Second Email'].forEach(
         (emailName, idx) => {
           templates.push({
             userId: savedUser._id,
-            platform: "shopify",
+            platform: 'shopify',
             service,
             name: `${service} - ${emailName}`,
-            type: idx === 0 ? "initial" : idx === 1 ? "first" : "second",
+            type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
             conditions: [],
             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
             active: true,
-            locked: service === "General",
+            locked: service === 'General',
           });
         }
       );
@@ -140,9 +138,9 @@ export const signUp = async (req, res) => {
     // --- Default Shopify Scenario ---
     const defaultScenario = {
       userId: savedUser._id,
-      name: "Shopify scenario",
-      description: "",
-      type: "shopify",
+      name: 'Shopify scenario',
+      description: '',
+      type: 'shopify',
       routerBranches: [
         {
           id: 2,
@@ -150,57 +148,57 @@ export const signUp = async (req, res) => {
           condition: null,
           modules: [
             {
-              id: "1759389173211",
+              id: '1759389173211',
               app: {
-                name: "Gmail",
-                color: "bg-red-500",
-                icon: "Gmail",
+                name: 'Gmail',
+                color: 'bg-red-500',
+                icon: 'Gmail',
               },
-              subject: "",
+              subject: '',
               cc: [],
               bcc: [],
-              type: "Send an Email",
-              description: "Send an email via Gmail",
-              connectionId: "",
-              template: "Initial Email",
+              type: 'Send an Email',
+              description: 'Send an email via Gmail',
+              connectionId: '',
+              template: 'Initial Email',
               delayValue: 5,
-              delayUnit: "seconds",
+              delayUnit: 'seconds',
               filter: { conditions: [] },
             },
             {
-              id: "1759389175969",
+              id: '1759389175969',
               app: {
-                name: "Delay",
-                color: "bg-blue-500",
-                icon: "Delay",
+                name: 'Delay',
+                color: 'bg-blue-500',
+                icon: 'Delay',
               },
-              subject: "",
+              subject: '',
               cc: [],
               bcc: [],
-              type: "",
-              description: "",
-              connectionId: "",
-              template: "",
+              type: '',
+              description: '',
+              connectionId: '',
+              template: '',
               delayValue: 5,
-              delayUnit: "seconds",
+              delayUnit: 'seconds',
               filter: { conditions: [] },
             },
             {
-              id: "1759389185521",
+              id: '1759389185521',
               app: {
-                name: "Gmail",
-                color: "bg-red-500",
-                icon: "Gmail",
+                name: 'Gmail',
+                color: 'bg-red-500',
+                icon: 'Gmail',
               },
-              subject: "",
+              subject: '',
               cc: [],
               bcc: [],
-              type: "Send an Email",
-              description: "Send an email via Gmail",
-              connectionId: "",
-              template: "First Email",
+              type: 'Send an Email',
+              description: 'Send an email via Gmail',
+              connectionId: '',
+              template: 'First Email',
               delayValue: 5,
-              delayUnit: "seconds",
+              delayUnit: 'seconds',
               filter: { conditions: [] },
             },
           ],
@@ -215,7 +213,7 @@ export const signUp = async (req, res) => {
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
-      message: "Successfully registered",
+      message: 'Successfully registered',
       token,
       data: savedUser,
     });
@@ -223,8 +221,6 @@ export const signUp = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
-
-
 
 export const signIn = async (req, res) => {
   try {
@@ -332,25 +328,24 @@ export const logout = async (req, res) => {
   }
 };
 
-
-export const completeSetup=async(req,res)=>{
-    try {
+export const completeSetup = async (req, res) => {
+  try {
     const { id } = req.params;
 
     const user = await authModel.findByIdAndUpdate(
       id,
-      { $set: req.body }, 
+      { $set: req.body },
       { new: true }
     );
 
-    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({ success: true, data: user });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to update setup" });
+    res.status(500).json({ error: 'Failed to update setup' });
   }
-}
+};
 
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -560,6 +555,73 @@ export const addSmtpConnection = async (req, res) => {
   } catch (err) {
     console.error(' Error saving SMTP connection:', err);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const oauthConfig = {
+  client: {
+    id: process.env.MICROSOFT_CLIENT_ID,
+    secret: process.env.MICROSOFT_CLIENT_SECRET,
+  },
+  auth: {
+    tokenHost: 'https://login.microsoftonline.com',
+    authorizePath: '/common/oauth2/v2.0/authorize',
+    tokenPath: '/common/oauth2/v2.0/token',
+  },
+};
+
+const client = new AuthorizationCode(oauthConfig);
+
+export const startOutlookOAuth = (req, res) => {
+  const authorizationUri = client.authorizeURL({
+    redirect_uri: process.env.MICROSOFT_REDIRECT_URI,
+    scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
+  });
+  console.log('Redirecting to Microsoft OAuth:', authorizationUri);
+  res.redirect(authorizationUri);
+};
+
+export const outlookOAuthCallback = async (req, res) => {
+  const { code } = req.query;
+
+  try {
+    const tokenParams = {
+      code,
+      redirect_uri: process.env.MICROSOFT_REDIRECT_URI,
+      scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
+    };
+
+    const accessToken = await client.getToken(tokenParams);
+
+    // Get user info (email, name)
+    const userInfoRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
+    });
+    const user = await userInfoRes.json();
+
+    console.log(
+      '✅ Microsoft account connected:',
+      user.mail || user.userPrincipalName
+    );
+
+    const newConnection = new ConnectionModel({
+      provider: 'outlook',
+      email: user.mail || user.userPrincipalName,
+      name: user.displayName,
+      tokens: accessToken.token,
+      userId: req.query.state || 'unknown-user', // pass state if needed
+      status: 'active',
+    });
+
+    await newConnection.save();
+
+    // Redirect back to frontend
+    res.send(
+      '<h2>✅ Outlook connected successfully! You can close this window.</h2>'
+    );
+  } catch (err) {
+    console.error('❌ Outlook OAuth error:', err);
+    res.status(500).send('Error connecting Microsoft account');
   }
 };
 

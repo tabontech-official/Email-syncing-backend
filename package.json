@@ -69,6 +69,7 @@
     "path": "^0.12.7",
     "sharp": "^0.33.5",
     "shopify-api-node": "^3.14.0",
+    "simple-oauth2": "^5.1.0",
     "smtp-server": "^3.14.0",
     "stripe": "^16.11.0",
     "swagger-jsdoc": "^6.2.8",
