@@ -378,8 +378,6 @@ export const mailHookWebhook = async (req, res) => {
   }
 };
 
-
-
 function fillTemplate(template, fields) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
     const cleanKey = key.trim();
@@ -621,10 +619,13 @@ export const executeScenarios = async (emailData) => {
 
               if (scenario.type && scenario.type.toLowerCase() === 'shopify') {
                 let stepType = 'initial';
-                const subjectLower = (subject || '').toLowerCase();
-                const isValidShopify = subjectLower.includes(
-                  'Shopify Partner Directory: New Service Inquiry from'
+                const subjectLower = (subject || '').toLowerCase().trim();
+
+                // ✅ Only triggers if the subject STARTS exactly with the Shopify phrase
+                const isValidShopify = subjectLower.startsWith(
+                  'shopify partner directory: new service inquiry from'
                 );
+
                 // const isForwarded = subjectLower.includes('fw');
                 if (!isValidShopify) {
                   console.log(
@@ -968,10 +969,16 @@ const convertToMs = (value, unit) => {
 //   console.log('🏁 [sendEmailModule] END\n');
 // };
 
-
-export const sendEmailModule = async (module, to, originalSubject, parentEmailId) => {
-  console.log("🚀 [sendEmailModule] START =====================================");
-  console.log("[sendEmailModule] Function called with:", {
+export const sendEmailModule = async (
+  module,
+  to,
+  originalSubject,
+  parentEmailId
+) => {
+  console.log(
+    '🚀 [sendEmailModule] START ====================================='
+  );
+  console.log('[sendEmailModule] Function called with:', {
     moduleId: module?._id || null,
     to,
     originalSubject,
@@ -979,14 +986,17 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
   });
 
   try {
-    console.log("🔍 [sendEmailModule] Fetching connection...");
+    console.log('🔍 [sendEmailModule] Fetching connection...');
     const connection = await ConnectionModel.findById(module.connectionId);
     if (!connection) {
-      console.error("❌ [sendEmailModule] No connection found for module:", module.connectionId);
+      console.error(
+        '❌ [sendEmailModule] No connection found for module:',
+        module.connectionId
+      );
       return;
     }
 
-    console.log("✅ [sendEmailModule] Connection found:", {
+    console.log('✅ [sendEmailModule] Connection found:', {
       provider: connection.provider,
       email: connection.email,
       smtpHost: connection.smtpHost,
@@ -995,16 +1005,16 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
 
     const norm = (v) => {
       const val = Array.isArray(v)
-        ? v.filter(Boolean).join(", ")
-        : (v || "").toString().trim();
-      console.log("📏 [norm] normalized value:", val);
+        ? v.filter(Boolean).join(', ')
+        : (v || '').toString().trim();
+      console.log('📏 [norm] normalized value:', val);
       return val;
     };
 
     const cc = norm(module.cc);
     const bcc = norm(module.bcc);
 
-    console.log("📨 [sendEmailModule] Preparing email headers:", {
+    console.log('📨 [sendEmailModule] Preparing email headers:', {
       from: connection.email,
       to,
       cc,
@@ -1012,32 +1022,32 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
     });
 
     const finalSubject =
-      module.subject && module.subject.trim() !== ""
+      module.subject && module.subject.trim() !== ''
         ? module.subject
-        : `Re: ${originalSubject || "No Subject"}`;
+        : `Re: ${originalSubject || 'No Subject'}`;
 
-    console.log("📝 [sendEmailModule] Final subject computed:", finalSubject);
+    console.log('📝 [sendEmailModule] Final subject computed:', finalSubject);
 
-    const emailBody = module.template || "Thanks for your email!";
-    console.log("🧾 [sendEmailModule] Email body length:", emailBody.length);
+    const emailBody = module.template || 'Thanks for your email!';
+    console.log('🧾 [sendEmailModule] Email body length:', emailBody.length);
 
     let sentOk = false;
 
-    if (connection.provider === "gmail") {
-      console.log("📬 [sendEmailModule] Gmail provider detected");
+    if (connection.provider === 'gmail') {
+      console.log('📬 [sendEmailModule] Gmail provider detected');
       try {
-        console.log("🚀 [GMAIL] Preparing OAuth2 client...");
+        console.log('🚀 [GMAIL] Preparing OAuth2 client...');
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
           process.env.GOOGLE_CLIENT_SECRET,
           process.env.GOOGLE_REDIRECT_URI
         );
 
-        console.log("🔑 [GMAIL] Setting credentials...");
+        console.log('🔑 [GMAIL] Setting credentials...');
         oauth2Client.setCredentials(connection.tokens);
 
-        console.log("⚙️ [GMAIL] Creating Gmail client...");
-        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+        console.log('⚙️ [GMAIL] Creating Gmail client...');
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
         const lines = [
           `From: ${connection.email}`,
@@ -1045,45 +1055,49 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           ...(cc ? [`Cc: ${cc}`] : []),
           ...(bcc ? [`Bcc: ${bcc}`] : []),
           `Subject: ${finalSubject}`,
-          "MIME-Version: 1.0",
-          "Content-Type: text/html; charset=UTF-8",
-          "",
+          'MIME-Version: 1.0',
+          'Content-Type: text/html; charset=UTF-8',
+          '',
           emailBody,
         ];
 
-        const rawMessage = lines.join("\n").trim();
-        console.log("📦 [GMAIL] Raw message built, size:", rawMessage.length);
+        const rawMessage = lines.join('\n').trim();
+        console.log('📦 [GMAIL] Raw message built, size:', rawMessage.length);
 
         const encodedMessage = Buffer.from(rawMessage)
-          .toString("base64")
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
 
-        console.log(" [GMAIL] Sending email via Gmail API...");
+        console.log(' [GMAIL] Sending email via Gmail API...');
         const result = await gmail.users.messages.send({
-          userId: "me",
+          userId: 'me',
           requestBody: { raw: encodedMessage },
         });
 
-        console.log(" [GMAIL] Email sent successfully:", result.data.id);
+        console.log(' [GMAIL] Email sent successfully:', result.data.id);
         sentOk = true;
       } catch (err) {
-        console.error(" [GMAIL] send error:", err);
+        console.error(' [GMAIL] send error:', err);
       }
-    }
-
-    else if (connection.provider === "outlook" || connection.provider === "smtp") {
-      console.log("📬 [sendEmailModule] SMTP/Outlook provider detected:", connection.provider);
+    } else if (
+      connection.provider === 'outlook' ||
+      connection.provider === 'smtp'
+    ) {
+      console.log(
+        '📬 [sendEmailModule] SMTP/Outlook provider detected:',
+        connection.provider
+      );
       try {
-        const isOutlook = connection.provider === "outlook";
-        console.log("⚙️ [SMTP] Preparing transporter config...");
+        const isOutlook = connection.provider === 'outlook';
+        console.log('⚙️ [SMTP] Preparing transporter config...');
 
         const transporterConfig = {
           host:
             connection.smtpHost ||
             connection.smtp?.host ||
-            (isOutlook ? "smtp.office365.com" : undefined),
+            (isOutlook ? 'smtp.office365.com' : undefined),
           port: connection.smtpPort || connection.smtp?.port || 587,
           secure: (connection.smtpPort || connection.smtp?.port) === 465,
           auth: {
@@ -1095,12 +1109,16 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           },
         };
 
-        console.log("🔧 [SMTP] Transporter configuration:", transporterConfig);
+        console.log('🔧 [SMTP] Transporter configuration:', transporterConfig);
 
-        console.log(`🚀 [${connection.provider.toUpperCase()}] Creating transporter...`);
+        console.log(
+          `🚀 [${connection.provider.toUpperCase()}] Creating transporter...`
+        );
         const transporter = nodemailer.createTransport(transporterConfig);
 
-        console.log(`📤 [${connection.provider.toUpperCase()}] Sending email...`);
+        console.log(
+          `📤 [${connection.provider.toUpperCase()}] Sending email...`
+        );
         const info = await transporter.sendMail({
           from: connection.email,
           to,
@@ -1110,31 +1128,40 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           html: emailBody,
         });
 
-        console.log(`✅ [${connection.provider.toUpperCase()}] Email sent:`, info.messageId);
+        console.log(
+          `✅ [${connection.provider.toUpperCase()}] Email sent:`,
+          info.messageId
+        );
         sentOk = true;
       } catch (err) {
-        console.error(`❌ [${connection.provider.toUpperCase()}] send error:`, err);
+        console.error(
+          `❌ [${connection.provider.toUpperCase()}] send error:`,
+          err
+        );
       }
+    } else {
+      console.warn(
+        '⚠️ [sendEmailModule] Unsupported provider:',
+        connection.provider
+      );
     }
 
-    else {
-      console.warn("⚠️ [sendEmailModule] Unsupported provider:", connection.provider);
-    }
-
-    console.log("💾 [sendEmailModule] Checking if email was sent...");
+    console.log('💾 [sendEmailModule] Checking if email was sent...');
     if (sentOk) {
       try {
-        console.log("💾 [sendEmailModule] Preparing to save sent email in DB...");
+        console.log(
+          '💾 [sendEmailModule] Preparing to save sent email in DB...'
+        );
 
         const sentDoc = new EmailModel({
           userId: connection.userId,
           senderAddress: connection.email,
           recipientAddress: to,
           subject: finalSubject,
-          textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ""),
+          textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ''),
           htmlBody: emailBody,
-          cc: cc ? cc.split(",").map((a) => a.trim()) : [],
-          bcc: bcc ? bcc.split(",").map((a) => a.trim()) : [],
+          cc: cc ? cc.split(',').map((a) => a.trim()) : [],
+          bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
           date: new Date(),
           isForwarded: true,
           parentEmailId: parentEmailId || null,
@@ -1147,23 +1174,30 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           },
         });
 
-        console.log("🗄️ [sendEmailModule] Saving document...");
+        console.log('🗄️ [sendEmailModule] Saving document...');
         await sentDoc.save();
 
-        console.log("✅ [sendEmailModule] Email saved in DB:", sentDoc._id.toString());
+        console.log(
+          '✅ [sendEmailModule] Email saved in DB:',
+          sentDoc._id.toString()
+        );
       } catch (err) {
-        console.error("❌ [sendEmailModule] Error saving sent email:", err);
+        console.error('❌ [sendEmailModule] Error saving sent email:', err);
       }
     } else {
-      console.warn("⚠️ [sendEmailModule] Email not sent, skipping DB save.");
+      console.warn('⚠️ [sendEmailModule] Email not sent, skipping DB save.');
     }
 
-    console.log("🏁 [sendEmailModule] END =====================================\n");
+    console.log(
+      '🏁 [sendEmailModule] END =====================================\n'
+    );
   } catch (outerErr) {
-    console.error("💥 [sendEmailModule] Unexpected error in main try block:", outerErr);
+    console.error(
+      '💥 [sendEmailModule] Unexpected error in main try block:',
+      outerErr
+    );
   }
 };
-
 
 export const RunTestMode = async (req, res) => {
   try {
@@ -1413,7 +1447,6 @@ export const getTestEmail = async (req, res) => {
   }
 };
 
-
 export const getEmailsForUsers = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1524,7 +1557,6 @@ export const getEmailsForUsers = async (req, res) => {
   }
 };
 
-
 export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1600,7 +1632,6 @@ export const getEmailDataforUser = async (req, res) => {
   }
 };
 
-
 export const deleteAllConnections = async (req, res) => {
   try {
     const result = await ConnectionModel.deleteMany({});
@@ -1618,4 +1649,3 @@ export const deleteAllConnections = async (req, res) => {
     });
   }
 };
-
