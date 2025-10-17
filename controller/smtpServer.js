@@ -623,7 +623,7 @@ export const executeScenarios = async (emailData) => {
                 let stepType = 'initial';
                 const subjectLower = (subject || '').toLowerCase();
                 const isValidShopify = subjectLower.includes(
-                  'shopify partner directory'
+                  'Shopify Partner Directory: New Service Inquiry from'
                 );
                 // const isForwarded = subjectLower.includes('fw');
                 if (!isValidShopify) {
