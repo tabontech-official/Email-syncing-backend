@@ -35,7 +35,9 @@ const emailSchema = new mongoose.Schema(
 //   ref: "Email", 
 //   default: null 
 // },
-
+isValidateTestEmail:{
+type:Boolean
+},
  parentEmailId: {
       type: mongoose.Schema.Types.Mixed, // allows ObjectId OR string
       default: null,

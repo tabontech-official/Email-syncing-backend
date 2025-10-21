@@ -35,7 +35,7 @@ function checkCondition(condition, email) {
   }
 
   console.log(
-    `✅ Condition result [${condition.field} ${condition.operator} ${condition.value}] = ${result}`
+    `Condition result [${condition.field} ${condition.operator} ${condition.value}] = ${result}`
   );
   return result;
 }
@@ -51,27 +51,27 @@ export const startSMTPServer = () => {
   const server = new SMTPServer({
     authOptional: true,
     onConnect(session, callback) {
-      console.log('📡 New connection from:', session.remoteAddress);
+      console.log('New connection from:', session.remoteAddress);
       callback();
     },
     onData(stream, session, callback) {
-      console.log('📩 Receiving new email...');
+      console.log('Receiving new email...');
 
       let chunks = [];
 
       stream.on('data', (chunk) => {
-        console.log('📥 Data chunk received, length:', chunk.length);
+        console.log('Data chunk received, length:', chunk.length);
         chunks.push(chunk);
       });
 
       stream.on('end', async () => {
-        console.log('📤 End of data stream, parsing email...');
+        console.log('End of data stream, parsing email...');
 
         try {
           const rawEmail = Buffer.concat(chunks);
           const parsed = await simpleParser(rawEmail);
 
-          console.log('📧 Parsed email:', {
+          console.log('Parsed email:', {
             from: parsed.from?.text,
             to: parsed.to?.text,
             subject: parsed.subject,
@@ -80,14 +80,14 @@ export const startSMTPServer = () => {
           const recipient = parsed.to?.value[0]?.address;
           const sender = parsed.from?.text;
 
-          console.log('📌 Recipient:', recipient);
-          console.log('📌 Sender:', sender);
+          console.log('Recipient:', recipient);
+          console.log('Sender:', sender);
 
           const user = await authModel.findOne({ mailhook: recipient });
-          console.log('👤 User lookup result:', user ? user.email : null);
+          console.log('User lookup result:', user ? user.email : null);
 
           if (!user) {
-            console.warn('⚠️ No user found for mailhook:', recipient);
+            console.warn('No user found for mailhook:', recipient);
             return callback();
           }
 
@@ -97,21 +97,20 @@ export const startSMTPServer = () => {
             sender: sender || '',
             recipient: recipient || '',
           };
-          console.log('📄 Email data for template matching:', emailData);
+          console.log('Email data for template matching:', emailData);
 
-          // Find active templates
           const templates = await TemplateModel.find({
             userId: user._id,
             active: true,
           });
-          console.log(`📋 Found ${templates.length} active templates for user`);
+          console.log(`Found ${templates.length} active templates for user`);
 
           let matchedTemplate = null;
           for (const tpl of templates) {
             if (matchesTemplate(tpl, emailData)) {
               matchedTemplate = tpl;
-              console.log('✅ Matched template:', tpl._id);
-              break; // stop at first match
+              console.log('Matched template:', tpl._id);
+              break; 
             }
           }
 
@@ -127,7 +126,7 @@ export const startSMTPServer = () => {
 
           await emailDoc.save();
           console.log(
-            `💾 Email saved to DB with ID: ${emailDoc._id} ${
+            `Email saved to DB with ID: ${emailDoc._id} ${
               matchedTemplate
                 ? `(linked to template: ${matchedTemplate._id})`
                 : '(no template matched)'
@@ -136,7 +135,7 @@ export const startSMTPServer = () => {
 
           callback();
         } catch (err) {
-          console.error('❌ Error parsing or saving email:', err);
+          console.error('Error parsing or saving email:', err);
           callback(err);
         }
       });
@@ -178,7 +177,7 @@ export const getEmails = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error('❌ Error fetching emails:', err);
+    console.error(' Error fetching emails:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -214,16 +213,16 @@ function parseKeyValuePairs(text = '') {
 
 export const mailHookWebhook = async (req, res) => {
   try {
-    console.log('📩 [mailHookWebhook] Incoming request body:', req.body);
+    console.log('[mailHookWebhook] Incoming request body:', req.body);
 
     const rawEmail = req.body.email || null;
     let parsed = {};
 
     if (rawEmail) {
-      console.log('📨 Raw email string detected, parsing with simpleParser...');
+      console.log('Raw email string detected, parsing with simpleParser...');
       parsed = await simpleParser(rawEmail);
     } else {
-      console.log('📨 No raw email, falling back to manual parsing...');
+      console.log('No raw email, falling back to manual parsing...');
       parsed = {
         from: { value: [{ address: req.body.from, name: req.body.from }] },
         to: { value: [{ address: req.body.to, name: req.body.to }] },
@@ -232,11 +231,11 @@ export const mailHookWebhook = async (req, res) => {
         html: req.body.html,
       };
     }
-    console.log('✅ Parsed email object:', parsed);
+    console.log('Parsed email object:', parsed);
 
     const senderAddress = parsed.from?.value?.[0]?.address || '';
     const senderName = parsed.from?.value?.[0]?.name || '';
-    console.log('👤 Sender:', senderName, `<${senderAddress}>`);
+    console.log(' Sender:', senderName, `<${senderAddress}>`);
 
     const { firstName: senderFirstName, lastName: senderLastName } =
       splitName(senderName);
@@ -247,14 +246,14 @@ export const mailHookWebhook = async (req, res) => {
       (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
       headerRecipient;
 
-    console.log('📨 Initial mailhook address:', mailhookAddress);
+    console.log(' Initial mailhook address:', mailhookAddress);
 
     if (Array.isArray(req.body.to)) {
       const brandferAddress = req.body.to.find((a) =>
         a.includes('@mail.brandfer.com')
       );
       if (brandferAddress) {
-        console.log('📌 Found brandfer address:', brandferAddress);
+        console.log(' Found brandfer address:', brandferAddress);
         mailhookAddress = brandferAddress;
       }
     }
@@ -263,7 +262,7 @@ export const mailHookWebhook = async (req, res) => {
       mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
     }
     mailhookAddress = mailhookAddress.trim().toLowerCase();
-    console.log('📬 Final mailhookAddress:', mailhookAddress);
+    console.log(' Final mailhookAddress:', mailhookAddress);
 
     const { firstName: recipientFirstName, lastName: recipientLastName } =
       splitName(mailhookAddress);
@@ -284,7 +283,7 @@ export const mailHookWebhook = async (req, res) => {
         size: a.size,
       })) || [];
 
-    console.log('📋 Email meta extracted:', {
+    console.log(' Email meta extracted:', {
       subject,
       cc,
       bcc,
@@ -295,7 +294,7 @@ export const mailHookWebhook = async (req, res) => {
     let verificationCode = null;
     let verificationUrl = null;
     if (subject.includes('Gmail Forwarding Confirmation')) {
-      console.log('🔐 Gmail forwarding confirmation detected');
+      console.log(' Gmail forwarding confirmation detected');
       const codeMatch = textBody.match(/Confirmation code:\s*(\d+)/i);
       if (codeMatch) verificationCode = codeMatch[1];
       const urlMatch = textBody.match(
@@ -305,7 +304,7 @@ export const mailHookWebhook = async (req, res) => {
     }
 
     const extraFields = parseKeyValuePairs(textBody);
-    console.log('🗂 Extra fields extracted:', extraFields);
+    console.log(' Extra fields extracted:', extraFields);
 
     const user = await authModel.findOne({ mailhook: mailhookAddress });
     if (!user) {
@@ -318,7 +317,7 @@ export const mailHookWebhook = async (req, res) => {
       userId: user._id,
       active: true,
     });
-    console.log(`📑 Found ${templates.length} active templates for user`);
+    console.log(` Found ${templates.length} active templates for user`);
 
     let matchedTemplate = null;
     for (const tpl of templates) {
@@ -328,7 +327,7 @@ export const mailHookWebhook = async (req, res) => {
         htmlBody.includes(tpl.keyword)
       ) {
         matchedTemplate = tpl;
-        console.log('✅ Matched template:', tpl._id.toString(), tpl.name);
+        console.log(' Matched template:', tpl._id.toString(), tpl.name);
         break;
       }
     }
@@ -358,9 +357,9 @@ export const mailHookWebhook = async (req, res) => {
     });
 
     await emailDoc.save();
-    console.log('💾 Email saved to DB:', emailDoc._id.toString());
+    console.log(' Email saved to DB:', emailDoc._id.toString());
 
-    console.log('🚀 Executing scenarios for this email...');
+    console.log(' Executing scenarios for this email...');
     await executeScenarios({
       userId: user._id,
       from: senderAddress,
@@ -369,11 +368,11 @@ export const mailHookWebhook = async (req, res) => {
       emailId: emailDoc._id.toString(),
       parsedEmailObj: parsed,
     });
-    console.log('✅ Scenarios executed for email:', emailDoc._id.toString());
+    console.log('Scenarios executed for email:', emailDoc._id.toString());
 
     res.status(200).send('Email processed and saved');
   } catch (err) {
-    console.error('❌ mailHookWebhook ERROR:', err.message, err.stack);
+    console.error('mailHookWebhook ERROR:', err.message, err.stack);
     res.status(500).send('Error processing email');
   }
 };
@@ -388,7 +387,6 @@ function fillTemplate(template, fields) {
 function extractFieldsFromEmail(emailObj = {}) {
   const fields = {};
 
-  // ✅ Full Name & Email
   if (emailObj.from?.value?.[0]) {
     fields.FullName = emailObj.from.value[0].name || '';
     fields.BusinessEmail = emailObj.from.value[0].address || '';
@@ -398,27 +396,22 @@ function extractFieldsFromEmail(emailObj = {}) {
     fields.BusinessEmail = match ? match[2].trim() : emailObj.from;
   }
 
-  // ✅ Budget, Country
   const kv = parseKeyValuePairs(emailObj.text || '');
   if (kv.budget) fields.Budget = kv.budget;
   if (kv.country) fields.Country = kv.country;
 
-  // ✅ Store name
   const storeMatch = (emailObj.text || '').match(/store\s+"([^"]+)"/i);
   if (storeMatch) fields.StoreName = storeMatch[1];
 
-  // ✅ Store URL
   const urlMatch = (emailObj.text || '').match(/https?:\/\/[^\s]+/i);
   if (urlMatch) fields.StoreURL = urlMatch[0];
 
-  // ✅ ProblemGoal
   const lines = (emailObj.text || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
   fields.ProblemGoal = lines.slice(1, 3).join(' ') || '';
 
-  // ✅ Service
   fields.Service = emailObj.subject || '';
 
   return fields;
@@ -427,8 +420,8 @@ function extractFieldsFromEmail(emailObj = {}) {
 export const executeScenarios = async (emailData) => {
   try {
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
-    console.log('🚀 [executeScenarios] START EXECUTION');
-    console.log('📥 Incoming email data:', emailData);
+    console.log(' [executeScenarios] START EXECUTION');
+    console.log(' Incoming email data:', emailData);
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
@@ -444,7 +437,6 @@ export const executeScenarios = async (emailData) => {
         if (!branch.filter || !Array.isArray(branch.filter.conditions))
           continue;
 
-        // ✅ Condition check
         const matches = branch.filter.conditions.every((cond) => {
           const fieldValue =
             cond.field === 'Body'
@@ -463,7 +455,6 @@ export const executeScenarios = async (emailData) => {
         if (!matches) continue;
         if (!branch.modules || branch.modules.length === 0) continue;
 
-        // ✅ Status doc
         let statusDoc = await AutomationStatusModel.create({
           userId,
           emailId,
@@ -478,7 +469,6 @@ export const executeScenarios = async (emailData) => {
           const module = branch.modules[i];
 
           try {
-            // ---------------- Delay ----------------
             if (
               module.type === 'Delay' ||
               (!module.type && module.app?.name === 'Delay')
@@ -579,7 +569,6 @@ export const executeScenarios = async (emailData) => {
                     }
                   }
 
-                  // 🟪 Fill placeholders
                   plain.template = fillTemplate(
                     templateContent,
                     extractedFields
@@ -610,7 +599,6 @@ export const executeScenarios = async (emailData) => {
               break;
             }
 
-            // ---------------- Send Email ----------------
             if (
               module.type === 'Send an Email' ||
               module.type === 'Custom Email'
@@ -621,18 +609,16 @@ export const executeScenarios = async (emailData) => {
                 let stepType = 'initial';
                 const subjectLower = (subject || '').toLowerCase().trim();
 
-                // ✅ Only triggers if the subject STARTS exactly with the Shopify phrase
                 const isValidShopify = subjectLower.startsWith(
                   'shopify partner directory: new service inquiry from'
                 );
 
-                // const isForwarded = subjectLower.includes('fw');
                 if (!isValidShopify) {
                   console.log(
                     '🚫 Skipping Shopify scenario — subject invalid for trigger:',
                     subject
                   );
-                  continue; // ⛔ Skip this module
+                  continue;
                 }
                 const lower = (module.template || '').toLowerCase();
                 if (lower.includes('first')) stepType = 'first';
@@ -713,7 +699,6 @@ export const executeScenarios = async (emailData) => {
                 }
               }
 
-              // 🟪 Fill placeholders
               templateContent = fillTemplate(templateContent, extractedFields);
 
               const plainModule = module.toObject ? module.toObject() : module;
@@ -754,7 +739,6 @@ export const executeScenarios = async (emailData) => {
           }
         }
 
-        // ✅ Final check
         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
         if (
           finalDoc.pendingModules.length === 0 &&
@@ -779,196 +763,6 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
-// export const sendEmailModule = async (
-//   module,
-//   to,
-//   originalSubject,
-//   parentEmailId
-// ) => {
-//   console.log('[sendEmailModule] Function called with:', {
-//     moduleId: module?._id || null,
-//     to,
-//     originalSubject,
-//     parentEmailId,
-//   });
-
-//   const connection = await ConnectionModel.findById(module.connectionId);
-//   if (!connection) {
-//     console.error(
-//       ' [sendEmailModule] No connection found for module:',
-//       module.connectionId
-//     );
-//     return;
-//   }
-//   console.log(
-//     ' [sendEmailModule] Connection found:',
-//     connection.provider,
-//     connection.email
-//   );
-
-//   const norm = (v) =>
-//     Array.isArray(v)
-//       ? v.filter(Boolean).join(', ')
-//       : (v || '').toString().trim();
-
-//   const cc = norm(module.cc);
-//   const bcc = norm(module.bcc);
-
-//   console.log('📨 [sendEmailModule] Preparing email with:', {
-//     from: connection.email,
-//     to,
-//     cc,
-//     bcc,
-//   });
-
-//   const finalSubject =
-//     module.subject && module.subject.trim() !== ''
-//       ? module.subject
-//       : `Re: ${originalSubject || 'No Subject'}`;
-
-//   const emailBody = module.template || 'Thanks for your email!';
-//   console.log('📝 [sendEmailModule] Final subject & body ready:', finalSubject);
-
-//   let sentOk = false;
-
-//   // === GMAIL SEND ===
-//   if (connection.provider === 'gmail') {
-//     try {
-//       console.log('🚀 [GMAIL] Preparing OAuth2 client...');
-//       const oauth2Client = new google.auth.OAuth2(
-//         process.env.GOOGLE_CLIENT_ID,
-//         process.env.GOOGLE_CLIENT_SECRET,
-//         process.env.GOOGLE_REDIRECT_URI
-//       );
-//       oauth2Client.setCredentials(connection.tokens);
-
-//       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-//       const lines = [
-//         `From: ${connection.email}`,
-//         `To: ${to}`,
-//         ...(cc ? [`Cc: ${cc}`] : []),
-//         ...(bcc ? [`Bcc: ${bcc}`] : []),
-//         `Subject: ${finalSubject}`,
-//         'MIME-Version: 1.0',
-//         'Content-Type: text/html; charset=UTF-8',
-//         '',
-//         emailBody,
-//       ];
-//       const rawMessage = lines.join('\n').trim();
-
-//       const encodedMessage = Buffer.from(rawMessage)
-//         .toString('base64')
-//         .replace(/\+/g, '-')
-//         .replace(/\//g, '_')
-//         .replace(/=+$/, '');
-
-//       console.log('📤 [GMAIL] Sending email...');
-//       const result = await gmail.users.messages.send({
-//         userId: 'me',
-//         requestBody: { raw: encodedMessage },
-//       });
-//       console.log('✅ [GMAIL] Email sent:', result.data.id);
-//       sentOk = true;
-//     } catch (err) {
-//       console.error('❌ [GMAIL] send error:', err);
-//     }
-//   }
-//   // === OUTLOOK/SMTP SEND ===
-//   else if (
-//     connection.provider === 'outlook' ||
-//     connection.provider === 'smtp'
-//   ) {
-//     try {
-//       const isOutlook = connection.provider === 'outlook';
-//       console.log(
-//         `🚀 [${connection.provider.toUpperCase()}] Preparing transporter...`
-//       );
-
-//       const transporter = nodemailer.createTransport({
-//         host:
-//           connection.smtpHost ||
-//           connection.smtp?.host ||
-//           (isOutlook ? 'smtp.office365.com' : undefined),
-//         port: connection.smtpPort || connection.smtp?.port || 587,
-//         secure: (connection.smtpPort || connection.smtp?.port) === 465,
-//         auth: {
-//           user:
-//             connection.smtpUser ||
-//             connection.smtp?.username ||
-//             connection.email,
-//           pass: connection.smtpPass || connection.smtp?.password,
-//         },
-//       });
-
-//       console.log(`📤 [${connection.provider.toUpperCase()}] Sending email...`);
-//       const info = await transporter.sendMail({
-//         from: connection.email,
-//         to,
-//         cc: cc || undefined,
-//         bcc: bcc || undefined,
-//         subject: finalSubject,
-//         html: emailBody,
-//       });
-//       console.log(
-//         `✅ [${connection.provider.toUpperCase()}] Email sent:`,
-//         info.messageId
-//       );
-//       sentOk = true;
-//     } catch (err) {
-//       console.error(
-//         `❌ [${connection.provider.toUpperCase()}] send error:`,
-//         err
-//       );
-//     }
-//   } else {
-//     console.warn(
-//       '⚠️ [sendEmailModule] Unsupported provider:',
-//       connection.provider
-//     );
-//   }
-
-//   // === SAVE SENT EMAIL in DB ===
-//   if (sentOk) {
-//     try {
-//       console.log('💾 [sendEmailModule] Saving sent/forwarded email in DB...');
-
-//       const sentDoc = new EmailModel({
-//         userId: connection.userId,
-//         senderAddress: connection.email,
-//         recipientAddress: to,
-//         subject: finalSubject,
-//         textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ''),
-//         htmlBody: emailBody,
-//         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
-//         bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
-//         date: new Date(),
-//         isForwarded: true,
-//         parentEmailId: parentEmailId || null,
-//         forwardedMeta: {
-//           from: connection.email,
-//           to,
-//           subject: originalSubject,
-//           date: new Date().toISOString(),
-//           body: emailBody,
-//         },
-//       });
-
-//       await sentDoc.save();
-//       console.log(
-//         '✅ [sendEmailModule] Forward/Response saved:',
-//         sentDoc._id.toString()
-//       );
-//     } catch (err) {
-//       console.error('❌ [sendEmailModule] Error saving sent email:', err);
-//     }
-//   } else {
-//     console.warn('⚠️ [sendEmailModule] Email not sent, skipping DB save.');
-//   }
-
-//   console.log('🏁 [sendEmailModule] END\n');
-// };
-
 export const sendEmailModule = async (
   module,
   to,
@@ -976,7 +770,7 @@ export const sendEmailModule = async (
   parentEmailId
 ) => {
   console.log(
-    '🚀 [sendEmailModule] START ====================================='
+    ' [sendEmailModule] START ====================================='
   );
   console.log('[sendEmailModule] Function called with:', {
     moduleId: module?._id || null,
@@ -986,17 +780,17 @@ export const sendEmailModule = async (
   });
 
   try {
-    console.log('🔍 [sendEmailModule] Fetching connection...');
+    console.log(' [sendEmailModule] Fetching connection...');
     const connection = await ConnectionModel.findById(module.connectionId);
     if (!connection) {
       console.error(
-        '❌ [sendEmailModule] No connection found for module:',
+        ' [sendEmailModule] No connection found for module:',
         module.connectionId
       );
       return;
     }
 
-    console.log('✅ [sendEmailModule] Connection found:', {
+    console.log('[sendEmailModule] Connection found:', {
       provider: connection.provider,
       email: connection.email,
       smtpHost: connection.smtpHost,
@@ -1014,7 +808,7 @@ export const sendEmailModule = async (
     const cc = norm(module.cc);
     const bcc = norm(module.bcc);
 
-    console.log('📨 [sendEmailModule] Preparing email headers:', {
+    console.log(' [sendEmailModule] Preparing email headers:', {
       from: connection.email,
       to,
       cc,
@@ -1026,27 +820,27 @@ export const sendEmailModule = async (
         ? module.subject
         : `Re: ${originalSubject || 'No Subject'}`;
 
-    console.log('📝 [sendEmailModule] Final subject computed:', finalSubject);
+    console.log('[sendEmailModule] Final subject computed:', finalSubject);
 
     const emailBody = module.template || 'Thanks for your email!';
-    console.log('🧾 [sendEmailModule] Email body length:', emailBody.length);
+    console.log('[sendEmailModule] Email body length:', emailBody.length);
 
     let sentOk = false;
 
     if (connection.provider === 'gmail') {
-      console.log('📬 [sendEmailModule] Gmail provider detected');
+      console.log('[sendEmailModule] Gmail provider detected');
       try {
-        console.log('🚀 [GMAIL] Preparing OAuth2 client...');
+        console.log(' [GMAIL] Preparing OAuth2 client...');
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
           process.env.GOOGLE_CLIENT_SECRET,
           process.env.GOOGLE_REDIRECT_URI
         );
 
-        console.log('🔑 [GMAIL] Setting credentials...');
+        console.log(' [GMAIL] Setting credentials...');
         oauth2Client.setCredentials(connection.tokens);
 
-        console.log('⚙️ [GMAIL] Creating Gmail client...');
+        console.log(' [GMAIL] Creating Gmail client...');
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
         const lines = [
@@ -1062,7 +856,7 @@ export const sendEmailModule = async (
         ];
 
         const rawMessage = lines.join('\n').trim();
-        console.log('📦 [GMAIL] Raw message built, size:', rawMessage.length);
+        console.log('[GMAIL] Raw message built, size:', rawMessage.length);
 
         const encodedMessage = Buffer.from(rawMessage)
           .toString('base64')
@@ -1086,12 +880,12 @@ export const sendEmailModule = async (
       connection.provider === 'smtp'
     ) {
       console.log(
-        '📬 [sendEmailModule] SMTP/Outlook provider detected:',
+        '[sendEmailModule] SMTP/Outlook provider detected:',
         connection.provider
       );
       try {
         const isOutlook = connection.provider === 'outlook';
-        console.log('⚙️ [SMTP] Preparing transporter config...');
+        console.log(' [SMTP] Preparing transporter config...');
 
         const transporterConfig = {
           host:
@@ -1112,12 +906,12 @@ export const sendEmailModule = async (
         console.log('🔧 [SMTP] Transporter configuration:', transporterConfig);
 
         console.log(
-          `🚀 [${connection.provider.toUpperCase()}] Creating transporter...`
+          `[${connection.provider.toUpperCase()}] Creating transporter...`
         );
         const transporter = nodemailer.createTransport(transporterConfig);
 
         console.log(
-          `📤 [${connection.provider.toUpperCase()}] Sending email...`
+          `[${connection.provider.toUpperCase()}] Sending email...`
         );
         const info = await transporter.sendMail({
           from: connection.email,
@@ -1129,28 +923,28 @@ export const sendEmailModule = async (
         });
 
         console.log(
-          `✅ [${connection.provider.toUpperCase()}] Email sent:`,
+          `[${connection.provider.toUpperCase()}] Email sent:`,
           info.messageId
         );
         sentOk = true;
       } catch (err) {
         console.error(
-          `❌ [${connection.provider.toUpperCase()}] send error:`,
+          `[${connection.provider.toUpperCase()}] send error:`,
           err
         );
       }
     } else {
       console.warn(
-        '⚠️ [sendEmailModule] Unsupported provider:',
+        '[sendEmailModule] Unsupported provider:',
         connection.provider
       );
     }
 
-    console.log('💾 [sendEmailModule] Checking if email was sent...');
+    console.log(' [sendEmailModule] Checking if email was sent...');
     if (sentOk) {
       try {
         console.log(
-          '💾 [sendEmailModule] Preparing to save sent email in DB...'
+          ' [sendEmailModule] Preparing to save sent email in DB...'
         );
 
         const sentDoc = new EmailModel({
@@ -1178,22 +972,22 @@ export const sendEmailModule = async (
         await sentDoc.save();
 
         console.log(
-          '✅ [sendEmailModule] Email saved in DB:',
+          ' [sendEmailModule] Email saved in DB:',
           sentDoc._id.toString()
         );
       } catch (err) {
-        console.error('❌ [sendEmailModule] Error saving sent email:', err);
+        console.error(' [sendEmailModule] Error saving sent email:', err);
       }
     } else {
-      console.warn('⚠️ [sendEmailModule] Email not sent, skipping DB save.');
+      console.warn(' [sendEmailModule] Email not sent, skipping DB save.');
     }
 
     console.log(
-      '🏁 [sendEmailModule] END =====================================\n'
+      '[sendEmailModule] END =====================================\n'
     );
   } catch (outerErr) {
     console.error(
-      '💥 [sendEmailModule] Unexpected error in main try block:',
+      ' [sendEmailModule] Unexpected error in main try block:',
       outerErr
     );
   }
@@ -1212,7 +1006,6 @@ export const RunTestMode = async (req, res) => {
       helpDescription,
     } = req.body;
 
-    // ✅ Validate required fields
     if (!userId || !fullName || !businessEmail || !service) {
       return res.status(400).json({
         success: false,
@@ -1220,7 +1013,6 @@ export const RunTestMode = async (req, res) => {
       });
     }
 
-    // ✅ Find user and verify mailhook
     const user = await authModel.findById(userId);
     if (!user || !user.mailhook) {
       return res.status(404).json({
@@ -1233,7 +1025,6 @@ export const RunTestMode = async (req, res) => {
     const partnerName = user.fullName || 'The Fold Tech';
     const dummyCustomer = 'Dummy Customer';
 
-    // ✅ Setup Nodemailer
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -1242,10 +1033,8 @@ export const RunTestMode = async (req, res) => {
       },
     });
 
-    // ✅ Subject line
     const subject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
 
-    // ✅ Email text (for fallback)
     const textBody = `
 Hello ${partnerName} and ${dummyCustomer},
 
@@ -1343,7 +1132,6 @@ The Shopify Team
     const emailId = `test-${Date.now()}`;
     const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
 
-    // ✅ Send test email
     await transporter.sendMail({
       from: fromAddress,
       to: mailhook,
@@ -1354,7 +1142,6 @@ The Shopify Team
 
     console.log(`✅ Test email sent → ${mailhook}`);
 
-    // ✅ Save to DB
     const savedEmail = await EmailModel.create({
       userId,
       senderFirstName: dummyCustomer.split(' ')[0],
@@ -1371,7 +1158,6 @@ The Shopify Team
 
     console.log('💾 Saved test email:', savedEmail._id);
 
-    // ✅ Trigger automation
     await executeScenarios({
       userId,
       from: fromAddress,
@@ -1390,11 +1176,11 @@ The Shopify Team
 
     res.json({
       success: true,
-      message: `✅ Test email sent and scenario executed for ${mailhook}`,
+      message: `Test email sent and scenario executed for ${mailhook}`,
       testEmail: savedEmail,
     });
   } catch (err) {
-    console.error('❌ Run Test Error:', err);
+    console.error('Run Test Error:', err);
     res.status(500).json({
       success: false,
       message: 'Failed to send test email or execute scenario.',
@@ -1407,7 +1193,6 @@ export const getTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // ✅ Validate
     if (!userId) {
       return res.status(400).json({
         success: false,
@@ -1415,15 +1200,13 @@ export const getTestEmail = async (req, res) => {
       });
     }
 
-    // ✅ Find the latest test email where isTestEmail = true
     const latestEmail = await EmailModel.findOne({
       userId,
-      isTestEmail: true, // ✅ only fetch test emails
+      isTestEmail: true, 
     })
-      .sort({ createdAt: -1 }) // latest first
+      .sort({ createdAt: -1 }) 
       .lean();
 
-    // ✅ Handle not found
     if (!latestEmail) {
       return res.status(404).json({
         success: false,
@@ -1431,14 +1214,13 @@ export const getTestEmail = async (req, res) => {
       });
     }
 
-    // ✅ Success response
     res.json({
       success: true,
-      message: '✅ Latest test email fetched successfully!',
+      message: 'Latest test email fetched successfully!',
       email: latestEmail,
     });
   } catch (error) {
-    console.error('❌ [getTestEmail] Error:', error);
+    console.error('[getTestEmail] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching test email.',
@@ -1649,3 +1431,168 @@ export const deleteAllConnections = async (req, res) => {
     });
   }
 };
+
+
+
+export const getLatestVerificationEmail = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const email = await EmailModel.findOne({
+      userId,
+      senderAddress: /forwarding-noreply@google\.com/i, 
+      subject: /\(Gmail Forwarding Confirmation/i, 
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!email) {
+      return res.status(404).json({ message: "No Gmail verification email found" });
+    }
+
+    const result = {
+      subject: email.subject,
+      date: email.date,
+      verificationUrl:
+        email.verificationUrl ||
+        email.extraFields?.https ||
+        email.extraFields?.visit ||
+        null,
+      verificationCode: email.verificationCode || null,
+      sender: email.senderAddress,
+      textBody: email.textBody?.slice(0, 500) || null,
+    };
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error("Error fetching verification email:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+export const validateTestEmail = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid user ID." });
+    }
+
+    const user = await authModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (!user.mailhook) {
+      return res.status(400).json({ success: false, message: "Mailhook not found for user." });
+    }
+
+    const testSubject = "Zenith Forwarding Validation Test";
+    const testBody = `This is a test message to confirm Gmail forwarding setup for ${user.email}.`;
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Zenith System" <${process.env.EMAIL_USER}>`,
+      to: user.mailhook,
+      subject: testSubject,
+      text: testBody,
+    });
+
+    console.log(`Test email sent to ${user.mailhook}`);
+
+    const maxAttempts = 6; 
+    let validated = false;
+    let foundEmail = null;
+
+    for (let attempts = 0; attempts < maxAttempts; attempts++) {
+      await new Promise((r) => setTimeout(r, 5000)); 
+
+      foundEmail = await EmailModel.findOne({
+        userId,
+        subject: { $regex: testSubject, $options: "i" },
+      }).sort({ createdAt: -1 });
+
+      if (foundEmail) {
+        validated = true;
+        break;
+      }
+    }
+
+    if (validated) {
+      console.log(`Forwarding confirmed for ${user.email}`);
+
+      foundEmail.isValidateTestEmail = true;
+      await foundEmail.save();
+
+      return res.json({
+        success: true,
+        message: "Forwarding verified successfully!",
+        emailId: foundEmail._id,
+      });
+    } else {
+      console.log(` Forwarding failed for ${user.email}`);
+      return res.json({
+        success: false,
+        message:
+          "No test email received. Please verify your Gmail forwarding settings and try again.",
+      });
+    }
+  } catch (err) {
+    console.error("💥 Error validating forwarding:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+export const getValidateEmail=async(req,res)=>{
+  try {
+    const { userId } = req.params;
+
+    const email = await EmailModel.findOne({
+      userId,
+      senderAddress: /forwarding-noreply@google.com/i,
+      subject: { $regex: "Gmail Forwarding Confirmation", $options: "i" },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!email) {
+      return res.status(404).json({
+        success: false,
+        message: "No Gmail validation email found yet.",
+      });
+    }
+
+    const verificationUrl =
+      email.verificationUrl ||
+      (email.textBody?.match(/https:\/\/mail-settings\.google\.com\/mail\/vf-[^\s]+/i) || [])[0] ||
+      null;
+
+    return res.json({
+      success: true,
+      email: {
+        id: email._id,
+        subject: email.subject,
+        sender: email.senderAddress,
+        date: email.date,
+        verificationUrl,
+        textBody: email.textBody,
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching validation email:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
