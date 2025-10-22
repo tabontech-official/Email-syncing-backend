@@ -1081,11 +1081,9 @@ export const sendEmailModule = async (
 
         const toClean = extractEmail(to);
         const ccClean = cc
-          ? cc
-              .split(',')
-              .map((addr) => ({
-                emailAddress: { address: extractEmail(addr.trim()) },
-              }))
+          ? cc.split(',').map((addr) => ({
+              emailAddress: { address: extractEmail(addr.trim()) },
+            }))
           : [];
 
         const message = {
@@ -1149,7 +1147,6 @@ export const sendEmailModule = async (
       }
     }
 
-    // 6️⃣ Save the sent email in DB
     if (sentOk) {
       const sentDoc = new EmailModel({
         userId: connection.userId,
@@ -1173,7 +1170,7 @@ export const sendEmailModule = async (
       });
 
       await sentDoc.save();
-      console.log('🗄️ [sendEmailModule] Email saved:', sentDoc._id.toString());
+      console.log('[sendEmailModule] Email saved:', sentDoc._id.toString());
     } else {
       console.warn('[sendEmailModule] Email not sent, skipping save.');
     }
@@ -1242,12 +1239,11 @@ export const RunTestMode = async (req, res) => {
         budget,
         helpDescription,
       });
-      console.log('💾 Saved new test input for user:', userId);
+      console.log('Saved new test input for user:', userId);
     }
 
-    // const subject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
+    const subject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
 
-    const subject = ` Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
     const textBody = helpDescription || 'No description provided.';
 
     const htmlBody = `
