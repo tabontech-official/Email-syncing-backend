@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
+import { type } from 'os';
 
 const authSchema = new mongoose.Schema(
   {
@@ -31,17 +32,39 @@ const authSchema = new mongoose.Schema(
     },
     setup: {
       stepCompleted: { type: Number, default: 0 },
-     
-      tone: String,
-      services: [String],
-      sendingMode: { type: String, default: 'Auto-Send' },
-      followUps: {
-        first: { delay: Number, unit: String },
-        second: { delay: Number, unit: String },
-      },
-      safetyNet: { type: Boolean, default: true },
+      completed: { type: Boolean, default: false },
+      skipped: { type: Boolean, default: false },
+      steps: [
+        {
+          step: { type: Number },
+          title: { type: String },
+          status: {
+            type: String, // "completed", "skipped", "pending"
+            default: 'pending',
+          },
+          updatedAt: { type: Date, default: Date.now },
+        },
+      ],
+    },
+    organizationName: {
+      type: String,
+      default: 'My Organization',
+    },
+    Region: {
+      type: String,
+    },
+    country: {
+      type: String,
+    },
+    PartnerLink: {
+      type: String,
+    },
+     TimeZone: {
+      type: String,
+      default: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     },
   },
+
   { timestamps: true }
 );
 

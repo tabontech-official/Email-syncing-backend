@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
 import fetch from 'node-fetch';
 import { AuthorizationCode } from 'simple-oauth2';
-
+import geoip from 'geoip-lite';
 import fs from 'fs';
 import { PubSub } from '@google-cloud/pubsub';
 import axios from 'axios';
@@ -13,6 +13,7 @@ import { TemplateModel } from '../Models/Template.js';
 import nodemailer from 'nodemailer';
 import path from 'path';
 import { scenarioModel } from '../Models/Scenario.js';
+import { OrganizationModel } from '../Models/Organization.js';
 
 export const defaultServices = [
   'General',
@@ -331,19 +332,198 @@ export const logout = async (req, res) => {
 export const completeSetup = async (req, res) => {
   try {
     const { id } = req.params;
+    const { stepCompleted, setupCompleted = false, skipped = false } = req.body;
 
-    const user = await authModel.findByIdAndUpdate(
-      id,
-      { $set: req.body },
-      { new: true }
-    );
+    const stepTitles = {
+      1: 'Mailhook created',
+      2: 'Mailhook verified',
+      3: 'Forwarding rules configured',
+      4: 'SMTP credentials connected',
+      5: 'Automation mode selected',
+    };
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const user = await authModel.findById(id);
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
 
-    res.json({ success: true, data: user });
+    if (!user.setup) user.setup = { steps: [] };
+    if (!user.setup.steps) user.setup.steps = [];
+
+    // 🟢 CASE 1 — user skipped everything at once
+    if (skipped && stepCompleted === 1) {
+      user.setup.steps = Object.entries(stepTitles).map(([num, title]) => ({
+        step: Number(num),
+        title,
+        status: 'skipped',
+        updatedAt: new Date(),
+      }));
+
+      user.setup.stepCompleted = 5; // assume full wizard skipped
+      user.setup.skipped = true;
+      user.setup.completed = false;
+      user.setup.updatedAt = new Date();
+
+      await user.save();
+      return res.json({
+        success: true,
+        message: '✅ All steps marked as skipped',
+        data: user.setup,
+      });
+    }
+
+    // 🟠 CASE 2 — normal flow or partial skip
+    for (let i = 1; i <= stepCompleted; i++) {
+      const existing = user.setup.steps.find((s) => s.step === i);
+      const isCurrent = i === stepCompleted;
+
+      if (!existing) {
+        user.setup.steps.push({
+          step: i,
+          title: stepTitles[i] || `Step ${i}`,
+          status: isCurrent ? (skipped ? 'skipped' : 'completed') : 'completed',
+          updatedAt: new Date(),
+        });
+      } else if (isCurrent) {
+        existing.status = skipped ? 'skipped' : 'completed';
+        existing.updatedAt = new Date();
+      }
+    }
+
+    user.setup.stepCompleted = stepCompleted;
+    user.setup.completed = setupCompleted;
+    user.setup.skipped = skipped;
+    user.setup.updatedAt = new Date();
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: '✅ Setup progress updated successfully',
+      data: user.setup,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update setup' });
+    console.error('❌ Error updating setup:', err);
+    res.status(500).json({ success: false, message: 'Failed to update setup' });
+  }
+};
+
+export const getSetupProgress = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await authModel.findById(id).select('setup email name');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (!user.setup) {
+      user.setup = {
+        stepCompleted: 0,
+        completed: false,
+        skipped: false,
+        steps: [],
+      };
+    }
+
+    res.json({
+      success: true,
+      message: '✅ Setup progress fetched successfully',
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        ...(user.setup.toObject?.() || user.setup),
+      },
+    });
+  } catch (err) {
+    console.error('❌ Error fetching setup progress:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch setup progress',
+    });
+  }
+};
+
+export const createOrganization = async (req, res) => {
+  try {
+    const { organizationName, Region, country, PartnerLink, TimeZone, userId } =
+      req.body;
+
+    if (!organizationName || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationName and userId are required.',
+      });
+    }
+
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const geo = geoip.lookup(ip);
+
+    const detectedRegion = Region || geo?.region || 'Unknown';
+    const detectedCountry = country || geo?.country || 'Unknown';
+    const detectedTimeZone =
+      TimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+    const organization = await OrganizationModel.create({
+      userId,
+      organizationName,
+      Region: detectedRegion,
+      country: detectedCountry,
+      TimeZone: detectedTimeZone,
+      PartnerLink: PartnerLink || '',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Organization created successfully',
+      data: organization,
+    });
+  } catch (error) {
+    console.error(' createOrganization Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create organization',
+      error: error.message,
+    });
+  }
+};
+
+export const getOrganizationByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required.',
+      });
+    }
+
+    const organization = await OrganizationModel.findOne({ userId });
+
+    if (!organization) {
+      return res.status(404).json({
+        success: false,
+        message: 'No organization found for this user.',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: organization,
+    });
+  } catch (error) {
+    console.error('getOrganizationByUserId Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch organization.',
+      error: error.message,
+    });
   }
 };
 
@@ -456,15 +636,30 @@ export const googleAuthCallback = async (req, res) => {
       <h2>Gmail connected successfully!</h2>
       <p>You can close this window.</p>
       <script>
-        if (window.opener) {
-          // inform parent page
-          window.opener.postMessage(
-            { type: "google-auth-success", connectionId: "${connection._id}" },
-            "*"
-          );
-          // close after short delay
-          setTimeout(() => window.close(), 1000);
-        }
+        (function() {
+          // Wait a short moment to ensure opener is ready
+          function notifyParent() {
+            if (window.opener) {
+              // ✅ Replace this with your frontend origin
+              const frontendOrigin = "http://localhost:3000"; 
+              // or "https://your-frontend-domain.com"
+              
+              window.opener.postMessage(
+                { type: "google-auth-success", connectionId: "${connection._id}" },
+                frontendOrigin
+              );
+              console.log("✅ Message sent to opener:", frontendOrigin);
+            } else {
+              console.warn("⚠️ No opener found.");
+            }
+
+            // Close popup after a brief delay
+            setTimeout(() => window.close(), 1500);
+          }
+
+          // Wait to ensure parent window’s listener is attached
+          setTimeout(notifyParent, 500);
+        })();
       </script>
     </body>
   </html>
@@ -558,10 +753,15 @@ export const addSmtpConnection = async (req, res) => {
   }
 };
 
+const MICROSOFT_CLIENT_ID = '09979dca-57cd-450e-8934-24887f1f368c';
+const MICROSOFT_CLIENT_SECRET = 'TQK8Q~Awgm.47QKh2QT5w~D4nqZiwkGGJpoQ5c._';
+const MICROSOFT_REDIRECT_URI = 'http://localhost:5000/auth/outlook/callback';
+const FRONTEND_URL = 'http://localhost:3006';
+
 const oauthConfig = {
   client: {
-    id: process.env.MICROSOFT_CLIENT_ID,
-    secret: process.env.MICROSOFT_CLIENT_SECRET,
+    id: MICROSOFT_CLIENT_ID,
+    secret: MICROSOFT_CLIENT_SECRET,
   },
   auth: {
     tokenHost: 'https://login.microsoftonline.com',
@@ -573,673 +773,108 @@ const oauthConfig = {
 const client = new AuthorizationCode(oauthConfig);
 
 export const startOutlookOAuth = (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).send('Missing userId');
+
   const authorizationUri = client.authorizeURL({
-    redirect_uri: process.env.MICROSOFT_REDIRECT_URI,
-    scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
+    redirect_uri: MICROSOFT_REDIRECT_URI,
+    scope:
+      'openid profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send',
+    state: JSON.stringify({ userId }),
+    prompt: 'consent',
   });
-  console.log('Redirecting to Microsoft OAuth:', authorizationUri);
+
+  console.log(' Redirecting to Microsoft OAuth:', authorizationUri);
   res.redirect(authorizationUri);
 };
 
 export const outlookOAuthCallback = async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+
+  let userId;
+  try {
+    const parsed = JSON.parse(state);
+    userId = parsed.userId;
+  } catch (err) {
+    return res.status(400).send('Invalid state parameter');
+  }
 
   try {
     const tokenParams = {
       code,
-      redirect_uri: process.env.MICROSOFT_REDIRECT_URI,
+      redirect_uri: MICROSOFT_REDIRECT_URI,
       scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
     };
 
     const accessToken = await client.getToken(tokenParams);
 
-    // Get user info (email, name)
-    const userInfoRes = await fetch('https://graph.microsoft.com/v1.0/me', {
-      headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
-    });
+    const userInfoRes = await fetch(
+      'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
+      {
+        headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
+      }
+    );
     const user = await userInfoRes.json();
+    console.log(' Microsoft user info:', user);
 
-    console.log(
-      '✅ Microsoft account connected:',
-      user.mail || user.userPrincipalName
-    );
+    const userEmail =
+      user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
+    const userName = user.displayName || '';
 
-    const newConnection = new ConnectionModel({
-      provider: 'outlook',
-      email: user.mail || user.userPrincipalName,
-      name: user.displayName,
-      tokens: accessToken.token,
-      userId: req.query.state || 'unknown-user', // pass state if needed
-      status: 'active',
+    if (!userEmail)
+      return res.status(400).send('No email found from Microsoft account');
+
+    let connection = await ConnectionModel.findOne({
+      userId,
+      email: userEmail,
     });
 
-    await newConnection.save();
+    if (!connection) {
+      connection = new ConnectionModel({
+        userId,
+        provider: 'outlook',
+        email: userEmail,
+        name: userName,
+        tokens: accessToken.token,
+        status: 'active',
+        createdAt: new Date(),
+      });
+    } else {
+      connection.tokens = accessToken.token;
+      connection.status = 'active';
+      connection.lastConnected = new Date();
+    }
 
-    // Redirect back to frontend
-    res.send(
-      '<h2>✅ Outlook connected successfully! You can close this window.</h2>'
-    );
+    await connection.save();
+
+    return res.send(`
+      <html>
+        <body style="font-family: sans-serif; text-align: center; padding: 40px;">
+          <h2> Outlook connected successfully!</h2>
+          <p>You can close this window.</p>
+          <script>
+            (function() {
+              function notifyParent() {
+                if (window.opener) {
+                  const frontendOrigin = "${FRONTEND_URL}";
+                  window.opener.postMessage(
+                    { type: "outlook-auth-success", connectionId: "${connection._id}" },
+                    frontendOrigin
+                  );
+                  console.log(" Message sent to opener:", frontendOrigin);
+                } else {
+                  console.warn(" No opener found.");
+                }
+                setTimeout(() => window.close(), 1500);
+              }
+              setTimeout(notifyParent, 500);
+            })();
+          </script>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    console.error('❌ Outlook OAuth error:', err);
-    res.status(500).send('Error connecting Microsoft account');
+    console.error(' Outlook OAuth error:', err);
+    res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
-
-// export const validateConnection = async (connectionId) => {
-//   try {
-//     const connection = await ConnectionModel.findById(connectionId);
-//     if (!connection) {
-//       throw new Error('Connection not found');
-//     }
-
-//     const oauth2Client = new google.auth.OAuth2(
-//       CLIENT_ID,
-//       CLIENT_SECRET,
-//       REDIRECT_URI
-//     );
-
-//     oauth2Client.setCredentials(connection.tokens);
-//     setupTokenRefresh(oauth2Client, connectionId);
-
-//     // Test the connection
-//     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-//     await gmail.users.getProfile({ userId: 'me' });
-
-//     await ConnectionModel.updateOne(
-//       { _id: connectionId },
-//       { $set: { status: 'active', lastValidated: new Date() } }
-//     );
-
-//     return true;
-//   } catch (error) {
-//     console.error('❌ Connection validation failed:', error);
-//     await ConnectionModel.updateOne(
-//       { _id: connectionId },
-//       { $set: { status: 'inactive' } }
-//     );
-//     return false;
-//   }
-// };
-
-// const SCOPES = [
-//   'https://www.googleapis.com/auth/gmail.addons.current.action.compose',
-//   'https://www.googleapis.com/auth/gmail.addons.current.message.action',
-//   // 'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
-//   'https://www.googleapis.com/auth/gmail.addons.current.message.readonly',
-//   'https://www.googleapis.com/auth/gmail.labels',
-//   'https://www.googleapis.com/auth/gmail.send',
-//   'https://www.googleapis.com/auth/gmail.readonly',
-//   'https://www.googleapis.com/auth/gmail.compose',
-//   'https://www.googleapis.com/auth/gmail.insert',
-//   'https://www.googleapis.com/auth/gmail.modify',
-//   'https://www.googleapis.com/auth/gmail.metadata',
-//   'https://www.googleapis.com/auth/gmail.settings.basic',
-//   'https://www.googleapis.com/auth/gmail.settings.sharing',
-// 'https://mail.google.com/' ,
-//   'https://www.googleapis.com/auth/userinfo.email',
-//   'https://www.googleapis.com/auth/userinfo.profile'
-// ];
-
-// export const EmailWebhook = async (req, res) => {
-//   console.log(
-//     '➡️ [EmailWebhook] Incoming Request Body:',
-//     JSON.stringify(req.body, null, 2)
-//   );
-
-//   try {
-//     const message = req.body.message;
-//     console.log('📩 [Step 1] Extracted message:', message);
-
-//     if (!message || !message.data) {
-//       console.warn('⚠️ [Step 1] No Pub/Sub message or data field found.');
-//       return res.status(400).send('No Pub/Sub message');
-//     }
-
-//     const decoded = Buffer.from(message.data, 'base64').toString('utf-8');
-//     console.log('📦 [Step 2] Decoded Base64 Data:', decoded);
-
-//     let data;
-//     try {
-//       data = JSON.parse(decoded);
-//       console.log('🔔 [Step 2] Parsed Pub/Sub Data:', data);
-//     } catch (parseErr) {
-//       console.error('❌ [Step 2] Failed to parse Pub/Sub data:', parseErr);
-//       return res.status(400).send('Invalid Pub/Sub message format');
-//     }
-
-//     console.log('🔎 [Step 3] Looking up connection for email:', data.emailAddress);
-//     const connection = await ConnectionModel.findOne({
-//       email: data.emailAddress,
-//       provider: 'gmail',
-//       status: 'active'
-//     });
-
-//     if (!connection) {
-//       console.warn('⚠️ [Step 3] No active Gmail connection found for email:', data.emailAddress);
-//       return res.status(200).send();
-//     }
-//     console.log('✅ [Step 3] Connection found:', connection.email);
-
-//     console.log('🔐 [Step 4] Creating OAuth2 client...');
-//     const oauth2Client = new google.auth.OAuth2(
-//       CLIENT_ID,
-//       CLIENT_SECRET,
-//       REDIRECT_URI
-//     );
-
-//     oauth2Client.setCredentials(connection.tokens);
-
-//     oauth2Client.on('tokens', async (tokens) => {
-//       console.log('🔄 [Step 4] Refreshing tokens...');
-//       try {
-//         await ConnectionModel.updateOne(
-//           { _id: connection._id },
-//           {
-//             $set: {
-//               tokens: {
-//                 ...connection.tokens,
-//                 ...tokens
-//               }
-//             }
-//           }
-//         );
-//         console.log('✅ [Step 4] Tokens refreshed and saved');
-//       } catch (err) {
-//         console.error('❌ [Step 4] Failed to save refreshed tokens:', err);
-//       }
-//     });
-
-//     console.log('🔑 [Step 4] OAuth2 credentials set.');
-
-//     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-//     console.log('📮 [Step 4] Gmail client initialized.');
-
-//     console.log('📡 [Step 5] Fetching Gmail history for historyId:', data.historyId);
-
-//     let history;
-//     try {
-//       history = await gmail.users.history.list({
-//         userId: 'me',
-//         startHistoryId: data.historyId,
-//         historyTypes: ['messageAdded', 'labelAdded', 'labelRemoved'],
-//       });
-//     } catch (err) {
-//       console.error('❌ [Step 5] Failed to fetch Gmail history:', err.message);
-
-//       if (err.code === 401 || err.message.includes('refresh token')) {
-//         console.log('🔄 [Step 5] Attempting token refresh...');
-//         try {
-//           await oauth2Client.getAccessToken();
-//           history = await gmail.users.history.list({
-//             userId: 'me',
-//             startHistoryId: data.historyId,
-//             historyTypes: ['messageAdded', 'labelAdded', 'labelRemoved'],
-//           });
-//           console.log('✅ [Step 5] Retry successful after token refresh');
-//         } catch (retryErr) {
-//           console.error('❌ [Step 5] Retry failed:', retryErr.message);
-//           await ConnectionModel.updateOne(
-//             { _id: connection._id },
-//             { $set: { status: 'inactive' } }
-//           );
-//           return res.status(200).send();
-//         }
-//       } else {
-//         return res.status(200).send();
-//       }
-//     }
-
-//     console.log('📨 [Step 5] Gmail History API Response:', history.data);
-
-//     if (history.data.historyId) {
-//       await ConnectionModel.updateOne(
-//         { _id: connection._id },
-//         { $set: { lastHistoryId: history.data.historyId } }
-//       );
-//       console.log("💾 [Step 5] Updated connection's lastHistoryId:", history.data.historyId);
-//     }
-
-//     if (!history.data.history) {
-//       console.log('ℹ️ [Step 5] No history records found → fallback to listing latest emails.');
-
-//       const list = await gmail.users.messages.list({
-//         userId: 'me',
-//         maxResults: 5,
-//       });
-
-//       if (list.data.messages) {
-//         for (const msg of list.data.messages) {
-//           await processMessage(gmail, msg.id, connection);
-//         }
-//       }
-
-//       return res.status(200).send();
-//     }
-
-//     for (const record of history.data.history) {
-//       console.log('🔎 [Step 6] Processing record:', JSON.stringify(record, null, 2));
-
-//       if (!record.messagesAdded) {
-//         console.warn('⚠️ [Step 6] Record has no messagesAdded.');
-//         continue;
-//       }
-
-//       for (const added of record.messagesAdded) {
-//         await processMessage(gmail, added.message.id, connection);
-//       }
-//     }
-
-//     console.log('🏁 [Step 9] Webhook processing complete.');
-//     res.status(200).send();
-//   } catch (err) {
-//     console.error('❌ [Global Catch] Webhook Error:', err);
-//     res.status(500).send('Server error');
-//   }
-// };
-
-// const decodeBase64 = (data) => {
-//   if (!data) return '';
-//   return Buffer.from(
-//     data.replace(/-/g, '+').replace(/_/g, '/'),
-//     'base64'
-//   ).toString('utf8');
-// };
-
-// export const processMessage = async (gmail, msgId, user) => {
-//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
-
-//   let fullMessage;
-//   try {
-//     fullMessage = await gmail.users.messages.get({
-//       userId: 'me',
-//       id: msgId,
-//       format: 'full',
-//     });
-//   } catch (err) {
-//     console.error(' [ProcessMessage] Failed to fetch message:', err.message);
-//     return;
-//   }
-
-//   const headers = fullMessage.data.payload.headers || [];
-//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-//   const from = headers.find((h) => h.name === 'From')?.value || '';
-//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
-//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
-//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
-//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
-//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
-//   const snippet = fullMessage.data.snippet || '';
-
-//   let body = '';
-
-//   const getBody = (parts) => {
-//     if (!parts) return;
-//     for (const part of parts) {
-//       if (part.mimeType === 'text/plain' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.mimeType === 'text/html' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.parts) {
-//         getBody(part.parts);
-//       }
-//     }
-//   };
-
-//   if (fullMessage.data.payload?.parts) {
-//     getBody(fullMessage.data.payload.parts);
-//   } else if (fullMessage.data.payload?.body?.data) {
-//     body = decodeBase64(fullMessage.data.payload.body.data);
-//   }
-
-//   console.log(' [ProcessMessage] Subject:', subject);
-
-//   if (!subject.toLowerCase().includes('shopify expert directory')) {
-//     console.log(' [ProcessMessage] Subject does not match filter, skipping.');
-//     return;
-//   }
-
-//   try {
-//     const saved = await EmailModel.create({
-//       userId: user._id,
-//       subject,
-//       from,
-//       to,
-//       cc,
-//       bcc,
-//       body,
-//       snippet,
-//       dateReceived,
-//       threadId: fullMessage.data.threadId,
-//       messageId: msgId,
-//     });
-//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
-//   } catch (dbErr) {
-//     console.error(
-//       ' [ProcessMessage] Failed to save email to DB:',
-//       dbErr.message
-//     );
-//   }
-// };
-
-// const processMessage = async (gmail, msgId, connection) => {
-//   console.log('📥 [ProcessMessage] Fetching message (full):', msgId);
-
-//   let fullMessage;
-//   try {
-//     fullMessage = await gmail.users.messages.get({
-//       userId: 'me',
-//       id: msgId,
-//       format: 'full',
-//     });
-//   } catch (err) {
-//     console.error('❌ [ProcessMessage] Failed to fetch message:', err.message);
-//     return;
-//   }
-
-//   const headers = fullMessage.data.payload.headers || [];
-//   const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-//   const from = headers.find((h) => h.name === 'From')?.value || '';
-//   const to = headers.filter((h) => h.name === 'To').map((h) => h.value);
-//   const cc = headers.filter((h) => h.name === 'Cc').map((h) => h.value);
-//   const bcc = headers.filter((h) => h.name === 'Bcc').map((h) => h.value);
-//   const dateHeader = headers.find((h) => h.name === 'Date')?.value || '';
-//   const dateReceived = dateHeader ? new Date(dateHeader) : new Date();
-//   const snippet = fullMessage.data.snippet || '';
-
-//   let body = '';
-
-//   const getBody = (parts) => {
-//     if (!parts) return;
-//     for (const part of parts) {
-//       if (part.mimeType === 'text/plain' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.mimeType === 'text/html' && part.body?.data) {
-//         body += decodeBase64(part.body.data) + '\n';
-//       }
-//       if (part.parts) {
-//         getBody(part.parts);
-//       }
-//     }
-//   };
-
-//   if (fullMessage.data.payload?.parts) {
-//     getBody(fullMessage.data.payload.parts);
-//   } else if (fullMessage.data.payload?.body?.data) {
-//     body = decodeBase64(fullMessage.data.payload.body.data);
-//   }
-
-//   console.log('📋 [ProcessMessage] Subject:', subject);
-
-//   // Check if the subject contains the required string
-//   if (!subject.toLowerCase().includes('shopify partner directory')) {
-//     console.log('ℹ️ [ProcessMessage] Subject does not match the filter, skipping.');
-//     return;
-//   }
-
-//   // Fetch templates for the "shopify" platform from the database
-//   const templates = await TemplateModel.findOne({ platform: 'shopify' });
-
-//   if (!templates) {
-//     console.log('❌ [ProcessMessage] No templates found for this platform.');
-//     return;
-//   }
-
-//   // List of available services in templates
-//   const services = templates.templates.map(template => template.name);
-//   let serviceFound = null;
-
-//   // Check if any of the services are mentioned in the email body
-//   for (const service of services) {
-//     if (body.toLowerCase().includes(service.toLowerCase())) {
-//       serviceFound = service;
-//       break;
-//     }
-//   }
-
-//   if (!serviceFound) {
-//     console.log('ℹ️ [ProcessMessage] No matching service found in the email body.');
-//     return;
-//   }
-
-//   console.log('✅ [ProcessMessage] Service found:', serviceFound);
-
-//   // Save the email to the database with the matched service
-//   try {
-//     const saved = await EmailModel.create({
-//       userId: connection.userId, // Use connection.userId instead of user._id
-//       subject,
-//       from,
-//       to,
-//       cc,
-//       bcc,
-//       body,
-//       snippet,
-//       dateReceived,
-//       service: serviceFound,
-//       threadId: fullMessage.data.threadId,
-//       messageId: msgId,
-//     });
-//     console.log('💾 [ProcessMessage] Email saved to DB with ID:', saved._id);
-
-//     // Send a reply based on the detected service
-//     await sendReply(gmail, serviceFound, from, connection);
-//   } catch (dbErr) {
-//     console.error('❌ [ProcessMessage] Failed to save email to DB:', dbErr.message);
-//   }
-// };
-
-// const sendReply = async (gmail, service, to, connection) => {
-//   const subject = `Re: Your inquiry about ${service}`;
-//   let body = '';
-
-//   try {
-//     const templates = await TemplateModel.findOne({ platform: 'shopify' });
-
-//     if (!templates) {
-//       console.log('❌ [sendReply] No templates found for this platform.');
-//       return;
-//     }
-
-//     const isServiceAvailable = templates.templates.some(
-//       (template) => template.name.toLowerCase() === service.toLowerCase()
-//     );
-
-//     if (isServiceAvailable) {
-//       body = `
-//         Hello,
-
-//         Thank you for reaching out to us regarding ${service}. We are happy to assist you with this service for your Shopify store.
-
-//         If you need further information or assistance, feel free to reply to this email.
-
-//         Best regards,
-//         Your Shopify Expert Team
-//       `;
-//     } else {
-//       body = `
-//         Hello,
-
-//         Thank you for your inquiry about ${service}. Unfortunately, we currently do not have details about this service.
-
-//         However, please feel free to reach out to us for more information or further assistance.
-
-//         Best regards,
-//         Your Shopify Expert Team
-//       `;
-//     }
-
-//     const rawMessage = makeMessage(to, subject, body);
-
-//     await gmail.users.messages.send({
-//       userId: 'me',
-//       requestBody: {
-//         raw: rawMessage,
-//       },
-//     });
-//     console.log(`💌 [sendReply] Email sent to ${to} for service: ${service}`);
-//   } catch (err) {
-//     console.error(`❌ [sendReply] Failed to send reply: ${err.message}`);
-//   }
-// };
-
-//  const setupTokenRefresh = (oauth2Client, connectionId) => {
-//   oauth2Client.on('tokens', async (tokens) => {
-//     try {
-//       await ConnectionModel.updateOne(
-//         { _id: connectionId },
-//         {
-//           $set: {
-//             tokens: tokens,
-//             lastTokenRefresh: new Date()
-//           }
-//         }
-//       );
-//       console.log('✅ Tokens refreshed and saved for connection:', connectionId);
-//     } catch (err) {
-//       console.error('❌ Failed to save refreshed tokens:', err);
-//     }
-//   });
-// };
-
-// const makeMessage = (to, subject, body) => {
-//   const message = [
-//     `To: ${to}`,
-//     `Subject: ${subject}`,
-//     'Content-Type: text/html; charset=UTF-8',
-//     'MIME-Version: 1.0',
-//     '',
-//     body,
-//   ].join('\n');
-
-//   // Base64 encode the message
-//   return Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-// };
-
-// async function startWatch(oauthTokens) {
-//   const oauth2Client = new google.auth.OAuth2(
-//     CLIENT_ID,
-//     CLIENT_SECRET,
-//     REDIRECT_URI
-//   );
-//   oauth2Client.setCredentials(oauthTokens);
-
-//   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-//   const res = await gmail.users.watch({
-//     userId: 'me',
-//     requestBody: {
-//       topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
-//     },
-//   });
-
-//   console.log('✅ Watch started:', res.data);
-//   return res.data;
-// }
-
-// export const getEmail = async (req, res) => {
-//   let tokens;
-
-//   try {
-//     const user = await authModel.findOne({ googleId: req.userId });
-//     tokens = user.tokens;
-//     oauth2Client.setCredentials(tokens);
-
-//     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-//     const response = await gmail.users.messages.list({
-//       userId: 'me',
-//       labelIds: ['INBOX'],
-//       q: 'subject:"Shopify Partner Directory"',
-//     });
-
-//     const messages = response.data.messages || [];
-
-//     const emailDetails = [];
-
-//     for (const message of messages) {
-//       const email = await gmail.users.messages.get({
-//         userId: 'me',
-//         id: message.id,
-//       });
-
-//       const headers = email.data.payload.headers || [];
-//       const body = email.data.payload.parts
-//         ? email.data.payload.parts[0].body.data
-//         : '';
-//       const decodedBody = Buffer.from(body, 'base64').toString('utf-8');
-
-//       const from = headers.find((header) => header.name === 'From')?.value;
-//       const to = headers
-//         .filter((header) => header.name === 'To')
-//         .map((header) => header.value);
-//       const bcc = headers
-//         .filter((header) => header.name === 'Bcc')
-//         .map((header) => header.value);
-//       const cc = headers
-//         .filter((header) => header.name === 'Cc')
-//         .map((header) => header.value);
-//       const subject = headers.find(
-//         (header) => header.name === 'Subject'
-//       )?.value;
-//       const dateReceived = new Date(parseInt(email.data.internalDate));
-
-//       const emailData = {
-//         userId: user._id,
-//         subject,
-//         from,
-//         to,
-//         bcc,
-//         cc,
-//         body: decodedBody,
-//         snippet: email.data.snippet,
-//         dateReceived,
-//         threadId: email.data.threadId,
-//         messageId: email.data.id,
-//       };
-
-//       const newEmail = new EmailModel(emailData);
-//       await newEmail.save();
-
-//       emailDetails.push(emailData);
-//     }
-
-//     res.json(emailDetails);
-//   } catch (error) {
-//     console.error('Error syncing emails: ', error);
-//     res.status(500).send('Error syncing emails');
-//   }
-// };
-
-// export const savePlatformForUser = async (req, res) => {
-//   try {
-//     const { userId, platform } = req.body;
-
-//     if (!userId || !platform) {
-//       return res.status(400).json({
-//         error: "userId and platform are required"
-//       });
-//     }
-
-//     // Use '_id' as the unique identifier for the user
-//     const user = await authModel.findById(userId); // Use findById instead of findOne({ id: userId })
-
-//     if (!user) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     // Set the platform
-//     user.selectedPlatform = platform;
-
-//     // Save the updated user data
-//     await user.save();
-
-//     res.json({ message: "Platform saved successfully", user });
-//   } catch (err) {
-//     console.error("Failed to save platform:", err.message);
-//     res.status(500).json({ error: "Server error" });
-//   }
-// };
-// ;

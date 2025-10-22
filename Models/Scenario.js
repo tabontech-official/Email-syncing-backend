@@ -17,7 +17,7 @@ const ModuleSchema = new mongoose.Schema({
     color: String,
     icon: String,
   },
-    subject: { type: String, default: "" },  
+  subject: { type: String, default: "" },  
   to: { type: String, required: false }, 
   cc: { type: [String], default: [] },     
   bcc: { type: [String], default: [] },    
@@ -29,12 +29,15 @@ const ModuleSchema = new mongoose.Schema({
   delayValue: { type: Number, default: null },
   delayUnit: { type: String, enum: ["seconds", "minutes", "hours"], default: null },
 
+  emailType: { type: String, enum: ["Gmail", "Email", ""], default: "" },
+
   filter: {
     label: String,
-    conditions: [ConditionSchema], 
+    conditions: [ConditionSchema],
     template: String,
   },
 });
+
 
 const BranchSchema = new mongoose.Schema({
   id: { type: Number, required: true },
@@ -59,6 +62,10 @@ const ScenarioSchema = new mongoose.Schema(
       default: "other",
     },
     routerBranches: [BranchSchema],
+    scenarioActive:{
+      type:Boolean,
+      default:false
+    }
   },
   { timestamps: true }
 );
