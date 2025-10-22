@@ -1618,42 +1618,42 @@ export const getLatestVerificationEmail = async (req, res) => {
     const { userId } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ message: 'userId is required' });
+      return res.status(400).json({ message: "userId is required" });
     }
 
-    const email = await EmailModel.findOne({
-      userId,
-      senderAddress: /forwarding-noreply@google\.com/i,
-      subject: /\(Gmail Forwarding Confirmation/i,
-    })
+    // 🔹 Fetch the latest email for the user (any sender)
+    const email = await EmailModel.findOne({ userId })
       .sort({ createdAt: -1 })
       .lean();
 
     if (!email) {
-      return res
-        .status(404)
-        .json({ message: 'No Gmail verification email found' });
+      return res.status(404).json({ message: "No emails found for this user." });
     }
 
+    // 🔹 Build response with safe defaults
     const result = {
-      subject: email.subject,
-      date: email.date,
+      subject: email.subject || "(No Subject)",
+      date: email.date || email.createdAt,
+      sender: email.senderAddress || "Unknown Sender",
+      textBody:
+        email.textBody?.slice(0, 1000) ||
+        email.htmlBody?.replace(/<[^>]*>?/gm, "").slice(0, 1000) ||
+        "(No Content)",
       verificationUrl:
         email.verificationUrl ||
         email.extraFields?.https ||
         email.extraFields?.visit ||
         null,
       verificationCode: email.verificationCode || null,
-      sender: email.senderAddress,
-      textBody: email.textBody?.slice(0, 500) || null,
     };
 
     res.status(200).json({ success: true, data: result });
   } catch (error) {
-    console.error('Error fetching verification email:', error);
+    console.error("❌ Error fetching latest email:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 export const validateTestEmail = async (req, res) => {
   try {
@@ -1672,7 +1672,6 @@ export const validateTestEmail = async (req, res) => {
         .json({ success: false, message: 'User not found.' });
     }
 
-    // ✅ Step 1: Find the latest Gmail verification email
     const verificationEmail = await EmailModel.findOne({
       userId,
       subject: {
@@ -1685,11 +1684,10 @@ export const validateTestEmail = async (req, res) => {
     if (!verificationEmail) {
       return res.status(404).json({
         success: false,
-        message: 'No Gmail forwarding verification email found for this user.',
+        message: 'Mailhook forwarding is not set up yet. Please complete forwarding setup in your acc settings and try again.',
       });
     }
 
-    // ✅ Step 2: Extract the Gmail address from that email
     const match = verificationEmail.body.match(
       /([a-zA-Z0-9._%+-]+@gmail\.com)/i
     );
