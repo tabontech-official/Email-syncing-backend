@@ -29,7 +29,7 @@ const ModuleSchema = new mongoose.Schema({
   delayValue: { type: Number, default: null },
   delayUnit: { type: String, enum: ["seconds", "minutes", "hours"], default: null },
 
-  emailType: { type: String, enum: ["Gmail", "Email", ""], default: "" },
+  emailType: { type: String, enum: ["Gmail", "Email", "Delay"], default: "" },
 
   filter: {
     label: String,
