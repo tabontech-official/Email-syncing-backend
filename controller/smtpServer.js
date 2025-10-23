@@ -213,70 +213,339 @@ function parseKeyValuePairs(text = '') {
   return fields;
 }
 
+// export const mailHookWebhook = async (req, res) => {
+//   try {
+//     console.log('[mailHookWebhook] Incoming request body:', req.body);
+
+//     const rawEmail = req.body.email || null;
+//     let parsed = {};
+
+//     if (rawEmail) {
+//       console.log('Raw email string detected, parsing with simpleParser...');
+//       parsed = await simpleParser(rawEmail);
+//     } else {
+//       console.log('No raw email, falling back to manual parsing...');
+//       parsed = {
+//         from: { value: [{ address: req.body.from, name: req.body.from }] },
+//         to: { value: [{ address: req.body.to, name: req.body.to }] },
+//         subject: req.body.subject,
+//         text: req.body.text,
+//         html: req.body.html,
+//       };
+//     }
+//     console.log('Parsed email object:', parsed);
+
+//     const senderAddress = parsed.from?.value?.[0]?.address || '';
+//     const senderName = parsed.from?.value?.[0]?.name || '';
+//     console.log(' Sender:', senderName, `<${senderAddress}>`);
+
+//     const { firstName: senderFirstName, lastName: senderLastName } =
+//       splitName(senderName);
+
+//     const headerRecipient = parsed.to?.value?.[0]?.address || '';
+//     let mailhookAddress =
+//       req.body.envelope?.to ||
+//       (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
+//       headerRecipient;
+
+//     console.log(' Initial mailhook address:', mailhookAddress);
+
+//     if (Array.isArray(req.body.to)) {
+//       const brandferAddress = req.body.to.find((a) =>
+//         a.includes('@mail.brandfer.com')
+//       );
+//       if (brandferAddress) {
+//         console.log(' Found brandfer address:', brandferAddress);
+//         mailhookAddress = brandferAddress;
+//       }
+//     }
+
+//     if (mailhookAddress.includes('<')) {
+//       mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
+//     }
+//     mailhookAddress = mailhookAddress.trim().toLowerCase();
+//     console.log(' Final mailhookAddress:', mailhookAddress);
+
+//     const { firstName: recipientFirstName, lastName: recipientLastName } =
+//       splitName(mailhookAddress);
+
+//     const subject = parsed.subject || '';
+//     const textBody = parsed.text || '';
+//     const htmlBody = parsed.html || '';
+//     const cc = parsed.cc?.value?.map((c) => c.address) || [];
+//     const bcc = parsed.bcc?.value?.map((b) => b.address) || [];
+//     const date = parsed.date || new Date();
+//     const messageId = parsed.messageId || '';
+//     const inReplyTo = parsed.inReplyTo || '';
+//     const references = parsed.references || [];
+//     const attachments =
+//       parsed.attachments?.map((a) => ({
+//         filename: a.filename,
+//         contentType: a.contentType,
+//         size: a.size,
+//       })) || [];
+
+//     console.log(' Email meta extracted:', {
+//       subject,
+//       cc,
+//       bcc,
+//       attachmentsCount: attachments.length,
+//       date,
+//     });
+
+//     let verificationCode = null;
+//     let verificationUrl = null;
+//     if (subject.includes('Gmail Forwarding Confirmation')) {
+//       console.log(' Gmail forwarding confirmation detected');
+//       const codeMatch = textBody.match(/Confirmation code:\s*(\d+)/i);
+//       if (codeMatch) verificationCode = codeMatch[1];
+//       const urlMatch = textBody.match(
+//         /https:\/\/mail-settings\.google\.com\/mail\/vf-[\S]+/i
+//       );
+//       if (urlMatch) verificationUrl = urlMatch[0];
+//     }
+
+//     const extraFields = parseKeyValuePairs(textBody);
+//     console.log(' Extra fields extracted:', extraFields);
+
+//     const user = await authModel.findOne({ mailhook: mailhookAddress });
+//     if (!user) {
+//       console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
+//       return res.status(200).send('No matching user found');
+//     }
+//     console.log('👤 User found:', user._id.toString(), user.email);
+
+//     const templates = await TemplateModel.find({
+//       userId: user._id,
+//       active: true,
+//     });
+//     console.log(` Found ${templates.length} active templates for user`);
+
+//     let matchedTemplate = null;
+//     for (const tpl of templates) {
+//       if (
+//         subject.includes(tpl.keyword) ||
+//         textBody.includes(tpl.keyword) ||
+//         htmlBody.includes(tpl.keyword)
+//       ) {
+//         matchedTemplate = tpl;
+//         console.log(' Matched template:', tpl._id.toString(), tpl.name);
+//         break;
+//       }
+//     }
+
+//     const emailDoc = new EmailModel({
+//       userId: user._id,
+//       templateId: matchedTemplate?._id || null,
+//       senderFirstName,
+//       senderLastName,
+//       senderAddress,
+//       recipientFirstName,
+//       recipientLastName,
+//       recipientAddress: mailhookAddress,
+//       subject,
+//       textBody,
+//       htmlBody,
+//       cc,
+//       bcc,
+//       date,
+//       messageId,
+//       inReplyTo,
+//       references,
+//       attachments,
+//       verificationCode,
+//       verificationUrl,
+//       extraFields,
+//     });
+
+//     await emailDoc.save();
+//     console.log(' Email saved to DB:', emailDoc._id.toString());
+
+//     console.log(' Executing scenarios for this email...');
+//     await executeScenarios({
+//       userId: user._id,
+//       from: senderAddress,
+//       subject,
+//       body: textBody || htmlBody || '',
+//       emailId: emailDoc._id.toString(),
+//       parsedEmailObj: parsed,
+//     });
+//     console.log('Scenarios executed for email:', emailDoc._id.toString());
+
+//     res.status(200).send('Email processed and saved');
+//   } catch (err) {
+//     console.error('mailHookWebhook ERROR:', err.message, err.stack);
+//     res.status(500).send('Error processing email');
+//   }
+// };
+
 export const mailHookWebhook = async (req, res) => {
   try {
-    console.log('[mailHookWebhook] Incoming request body:', req.body);
+    console.log("📩 [mailHookWebhook] Incoming raw request body:", req.body);
 
     const rawEmail = req.body.email || null;
     let parsed = {};
 
     if (rawEmail) {
-      console.log('Raw email string detected, parsing with simpleParser...');
+      console.log("🧩 Raw email detected — parsing with simpleParser...");
       parsed = await simpleParser(rawEmail);
     } else {
-      console.log('No raw email, falling back to manual parsing...');
+      console.log("⚙️ No raw email — building manual parsed object...");
       parsed = {
         from: { value: [{ address: req.body.from, name: req.body.from }] },
         to: { value: [{ address: req.body.to, name: req.body.to }] },
         subject: req.body.subject,
         text: req.body.text,
         html: req.body.html,
+        headers: req.body.headers || "",
       };
     }
-    console.log('Parsed email object:', parsed);
 
-    const senderAddress = parsed.from?.value?.[0]?.address || '';
-    const senderName = parsed.from?.value?.[0]?.name || '';
-    console.log(' Sender:', senderName, `<${senderAddress}>`);
+    console.log("✅ Parsed email:", {
+      from: parsed.from?.value?.[0],
+      to: parsed.to?.value?.[0],
+      subject: parsed.subject,
+      date: parsed.date,
+    });
 
-    const { firstName: senderFirstName, lastName: senderLastName } =
-      splitName(senderName);
+    const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || "";
+    const subject = parsed.subject || "";
+    const textBody = parsed.text || "";
+    const htmlBody = parsed.html || "";
 
-    const headerRecipient = parsed.to?.value?.[0]?.address || '';
+    console.log("📧 Sender Address:", senderAddress);
+    console.log("📨 Subject:", subject);
+
+    // 🧩 Extract final mailhook address
     let mailhookAddress =
       req.body.envelope?.to ||
       (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
-      headerRecipient;
+      parsed.to?.value?.[0]?.address ||
+      "";
 
-    console.log(' Initial mailhook address:', mailhookAddress);
+    // 🆕 Try to detect Gmail forwarding target (X-Forwarded-To / X-Forwarded-For)
+    const headerText = req.body.headers || "";
+    const forwardedMatch =
+      headerText.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
+      headerText.match(/x-forwarded-for:\s*[^\s]+\s+([^\s>]+)/i);
 
-    if (Array.isArray(req.body.to)) {
-      const brandferAddress = req.body.to.find((a) =>
-        a.includes('@mail.brandfer.com')
-      );
-      if (brandferAddress) {
-        console.log(' Found brandfer address:', brandferAddress);
-        mailhookAddress = brandferAddress;
-      }
+    if (forwardedMatch && forwardedMatch[1]) {
+      console.log("📬 Found forwarded target in headers:", forwardedMatch[1]);
+      mailhookAddress = forwardedMatch[1];
     }
 
-    if (mailhookAddress.includes('<')) {
-      mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
+    if (mailhookAddress.includes("<")) {
+      mailhookAddress = mailhookAddress.split("<")[1].replace(">", "").trim();
     }
     mailhookAddress = mailhookAddress.trim().toLowerCase();
-    console.log(' Final mailhookAddress:', mailhookAddress);
 
-    const { firstName: recipientFirstName, lastName: recipientLastName } =
-      splitName(mailhookAddress);
+    console.log("✅ Final corrected mailhookAddress:", mailhookAddress);
 
-    const subject = parsed.subject || '';
-    const textBody = parsed.text || '';
-    const htmlBody = parsed.html || '';
+    // 🛑 Skip if not a mailhook email
+    if (!mailhookAddress.endsWith("@mail.brandfer.com")) {
+      console.log("🚫 Skipped — not a mailhook domain email.");
+      return res.status(200).send("Ignored — not a mailhook email.");
+    }
+
+    const user = await authModel.findOne({ mailhook: mailhookAddress });
+    if (!user) {
+      console.warn("⚠️ No matching user found for mailhook:", mailhookAddress);
+      return res.status(200).send("No matching user found for mailhook.");
+    }
+
+    console.log("👤 Matched User:", { userId: user._id.toString(), email: user.email });
+
+    // 🧠 Check forwarding (safe for Map or string)
+    console.log("🔍 Checking if email came via forwarding...");
+
+    let isForwarded = false;
+
+    if (parsed.headers && typeof parsed.headers.keys === "function") {
+      const headerKeys = [...parsed.headers.keys()].map((k) => k.toLowerCase());
+      const headerValues = [...parsed.headers.values()].join(" ").toLowerCase();
+
+      isForwarded =
+        headerKeys.includes("x-forwarded-for") ||
+        headerKeys.includes("x-forwarded-to") ||
+        headerValues.includes("mail.brandfer.com") ||
+        headerValues.includes("forwarding-noreply@google.com") ||
+        headerValues.includes("mail forwarding") ||
+        subject.toLowerCase().startsWith("fwd:") ||
+        textBody.toLowerCase().includes("forwarded message");
+    } else if (parsed.headers && typeof parsed.headers === "string") {
+      const headerTextLower = parsed.headers.toLowerCase();
+      isForwarded =
+        headerTextLower.includes("x-forwarded-for") ||
+        headerTextLower.includes("x-forwarded-to") ||
+        headerTextLower.includes("@mail.brandfer.com") ||
+        headerTextLower.includes("forwarding-noreply@google.com") ||
+        headerTextLower.includes("mail forwarding");
+    }
+
+    console.log("📡 Forwarding Detection:", isForwarded ? "✅ Forwarded email" : "❌ Not forwarded");
+
+    if (!isForwarded) {
+      console.log("⏭️ Ignored — not a forwarded email.");
+      return res.status(200).send("Ignored — not a forwarded email.");
+    }
+
+    // 🟡 Check if it's a forwarding validation test
+   // 🟡 Check if it's a forwarding validation test
+if (subject.includes("Zenith Forwarding Validation Test")) {
+  console.log("🧪 Detected test forwarding email — saving to ValidationEmail...");
+
+  // 🧠 Extract the *original Gmail address* from X-Forwarded-For or From
+  let originalEmail = senderAddress; // fallback
+  const xForwardedFor = headerText.match(/x-forwarded-for:\s*([^\s]+)/i);
+  if (xForwardedFor && xForwardedFor[1] && xForwardedFor[1].includes("@gmail.com")) {
+    originalEmail = xForwardedFor[1].toLowerCase();
+  }
+
+  console.log("📤 Original Gmail (forward source):", originalEmail);
+
+  // ✅ Save Gmail address instead of mailhook
+  const existing = await validationModel.findOne({ userId: user._id });
+  if (existing) {
+    existing.toEmail = originalEmail;
+    existing.subject = subject;
+    existing.body = textBody || htmlBody;
+    existing.sentAt = new Date();
+    existing.verified = true;
+    existing.verifiedAt = new Date();
+    existing.status = "verified";
+    existing.notes = "Forwarding verified successfully (via mailhook).";
+    await existing.save();
+    console.log("🔄 Updated existing validation record:", existing._id.toString());
+  } else {
+    await validationModel.create({
+      userId: user._id,
+      toEmail: originalEmail,
+      subject,
+      body: textBody || htmlBody,
+      sentAt: new Date(),
+      verified: true,
+      verifiedAt: new Date(),
+      status: "verified",
+      notes: "Forwarding verified successfully (via mailhook).",
+    });
+    console.log("✅ New ValidationEmail created for:", originalEmail);
+  }
+
+  return res.status(200).send("✅ Test forwarding email saved and verified.");
+}
+
+
+    // 🟢 Regular forwarded email flow
+    console.log("📥 Detected normal forwarded email — saving to EmailModel...");
+    const senderName = parsed.from?.value?.[0]?.name || "";
+    const { firstName: senderFirstName, lastName: senderLastName } = splitName(senderName);
+    const { firstName: recipientFirstName, lastName: recipientLastName } = splitName(mailhookAddress);
+
     const cc = parsed.cc?.value?.map((c) => c.address) || [];
     const bcc = parsed.bcc?.value?.map((b) => b.address) || [];
     const date = parsed.date || new Date();
-    const messageId = parsed.messageId || '';
-    const inReplyTo = parsed.inReplyTo || '';
+    const messageId = parsed.messageId || "";
+    const inReplyTo = parsed.inReplyTo || "";
     const references = parsed.references || [];
     const attachments =
       parsed.attachments?.map((a) => ({
@@ -285,58 +554,11 @@ export const mailHookWebhook = async (req, res) => {
         size: a.size,
       })) || [];
 
-    console.log(' Email meta extracted:', {
-      subject,
-      cc,
-      bcc,
-      attachmentsCount: attachments.length,
-      date,
-    });
-
-    let verificationCode = null;
-    let verificationUrl = null;
-    if (subject.includes('Gmail Forwarding Confirmation')) {
-      console.log(' Gmail forwarding confirmation detected');
-      const codeMatch = textBody.match(/Confirmation code:\s*(\d+)/i);
-      if (codeMatch) verificationCode = codeMatch[1];
-      const urlMatch = textBody.match(
-        /https:\/\/mail-settings\.google\.com\/mail\/vf-[\S]+/i
-      );
-      if (urlMatch) verificationUrl = urlMatch[0];
-    }
-
+    console.log("📎 Attachments count:", attachments.length);
     const extraFields = parseKeyValuePairs(textBody);
-    console.log(' Extra fields extracted:', extraFields);
-
-    const user = await authModel.findOne({ mailhook: mailhookAddress });
-    if (!user) {
-      console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
-      return res.status(200).send('No matching user found');
-    }
-    console.log('👤 User found:', user._id.toString(), user.email);
-
-    const templates = await TemplateModel.find({
-      userId: user._id,
-      active: true,
-    });
-    console.log(` Found ${templates.length} active templates for user`);
-
-    let matchedTemplate = null;
-    for (const tpl of templates) {
-      if (
-        subject.includes(tpl.keyword) ||
-        textBody.includes(tpl.keyword) ||
-        htmlBody.includes(tpl.keyword)
-      ) {
-        matchedTemplate = tpl;
-        console.log(' Matched template:', tpl._id.toString(), tpl.name);
-        break;
-      }
-    }
 
     const emailDoc = new EmailModel({
       userId: user._id,
-      templateId: matchedTemplate?._id || null,
       senderFirstName,
       senderLastName,
       senderAddress,
@@ -353,31 +575,24 @@ export const mailHookWebhook = async (req, res) => {
       inReplyTo,
       references,
       attachments,
-      verificationCode,
-      verificationUrl,
       extraFields,
+      notes: "Forwarded email captured.",
     });
 
     await emailDoc.save();
-    console.log(' Email saved to DB:', emailDoc._id.toString());
+    console.log("💾 Forwarded email saved to EmailModel:", emailDoc._id.toString());
 
-    console.log(' Executing scenarios for this email...');
-    await executeScenarios({
-      userId: user._id,
-      from: senderAddress,
-      subject,
-      body: textBody || htmlBody || '',
-      emailId: emailDoc._id.toString(),
-      parsedEmailObj: parsed,
-    });
-    console.log('Scenarios executed for email:', emailDoc._id.toString());
-
-    res.status(200).send('Email processed and saved');
+    // ⚠️ Skip scenario execution
+    console.log("🚫 Skipping scenario execution for forwarded email.");
+    return res.status(200).send("📥 Forwarded email saved (no scenario execution).");
   } catch (err) {
-    console.error('mailHookWebhook ERROR:', err.message, err.stack);
-    res.status(500).send('Error processing email');
+    console.error("💥 [mailHookWebhook] ERROR:", err.message, err.stack);
+    res.status(500).send("Error processing email");
   }
 };
+
+
+
 
 function fillTemplate(template, fields) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
@@ -2167,34 +2382,10 @@ If you receive this email, your mail forwarding is active and functioning.
       text: testBody,
     });
 
-    const existing = await validationModel.findOne({ userId });
-
-    if (existing) {
-      existing.toEmail = toEmail;
-      existing.body = testBody;
-      existing.subject = testSubject;
-      existing.sentAt = new Date();
-      existing.status = "sent";
-      existing.verified = false;
-      existing.verifiedAt = null;
-      existing.notes = "Resent test email.";
-      await existing.save();
-    } else {
-      await validationModel.create({
-        userId,
-        toEmail,
-        subject: testSubject,
-        body: testBody,
-        sentAt: new Date(),
-        verified: false,
-        status: "sent",
-        notes: "Initial test email sent.",
-      });
-    }
-
+    // ⚡ No database save here — email will only be saved when webhook receives it
     return res.json({
       success: true,
-      message: `Test email successfully sent to ${toEmail}. Please check your inbox and verify forwarding.`,
+      message: `✅ Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
       sentTo: toEmail,
     });
   } catch (err) {
@@ -2205,6 +2396,7 @@ If you receive this email, your mail forwarding is active and functioning.
     });
   }
 };
+
 
 
 export const getValidateEmail = async (req, res) => {
