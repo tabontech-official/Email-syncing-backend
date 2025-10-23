@@ -1,5 +1,5 @@
 import express from "express";
-import { deleteAllConnections, getEmailDataforUser, getEmails, getEmailsForUsers, getLatestVerificationEmail, getTestEmail, getTestEmailData, getValidateEmail, mailHookWebhook, RunTestMode, validateTestEmail } from "../controller/smtpServer.js";
+import { deleteAllConnections, deleteConnectionById, getEmailDataforUser, getEmails, getEmailsForUsers, getLatestVerificationEmail, getTestEmail, getTestEmailData, getValidateEmail, mailHookWebhook, RunTestMode, validateTestEmail } from "../controller/smtpServer.js";
 import multer from "multer";
 
 const upload = multer();
@@ -15,5 +15,6 @@ emailRouter.get("/verification/:userId", getLatestVerificationEmail);
 emailRouter.post("/validate-forwarding/:userId", validateTestEmail);
 emailRouter.get("/validateTest/:userId", getValidateEmail);
 emailRouter.get("/get-test-data/:userId", getTestEmailData);
+emailRouter.delete("/deleteConnection/:id", deleteConnectionById);
 
 export default emailRouter;

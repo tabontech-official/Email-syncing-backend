@@ -851,7 +851,7 @@ export const addSmtpConnection = async (req, res) => {
         userId,
         email,
         name,
-        provider: 'outlook',
+        provider: 'smtp',
         smtp: { host, port, username, password },
         status: 'active',
       },

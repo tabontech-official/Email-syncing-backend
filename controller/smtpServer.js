@@ -418,63 +418,481 @@ function extractFieldsFromEmail(emailObj = {}) {
   return fields;
 }
 
+// export const executeScenarios = async (emailData) => {
+//   try {
+//     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
+//     console.log(' [executeScenarios] START EXECUTION');
+//     console.log(' Incoming email data:', emailData);
+//     const extractedFields = extractFieldsFromEmail(
+//       parsedEmailObj || { text: body, subject, from }
+//     );
+//     console.log('📡 Fetching scenarios for user:', userId);
+
+//     const scenarios = await scenarioModel.find({ userId });
+
+//     for (const scenario of scenarios) {
+//       if (!scenario.routerBranches || scenario.routerBranches.length === 0)
+//         continue;
+
+//       for (const branch of scenario.routerBranches) {
+//         if (!branch.filter || !Array.isArray(branch.filter.conditions))
+//           continue;
+
+//         const matches = branch.filter.conditions.every((cond) => {
+//           const fieldValue =
+//             cond.field === 'Body'
+//               ? (body || '').toLowerCase()
+//               : cond.field === 'Subject'
+//                 ? (subject || '').toLowerCase()
+//                 : '';
+//           const condValue = (cond.value || '').toLowerCase();
+
+//           if (cond.operator === 'Contains')
+//             return fieldValue.includes(condValue);
+//           if (cond.operator === 'Equal to') return fieldValue === condValue;
+//           return false;
+//         });
+
+//         if (!matches) continue;
+//         if (!branch.modules || branch.modules.length === 0) continue;
+
+//         let statusDoc = await AutomationStatusModel.create({
+//           userId,
+//           emailId,
+//           scenarioId: scenario._id,
+//           branchId: branch.id || branch._id,
+//           status: 'pending',
+//           completedModules: [],
+//           pendingModules: branch.modules.map((m) => m.id || m._id),
+//         });
+
+//         for (let i = 0; i < branch.modules.length; i++) {
+//           const module = branch.modules[i];
+
+//           try {
+//             // 🟢 Normalize module types for Shopify scenarios
+// if (scenario.type?.toLowerCase() === "shopify") {
+//   const rawType = (module.type || module.app?.name || "").toLowerCase();
+
+//   if (
+//     rawType.includes("gmail") ||
+//     rawType.includes("email") ||
+//     rawType.includes("follow") ||
+//     rawType.includes("initial")
+//   ) {
+//     module.type = "Send an Email";
+//   } else if (rawType.includes("delay")) {
+//     module.type = "Delay";
+//   } else if (rawType.includes("router")) {
+//     module.type = "Router";
+//   } else if (rawType.includes("webhook")) {
+//     module.type = "Webhooks";
+//   }
+// }
+
+//             if (
+//               module.type === 'Delay' ||
+//               (!module.type && module.app?.name === 'Delay')
+//             ) {
+              
+//               const delayMs = convertToMs(module.delayValue, module.delayUnit);
+//               const remainingModules = [];
+
+//               for (const nextModule of branch.modules.slice(i + 1)) {
+//                 const plain = nextModule.toObject
+//                   ? nextModule.toObject()
+//                   : { ...nextModule };
+
+//                 if (
+//                   plain.type === 'Send an Email' ||
+//                   plain.type === 'Custom Email'
+//                 ) {
+//                   let templateContent =
+//                     plain.template || 'Thanks for your email!';
+
+//                   if (scenario.type?.toLowerCase() === 'shopify') {
+//                     let stepType = 'initial';
+//                     const lower = (plain.template || '').toLowerCase();
+//                     if (lower.includes('first')) stepType = 'first';
+//                     else if (lower.includes('second')) stepType = 'second';
+
+//                     const defaultServices = [
+//                       'General',
+//                       'Troubleshooting',
+//                       'Theme customization',
+//                       'Store build or redesign',
+//                       'Store migration',
+//                       'Website and marketing content',
+//                       'SEO',
+//                       'Site performance and speed',
+//                       'Custom apps and integrations',
+//                       'Store settings configuration',
+//                       'Product and collection setup',
+//                       'Social media marketing',
+//                       'Product descriptions',
+//                       'Search engine advertising',
+//                       'POS setup and migration',
+//                       'Custom domain setup',
+//                       'Conversion rate optimization',
+//                       'Analytics and tracking',
+//                       'Sales channel setup',
+//                       'Logo and visual branding',
+//                       'Business strategy guidance',
+//                       'Website audit and optimization strategy',
+//                       'Sales tax guidance',
+//                       'Product photography',
+//                       'Email marketing',
+//                       '3D modelling',
+//                       'Banner ads',
+//                       'Video and illustrations',
+//                       'Content marketing',
+//                       'Product sourcing guidance',
+//                     ];
+
+//                     let matchedService = 'General';
+//                     const textToSearch = (subject + ' ' + body).toLowerCase();
+//                     const found = defaultServices.find((s) =>
+//                       textToSearch.includes(s.toLowerCase())
+//                     );
+//                     if (found) matchedService = found;
+
+//                     const tpl = await TemplateModel.findOne({
+//                       userId,
+//                       platform: 'shopify',
+//                       service: new RegExp(`^${matchedService}$`, 'i'),
+//                       name: new RegExp(
+//                         stepType === 'initial'
+//                           ? 'Initial Email'
+//                           : stepType === 'first'
+//                             ? 'First Email'
+//                             : 'Second Email',
+//                         'i'
+//                       ),
+//                       active: true,
+//                     });
+
+//                     if (tpl) templateContent = tpl.content;
+//                     else {
+//                       const generalTpl = await TemplateModel.findOne({
+//                         userId,
+//                         platform: 'shopify',
+//                         service: /^General$/i,
+//                         name: new RegExp(
+//                           stepType === 'initial'
+//                             ? 'Initial Email'
+//                             : stepType === 'first'
+//                               ? 'First Email'
+//                               : 'Second Email',
+//                           'i'
+//                         ),
+//                         active: true,
+//                       });
+//                       if (generalTpl) templateContent = generalTpl.content;
+//                     }
+//                   }
+
+//                   plain.template = fillTemplate(
+//                     templateContent,
+//                     extractedFields
+//                   );
+//                 }
+
+//                 remainingModules.push(plain);
+//               }
+
+//               await DelayJobModel.create({
+//                 userId,
+//                 emailData,
+//                 emailId,
+//                 scenarioId: scenario._id,
+//                 modulesLeft: remainingModules,
+//                 scheduledAt: new Date(Date.now() + delayMs),
+//               });
+
+//               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//                 $push: { completedModules: module.id || module._id },
+//                 $set: {
+//                   pendingModules: remainingModules.map((m) => m.id || m._id),
+//                   status: 'partial',
+//                   lastExecutedAt: new Date(),
+//                 },
+//               });
+
+//               break;
+//             }
+
+//             if (
+//               module.type === 'Send an Email' ||
+//               module.type === 'Custom Email'
+//             ) {
+//               let templateContent = module.template || 'Thanks for your email!';
+
+//               if (scenario.type && scenario.type.toLowerCase() === 'shopify') {
+//                 let stepType = 'initial';
+//                 const subjectLower = (subject || '').toLowerCase().trim();
+
+//                 const isValidShopify = subjectLower.startsWith(
+//                   'shopify partner directory: new service inquiry from'
+//                 );
+
+//                 if (!isValidShopify) {
+//                   console.log(
+//                     '🚫 Skipping Shopify scenario — subject invalid for trigger:',
+//                     subject
+//                   );
+//                   continue;
+//                 }
+//                 const lower = (module.template || '').toLowerCase();
+//                 if (lower.includes('first')) stepType = 'first';
+//                 else if (lower.includes('second')) stepType = 'second';
+
+//                 const defaultServices = [
+//                   'General',
+//                   'Troubleshooting',
+//                   'Theme customization',
+//                   'Store build or redesign',
+//                   'Store migration',
+//                   'Website and marketing content',
+//                   'SEO',
+//                   'Site performance and speed',
+//                   'Custom apps and integrations',
+//                   'Store settings configuration',
+//                   'Product and collection setup',
+//                   'Social media marketing',
+//                   'Product descriptions',
+//                   'Search engine advertising',
+//                   'POS setup and migration',
+//                   'Custom domain setup',
+//                   'Conversion rate optimization',
+//                   'Analytics and tracking',
+//                   'Sales channel setup',
+//                   'Logo and visual branding',
+//                   'Business strategy guidance',
+//                   'Website audit and optimization strategy',
+//                   'Sales tax guidance',
+//                   'Product photography',
+//                   'Email marketing',
+//                   '3D modelling',
+//                   'Banner ads',
+//                   'Video and illustrations',
+//                   'Content marketing',
+//                   'Product sourcing guidance',
+//                 ];
+
+//                 let matchedService = 'General';
+//                 const textToSearch = (subject + ' ' + body).toLowerCase();
+//                 const found = defaultServices.find((s) =>
+//                   textToSearch.includes(s.toLowerCase())
+//                 );
+//                 if (found) matchedService = found;
+
+//                 const tpl = await TemplateModel.findOne({
+//                   userId,
+//                   platform: 'shopify',
+//                   service: new RegExp(`^${matchedService}$`, 'i'),
+//                   name: new RegExp(
+//                     stepType === 'initial'
+//                       ? 'Initial Email'
+//                       : stepType === 'first'
+//                         ? 'First Email'
+//                         : 'Second Email',
+//                     'i'
+//                   ),
+//                   active: true,
+//                 });
+
+//                 if (tpl) templateContent = tpl.content;
+//                 else {
+//                   const generalTpl = await TemplateModel.findOne({
+//                     userId,
+//                     platform: 'shopify',
+//                     service: /^General$/i,
+//                     name: new RegExp(
+//                       stepType === 'initial'
+//                         ? 'Initial Email'
+//                         : stepType === 'first'
+//                           ? 'First Email'
+//                           : 'Second Email',
+//                       'i'
+//                     ),
+//                     active: true,
+//                   });
+//                   if (generalTpl) templateContent = generalTpl.content;
+//                 }
+//               }
+
+//               templateContent = fillTemplate(templateContent, extractedFields);
+
+//               const plainModule = module.toObject ? module.toObject() : module;
+//               await sendEmailModule(
+//                 { ...plainModule, template: templateContent },
+//                 from,
+//                 subject,
+//                 emailId
+//               );
+
+//               const updatedDoc = await AutomationStatusModel.findByIdAndUpdate(
+//                 statusDoc._id,
+//                 {
+//                   $push: { completedModules: module.id || module._id },
+//                   $pull: { pendingModules: module.id || module._id },
+//                   $set: { lastExecutedAt: new Date() },
+//                 },
+//                 { new: true }
+//               );
+
+//               if (updatedDoc.pendingModules.length > 0) {
+//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//                   $set: { status: 'partial' },
+//                 });
+//               } else {
+//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//                   $set: { status: 'completed' },
+//                 });
+//               }
+//             } else {
+//               console.log('⚠️ Unsupported module type:', module.type);
+//             }
+//           } catch (err) {
+//             console.error('❌ Error in module execution:', err);
+//             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//               $set: { status: 'failed', lastExecutedAt: new Date() },
+//             });
+//           }
+//         }
+
+//         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
+//         if (
+//           finalDoc.pendingModules.length === 0 &&
+//           finalDoc.status !== 'failed'
+//         ) {
+//           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//             $set: { status: 'completed', lastExecutedAt: new Date() },
+//           });
+//         }
+//       }
+//     }
+//   } catch (err) {
+//     console.error('❌ [executeScenarios] ERROR:', err);
+//   }
+// };
+
+
 export const executeScenarios = async (emailData) => {
   try {
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
-    console.log(' [executeScenarios] START EXECUTION');
-    console.log(' Incoming email data:', emailData);
+    console.log("\n🚀 [executeScenarios] START EXECUTION");
+    console.log("📩 Incoming email data:", {
+      userId,
+      from,
+      subject,
+      emailId,
+    });
+
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
-    console.log('📡 Fetching scenarios for user:', userId);
+
+    console.log("🔍 Extracted fields:", extractedFields);
+    console.log("📡 Fetching scenarios for user:", userId);
 
     const scenarios = await scenarioModel.find({ userId });
+    console.log(`📦 Found ${scenarios.length} scenario(s) for user ${userId}`);
 
     for (const scenario of scenarios) {
-      if (!scenario.routerBranches || scenario.routerBranches.length === 0)
+      console.log(`\n🧩 Running Scenario: "${scenario.name}" (${scenario.type})`);
+
+      if (!scenario.routerBranches?.length) {
+        console.log("⚠️ No router branches found — skipping scenario.");
         continue;
+      }
 
       for (const branch of scenario.routerBranches) {
-        if (!branch.filter || !Array.isArray(branch.filter.conditions))
+        console.log(`➡️ Processing Branch ID: ${branch.id || branch._id}`);
+
+        if (!branch.filter?.conditions?.length) {
+          console.log("⚠️ No filter conditions — executing unconditionally.");
+        }
+
+        const matches = branch.filter?.conditions
+          ? branch.filter.conditions.every((cond) => {
+              const fieldValue =
+                cond.field === "Body"
+                  ? (body || "").toLowerCase()
+                  : cond.field === "Subject"
+                  ? (subject || "").toLowerCase()
+                  : "";
+              const condValue = (cond.value || "").toLowerCase();
+
+              if (cond.operator === "Contains")
+                return fieldValue.includes(condValue);
+              if (cond.operator === "Equal to") return fieldValue === condValue;
+              return false;
+            })
+          : true;
+
+        if (!matches) {
+          console.log("❌ Branch filter conditions not met — skipping.");
           continue;
+        }
 
-        const matches = branch.filter.conditions.every((cond) => {
-          const fieldValue =
-            cond.field === 'Body'
-              ? (body || '').toLowerCase()
-              : cond.field === 'Subject'
-                ? (subject || '').toLowerCase()
-                : '';
-          const condValue = (cond.value || '').toLowerCase();
+        if (!branch.modules?.length) {
+          console.log("⚠️ No modules found in branch — skipping.");
+          continue;
+        }
 
-          if (cond.operator === 'Contains')
-            return fieldValue.includes(condValue);
-          if (cond.operator === 'Equal to') return fieldValue === condValue;
-          return false;
-        });
-
-        if (!matches) continue;
-        if (!branch.modules || branch.modules.length === 0) continue;
+        console.log(
+          `✅ Branch matched — executing ${branch.modules.length} module(s)...`
+        );
 
         let statusDoc = await AutomationStatusModel.create({
           userId,
           emailId,
           scenarioId: scenario._id,
           branchId: branch.id || branch._id,
-          status: 'pending',
+          status: "pending",
           completedModules: [],
           pendingModules: branch.modules.map((m) => m.id || m._id),
         });
 
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
+          console.log(
+            `\n⚙️ [Module ${i + 1}/${branch.modules.length}] Type: ${
+              module.type || module.app?.name
+            }`
+          );
 
           try {
-            if (
-              module.type === 'Delay' ||
-              (!module.type && module.app?.name === 'Delay')
-            ) {
+            // 🟢 Normalize module types for Shopify
+            if (scenario.type?.toLowerCase() === "shopify") {
+              const rawType = (module.type || module.app?.name || "").toLowerCase();
+              if (
+                rawType.includes("gmail") ||
+                rawType.includes("email") ||
+                rawType.includes("follow") ||
+                rawType.includes("initial")
+              ) {
+                module.type = "Send an Email";
+              } else if (rawType.includes("delay")) {
+                module.type = "Delay";
+              } else if (rawType.includes("router")) {
+                module.type = "Router";
+              } else if (rawType.includes("webhook")) {
+                module.type = "Webhooks";
+              }
+              console.log(`🧠 Normalized Shopify module type → ${module.type}`);
+            }
+
+            // ============ DELAY MODULE ============
+            if (module.type === "Delay") {
+              console.log("⏳ Delay module detected. Scheduling follow-up...");
+
               const delayMs = convertToMs(module.delayValue, module.delayUnit);
+              console.log(
+                `🕒 Delay: ${module.delayValue} ${module.delayUnit} (${delayMs}ms)`
+              );
+
               const remainingModules = [];
 
               for (const nextModule of branch.modules.slice(i + 1)) {
@@ -482,100 +900,123 @@ export const executeScenarios = async (emailData) => {
                   ? nextModule.toObject()
                   : { ...nextModule };
 
+                const nextType = (plain.type || plain.app?.name || "").toLowerCase();
                 if (
-                  plain.type === 'Send an Email' ||
-                  plain.type === 'Custom Email'
+                  !(
+                    nextType.includes("email") ||
+                    nextType.includes("gmail") ||
+                    nextType.includes("follow") ||
+                    nextType.includes("initial")
+                  )
                 ) {
-                  let templateContent =
-                    plain.template || 'Thanks for your email!';
+                  console.log(
+                    `⚠️ Skipping non-email module after delay: ${plain.type}`
+                  );
+                  continue;
+                }
 
-                  if (scenario.type?.toLowerCase() === 'shopify') {
-                    let stepType = 'initial';
-                    const lower = (plain.template || '').toLowerCase();
-                    if (lower.includes('first')) stepType = 'first';
-                    else if (lower.includes('second')) stepType = 'second';
+                let templateContent = plain.template || "Thanks for your email!";
+                let selectedTemplateName = "";
+                let selectedService = "General";
+                let stepType = "initial";
 
-                    const defaultServices = [
-                      'General',
-                      'Troubleshooting',
-                      'Theme customization',
-                      'Store build or redesign',
-                      'Store migration',
-                      'Website and marketing content',
-                      'SEO',
-                      'Site performance and speed',
-                      'Custom apps and integrations',
-                      'Store settings configuration',
-                      'Product and collection setup',
-                      'Social media marketing',
-                      'Product descriptions',
-                      'Search engine advertising',
-                      'POS setup and migration',
-                      'Custom domain setup',
-                      'Conversion rate optimization',
-                      'Analytics and tracking',
-                      'Sales channel setup',
-                      'Logo and visual branding',
-                      'Business strategy guidance',
-                      'Website audit and optimization strategy',
-                      'Sales tax guidance',
-                      'Product photography',
-                      'Email marketing',
-                      '3D modelling',
-                      'Banner ads',
-                      'Video and illustrations',
-                      'Content marketing',
-                      'Product sourcing guidance',
-                    ];
+                if (scenario.type?.toLowerCase() === "shopify") {
+                  const lower = (plain.template || "").toLowerCase();
+                  if (lower.includes("first")) stepType = "first";
+                  else if (lower.includes("second")) stepType = "second";
 
-                    let matchedService = 'General';
-                    const textToSearch = (subject + ' ' + body).toLowerCase();
-                    const found = defaultServices.find((s) =>
-                      textToSearch.includes(s.toLowerCase())
+                  const textToSearch = (subject + " " + body).toLowerCase();
+                  const defaultServices = [
+                    "General",
+                    "Troubleshooting",
+                    "Theme customization",
+                    "Store build or redesign",
+                    "Store migration",
+                    "Website and marketing content",
+                    "SEO",
+                    "Site performance and speed",
+                    "Custom apps and integrations",
+                    "Store settings configuration",
+                    "Product and collection setup",
+                    "Social media marketing",
+                    "Product descriptions",
+                    "Search engine advertising",
+                    "POS setup and migration",
+                    "Custom domain setup",
+                    "Conversion rate optimization",
+                    "Analytics and tracking",
+                    "Sales channel setup",
+                    "Logo and visual branding",
+                    "Business strategy guidance",
+                    "Website audit and optimization strategy",
+                    "Sales tax guidance",
+                    "Product photography",
+                    "Email marketing",
+                    "3D modelling",
+                    "Banner ads",
+                    "Video and illustrations",
+                    "Content marketing",
+                    "Product sourcing guidance",
+                  ];
+
+                  let matchedService = defaultServices.find((s) =>
+                    textToSearch.includes(s.toLowerCase())
+                  );
+                  matchedService = matchedService || "General";
+
+                  const tpl = await TemplateModel.findOne({
+                    userId,
+                    platform: "shopify",
+                    service: new RegExp(`^${matchedService}$`, "i"),
+                    name: new RegExp(
+                      stepType === "initial"
+                        ? "Initial Email"
+                        : stepType === "first"
+                        ? "First Email"
+                        : "Second Email",
+                      "i"
+                    ),
+                    active: true,
+                  });
+
+                  if (tpl) {
+                    templateContent = tpl.content;
+                    selectedTemplateName = tpl.name;
+                    selectedService = matchedService;
+                    console.log(
+                      `✅ [Shopify] Found specific template "${tpl.name}" for service "${matchedService}" (${stepType})`
                     );
-                    if (found) matchedService = found;
-
-                    const tpl = await TemplateModel.findOne({
+                  } else {
+                    const generalTpl = await TemplateModel.findOne({
                       userId,
-                      platform: 'shopify',
-                      service: new RegExp(`^${matchedService}$`, 'i'),
+                      platform: "shopify",
+                      service: /^General$/i,
                       name: new RegExp(
-                        stepType === 'initial'
-                          ? 'Initial Email'
-                          : stepType === 'first'
-                            ? 'First Email'
-                            : 'Second Email',
-                        'i'
+                        stepType === "initial"
+                          ? "Initial Email"
+                          : stepType === "first"
+                          ? "First Email"
+                          : "Second Email",
+                        "i"
                       ),
                       active: true,
                     });
-
-                    if (tpl) templateContent = tpl.content;
-                    else {
-                      const generalTpl = await TemplateModel.findOne({
-                        userId,
-                        platform: 'shopify',
-                        service: /^General$/i,
-                        name: new RegExp(
-                          stepType === 'initial'
-                            ? 'Initial Email'
-                            : stepType === 'first'
-                              ? 'First Email'
-                              : 'Second Email',
-                          'i'
-                        ),
-                        active: true,
-                      });
-                      if (generalTpl) templateContent = generalTpl.content;
+                    if (generalTpl) {
+                      templateContent = generalTpl.content;
+                      selectedTemplateName = generalTpl.name;
+                      selectedService = "General";
+                      console.log(
+                        `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
+                      );
+                    } else {
+                      console.warn(
+                        `⚠️ [Shopify] No template found for step: ${stepType} (${matchedService})`
+                      );
                     }
                   }
-
-                  plain.template = fillTemplate(
-                    templateContent,
-                    extractedFields
-                  );
                 }
 
+                plain.template = fillTemplate(templateContent, extractedFields);
                 remainingModules.push(plain);
               }
 
@@ -587,128 +1028,150 @@ export const executeScenarios = async (emailData) => {
                 modulesLeft: remainingModules,
                 scheduledAt: new Date(Date.now() + delayMs),
               });
+              console.log(`🕒 Created delay job with ${remainingModules.length} module(s).`);
 
               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                 $push: { completedModules: module.id || module._id },
                 $set: {
                   pendingModules: remainingModules.map((m) => m.id || m._id),
-                  status: 'partial',
+                  status: "partial",
                   lastExecutedAt: new Date(),
                 },
               });
-
               break;
             }
 
-            if (
-              module.type === 'Send an Email' ||
-              module.type === 'Custom Email'
-            ) {
-              let templateContent = module.template || 'Thanks for your email!';
+            // ============ SEND EMAIL MODULE ============
+            if (module.type === "Send an Email" || module.type === "Custom Email") {
+              console.log("📤 Executing Send Email module...");
 
-              if (scenario.type && scenario.type.toLowerCase() === 'shopify') {
-                let stepType = 'initial';
-                const subjectLower = (subject || '').toLowerCase().trim();
+              let templateContent = module.template || "Thanks for your email!";
+              let selectedTemplateName = "";
+              let selectedService = "General";
+              let stepType = "initial";
 
+              if (scenario.type?.toLowerCase() === "shopify") {
+                const subjectLower = (subject || "").toLowerCase().trim();
                 const isValidShopify = subjectLower.startsWith(
-                  'shopify partner directory: new service inquiry from'
+                  "shopify partner directory: new service inquiry from"
                 );
-
                 if (!isValidShopify) {
                   console.log(
-                    '🚫 Skipping Shopify scenario — subject invalid for trigger:',
-                    subject
+                    `🚫 Skipping Shopify email — subject doesn't match trigger: "${subject}"`
                   );
                   continue;
                 }
-                const lower = (module.template || '').toLowerCase();
-                if (lower.includes('first')) stepType = 'first';
-                else if (lower.includes('second')) stepType = 'second';
 
+                const lower = (module.template || "").toLowerCase();
+                if (lower.includes("first")) stepType = "first";
+                else if (lower.includes("second")) stepType = "second";
+
+                const textToSearch = (subject + " " + body).toLowerCase();
                 const defaultServices = [
-                  'General',
-                  'Troubleshooting',
-                  'Theme customization',
-                  'Store build or redesign',
-                  'Store migration',
-                  'Website and marketing content',
-                  'SEO',
-                  'Site performance and speed',
-                  'Custom apps and integrations',
-                  'Store settings configuration',
-                  'Product and collection setup',
-                  'Social media marketing',
-                  'Product descriptions',
-                  'Search engine advertising',
-                  'POS setup and migration',
-                  'Custom domain setup',
-                  'Conversion rate optimization',
-                  'Analytics and tracking',
-                  'Sales channel setup',
-                  'Logo and visual branding',
-                  'Business strategy guidance',
-                  'Website audit and optimization strategy',
-                  'Sales tax guidance',
-                  'Product photography',
-                  'Email marketing',
-                  '3D modelling',
-                  'Banner ads',
-                  'Video and illustrations',
-                  'Content marketing',
-                  'Product sourcing guidance',
+                  "General",
+                  "Troubleshooting",
+                  "Theme customization",
+                  "Store build or redesign",
+                  "Store migration",
+                  "Website and marketing content",
+                  "SEO",
+                  "Site performance and speed",
+                  "Custom apps and integrations",
+                  "Store settings configuration",
+                  "Product and collection setup",
+                  "Social media marketing",
+                  "Product descriptions",
+                  "Search engine advertising",
+                  "POS setup and migration",
+                  "Custom domain setup",
+                  "Conversion rate optimization",
+                  "Analytics and tracking",
+                  "Sales channel setup",
+                  "Logo and visual branding",
+                  "Business strategy guidance",
+                  "Website audit and optimization strategy",
+                  "Sales tax guidance",
+                  "Product photography",
+                  "Email marketing",
+                  "3D modelling",
+                  "Banner ads",
+                  "Video and illustrations",
+                  "Content marketing",
+                  "Product sourcing guidance",
                 ];
 
-                let matchedService = 'General';
-                const textToSearch = (subject + ' ' + body).toLowerCase();
-                const found = defaultServices.find((s) =>
+                let matchedService = defaultServices.find((s) =>
                   textToSearch.includes(s.toLowerCase())
                 );
-                if (found) matchedService = found;
+                matchedService = matchedService || "General";
 
                 const tpl = await TemplateModel.findOne({
                   userId,
-                  platform: 'shopify',
-                  service: new RegExp(`^${matchedService}$`, 'i'),
+                  platform: "shopify",
+                  service: new RegExp(`^${matchedService}$`, "i"),
                   name: new RegExp(
-                    stepType === 'initial'
-                      ? 'Initial Email'
-                      : stepType === 'first'
-                        ? 'First Email'
-                        : 'Second Email',
-                    'i'
+                    stepType === "initial"
+                      ? "Initial Email"
+                      : stepType === "first"
+                      ? "First Email"
+                      : "Second Email",
+                    "i"
                   ),
                   active: true,
                 });
 
-                if (tpl) templateContent = tpl.content;
-                else {
+                if (tpl) {
+                  templateContent = tpl.content;
+                  selectedTemplateName = tpl.name;
+                  selectedService = matchedService;
+                  console.log(
+                    `✅ [Shopify] Found template "${tpl.name}" for service "${matchedService}" (${stepType})`
+                  );
+                } else {
                   const generalTpl = await TemplateModel.findOne({
                     userId,
-                    platform: 'shopify',
+                    platform: "shopify",
                     service: /^General$/i,
                     name: new RegExp(
-                      stepType === 'initial'
-                        ? 'Initial Email'
-                        : stepType === 'first'
-                          ? 'First Email'
-                          : 'Second Email',
-                      'i'
+                      stepType === "initial"
+                        ? "Initial Email"
+                        : stepType === "first"
+                        ? "First Email"
+                        : "Second Email",
+                      "i"
                     ),
                     active: true,
                   });
-                  if (generalTpl) templateContent = generalTpl.content;
+                  if (generalTpl) {
+                    templateContent = generalTpl.content;
+                    selectedTemplateName = generalTpl.name;
+                    selectedService = "General";
+                    console.log(
+                      `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
+                    );
+                  } else {
+                    console.warn(
+                      `⚠️ [Shopify] No template found for ${stepType} email (${matchedService})`
+                    );
+                  }
                 }
               }
 
-              templateContent = fillTemplate(templateContent, extractedFields);
+              console.log(
+                `📧 Final Template: "${selectedTemplateName}" | Service: "${selectedService}" | Step: "${stepType}"`
+              );
 
+              templateContent = fillTemplate(templateContent, extractedFields);
               const plainModule = module.toObject ? module.toObject() : module;
+
               await sendEmailModule(
                 { ...plainModule, template: templateContent },
                 from,
                 subject,
                 emailId
               );
+
+              console.log("✅ Email sent successfully for module.");
 
               const updatedDoc = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
@@ -721,40 +1184,43 @@ export const executeScenarios = async (emailData) => {
               );
 
               if (updatedDoc.pendingModules.length > 0) {
+                console.log("🔁 Still modules remaining — status: partial");
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-                  $set: { status: 'partial' },
+                  $set: { status: "partial" },
                 });
               } else {
+                console.log("🏁 All modules completed — marking status completed.");
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-                  $set: { status: 'completed' },
+                  $set: { status: "completed" },
                 });
               }
             } else {
-              console.log('⚠️ Unsupported module type:', module.type);
+              console.log(`⚠️ Unsupported module type: ${module.type}`);
             }
           } catch (err) {
-            console.error('❌ Error in module execution:', err);
+            console.error("❌ Error executing module:", err);
             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-              $set: { status: 'failed', lastExecutedAt: new Date() },
+              $set: { status: "failed", lastExecutedAt: new Date() },
             });
           }
         }
 
         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
-        if (
-          finalDoc.pendingModules.length === 0 &&
-          finalDoc.status !== 'failed'
-        ) {
+        if (finalDoc?.pendingModules.length === 0 && finalDoc.status !== "failed") {
+          console.log("🏆 Scenario branch execution complete — marking completed.");
           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-            $set: { status: 'completed', lastExecutedAt: new Date() },
+            $set: { status: "completed", lastExecutedAt: new Date() },
           });
         }
       }
     }
+
+    console.log("\n✅ [executeScenarios] All scenarios executed successfully.\n");
   } catch (err) {
-    console.error('❌ [executeScenarios] ERROR:', err);
+    console.error("❌ [executeScenarios] FATAL ERROR:", err);
   }
 };
+
 
 const convertToMs = (value, unit) => {
   if (!value) return 0;
@@ -1658,56 +2124,35 @@ export const getLatestVerificationEmail = async (req, res) => {
 export const validateTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { toEmail } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Invalid user ID.' });
+      return res.status(400).json({ success: false, message: "Invalid user ID." });
+    }
+
+    if (!toEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing recipient email address (toEmail).",
+      });
     }
 
     const user = await authModel.findById(userId);
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'User not found.' });
+      return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const verificationEmail = await EmailModel.findOne({
-      userId,
-      subject: {
-        $regex: 'has requested to automatically forward mail',
-        $options: 'i',
-      },
-      sender: { $regex: '@gmail.com', $options: 'i' },
-    }).sort({ createdAt: -1 });
+    const testSubject = "Zenith Forwarding Validation Test";
+    const testBody = `Hello ,
+    
+This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
 
-    if (!verificationEmail) {
-      return res.status(404).json({
-        success: false,
-        message: 'Mailhook forwarding is not set up yet. Please complete forwarding setup in your acc settings and try again.',
-      });
-    }
+If you receive this email, your mail forwarding is active and functioning.
 
-    const match = verificationEmail.body.match(
-      /([a-zA-Z0-9._%+-]+@gmail\.com)/i
-    );
-    const gmailAddress = match ? match[1] : null;
-
-    if (!gmailAddress) {
-      return res.status(400).json({
-        success: false,
-        message: 'Could not extract Gmail address from verification email.',
-      });
-    }
-
-    console.log(`📧 Found Gmail for validation: ${gmailAddress}`);
-
-    // ✅ Step 3: Send validation test email TO that Gmail address
-    const testSubject = 'Zenith Forwarding Validation Test';
-    const testBody = `This is a test message to confirm Gmail forwarding setup for your Zenith Inbox.`;
+— Zenith Inbox Team`;
 
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: "gmail",
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -1716,57 +2161,27 @@ export const validateTestEmail = async (req, res) => {
 
     await transporter.sendMail({
       from: `"Zenith System" <${process.env.EMAIL_USER}>`,
-      to: gmailAddress, // ✅ send to the Gmail address, NOT mailhook
+      to: toEmail,
       subject: testSubject,
       text: testBody,
     });
 
-    console.log(`✅ Test email sent to Gmail address: ${gmailAddress}`);
+    console.log(`✅ Test email sent to: ${toEmail}`);
 
-    // ✅ Step 4: Wait for forwarded test email to arrive in mailhook
-    const maxAttempts = 6; // 6 attempts = 30 seconds
-    let validated = false;
-    let foundEmail = null;
-
-    for (let attempts = 0; attempts < maxAttempts; attempts++) {
-      await new Promise((r) => setTimeout(r, 5000));
-
-      foundEmail = await EmailModel.findOne({
-        userId,
-        subject: { $regex: testSubject, $options: 'i' },
-      }).sort({ createdAt: -1 });
-
-      if (foundEmail) {
-        validated = true;
-        break;
-      }
-    }
-
-    if (validated) {
-      foundEmail.isValidateTestEmail = true;
-      await foundEmail.save();
-
-      console.log(`✅ Forwarding confirmed for Gmail: ${gmailAddress}`);
-      return res.json({
-        success: true,
-        message: 'Forwarding verified successfully!',
-        forwardedFrom: gmailAddress,
-        emailId: foundEmail._id,
-      });
-    } else {
-      console.log(`❌ No forwarded test email received from ${gmailAddress}`);
-      return res.json({
-        success: false,
-        message:
-          'No test email received. Please check your Gmail forwarding settings.',
-      });
-    }
+    return res.json({
+      success: true,
+      message: `Test email successfully sent to ${toEmail}. Please check your inbox and verify forwarding.`,
+      sentTo: toEmail,
+    });
   } catch (err) {
-    console.error('💥 Error validating forwarding:', err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("💥 Error sending test email:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to send test email.",
+      error: err.message,
+    });
   }
 };
-
 export const getValidateEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1824,5 +2239,35 @@ export const getTestEmailData = async (req, res) => {
     res.json({ success: true, data: testData });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+export const deleteConnectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Connection ID is required." });
+    }
+
+    const existing = await ConnectionModel.findById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Connection not found." });
+    }
+
+    await ConnectionModel.findByIdAndDelete(id);
+
+
+    return res.status(200).json({
+      success: true,
+      message: `Connection for ${existing.email} deleted successfully.`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while deleting connection.",
+      error: error.message,
+    });
   }
 };
