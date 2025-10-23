@@ -381,7 +381,6 @@ function parseKeyValuePairs(text = '') {
 
 export const mailHookWebhook = async (req, res) => {
   try {
-
     const rawEmail = req.body.email || null;
     let parsed = {};
 
@@ -399,13 +398,10 @@ export const mailHookWebhook = async (req, res) => {
       };
     }
 
-  
-
     const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
     const subject = parsed.subject || '';
     const textBody = parsed.text || '';
     const htmlBody = parsed.html || '';
-
 
     let mailhookAddress =
       req.body.envelope?.to ||
@@ -428,7 +424,6 @@ export const mailHookWebhook = async (req, res) => {
     }
     mailhookAddress = mailhookAddress.trim().toLowerCase();
 
-
     if (!mailhookAddress.endsWith('@mail.brandfer.com')) {
       return res.status(200).send('Ignored — not a mailhook email.');
     }
@@ -438,9 +433,6 @@ export const mailHookWebhook = async (req, res) => {
       console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
       return res.status(200).send('No matching user found for mailhook.');
     }
-
-    
-
 
     let isForwarded = false;
 
@@ -466,17 +458,12 @@ export const mailHookWebhook = async (req, res) => {
         headerTextLower.includes('mail forwarding');
     }
 
-    
-
     if (!isForwarded) {
       console.log('⏭️ Ignored — not a forwarded email.');
       return res.status(200).send('Ignored — not a forwarded email.');
     }
 
-   
     if (subject.includes('Zenith Forwarding Validation Test')) {
-      
-
       // 🧠 Extract the *original Gmail address* from X-Forwarded-For or From
       let originalEmail = senderAddress; // fallback
       const xForwardedFor = headerText.match(/x-forwarded-for:\s*([^\s]+)/i);
@@ -487,7 +474,6 @@ export const mailHookWebhook = async (req, res) => {
       ) {
         originalEmail = xForwardedFor[1].toLowerCase();
       }
-
 
       const existing = await validationModel.findOne({ userId: user._id });
       if (existing) {
@@ -570,7 +556,7 @@ export const mailHookWebhook = async (req, res) => {
     });
 
     await emailDoc.save();
-    
+
     await executeScenarios({
       userId: user._id,
       from: senderAddress,
@@ -989,39 +975,20 @@ function extractFieldsFromEmail(emailObj = {}) {
 export const executeScenarios = async (emailData) => {
   try {
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
-    console.log('\n🚀 [executeScenarios] START EXECUTION');
-    console.log('📩 Incoming email data:', {
-      userId,
-      from,
-      subject,
-      emailId,
-    });
 
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
 
-    console.log('🔍 Extracted fields:', extractedFields);
-    console.log('📡 Fetching scenarios for user:', userId);
-
     const scenarios = await scenarioModel.find({ userId });
-    console.log(`📦 Found ${scenarios.length} scenario(s) for user ${userId}`);
 
     for (const scenario of scenarios) {
-      console.log(
-        `\n🧩 Running Scenario: "${scenario.name}" (${scenario.type})`
-      );
-
       if (!scenario.routerBranches?.length) {
-        console.log('⚠️ No router branches found — skipping scenario.');
         continue;
       }
 
       for (const branch of scenario.routerBranches) {
-        console.log(`➡️ Processing Branch ID: ${branch.id || branch._id}`);
-
         if (!branch.filter?.conditions?.length) {
-          console.log('⚠️ No filter conditions — executing unconditionally.');
         }
 
         const matches = branch.filter?.conditions
@@ -1042,18 +1009,12 @@ export const executeScenarios = async (emailData) => {
           : true;
 
         if (!matches) {
-          console.log('❌ Branch filter conditions not met — skipping.');
           continue;
         }
 
         if (!branch.modules?.length) {
-          console.log('⚠️ No modules found in branch — skipping.');
           continue;
         }
-
-        console.log(
-          `✅ Branch matched — executing ${branch.modules.length} module(s)...`
-        );
 
         let statusDoc = await AutomationStatusModel.create({
           userId,
@@ -1067,14 +1028,8 @@ export const executeScenarios = async (emailData) => {
 
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
-          console.log(
-            `\n⚙️ [Module ${i + 1}/${branch.modules.length}] Type: ${
-              module.type || module.app?.name
-            }`
-          );
 
           try {
-            // 🟢 Normalize module types for Shopify
             if (scenario.type?.toLowerCase() === 'shopify') {
               const rawType = (
                 module.type ||
@@ -1098,14 +1053,10 @@ export const executeScenarios = async (emailData) => {
               console.log(`🧠 Normalized Shopify module type → ${module.type}`);
             }
 
-            // ============ DELAY MODULE ============
             if (module.type === 'Delay') {
               console.log('⏳ Delay module detected. Scheduling follow-up...');
 
               const delayMs = convertToMs(module.delayValue, module.delayUnit);
-              console.log(
-                `🕒 Delay: ${module.delayValue} ${module.delayUnit} (${delayMs}ms)`
-              );
 
               const remainingModules = [];
 
@@ -1127,9 +1078,6 @@ export const executeScenarios = async (emailData) => {
                     nextType.includes('initial')
                   )
                 ) {
-                  console.log(
-                    `⚠️ Skipping non-email module after delay: ${plain.type}`
-                  );
                   continue;
                 }
 
@@ -1202,9 +1150,6 @@ export const executeScenarios = async (emailData) => {
                     templateContent = tpl.content;
                     selectedTemplateName = tpl.name;
                     selectedService = matchedService;
-                    console.log(
-                      `✅ [Shopify] Found specific template "${tpl.name}" for service "${matchedService}" (${stepType})`
-                    );
                   } else {
                     const generalTpl = await TemplateModel.findOne({
                       userId,
@@ -1224,13 +1169,7 @@ export const executeScenarios = async (emailData) => {
                       templateContent = generalTpl.content;
                       selectedTemplateName = generalTpl.name;
                       selectedService = 'General';
-                      console.log(
-                        `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
-                      );
                     } else {
-                      console.warn(
-                        `⚠️ [Shopify] No template found for step: ${stepType} (${matchedService})`
-                      );
                     }
                   }
                 }
@@ -1247,9 +1186,6 @@ export const executeScenarios = async (emailData) => {
                 modulesLeft: remainingModules,
                 scheduledAt: new Date(Date.now() + delayMs),
               });
-              console.log(
-                `🕒 Created delay job with ${remainingModules.length} module(s).`
-              );
 
               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                 $push: { completedModules: module.id || module._id },
@@ -1262,13 +1198,10 @@ export const executeScenarios = async (emailData) => {
               break;
             }
 
-            // ============ SEND EMAIL MODULE ============
             if (
               module.type === 'Send an Email' ||
               module.type === 'Custom Email'
             ) {
-              console.log('📤 Executing Send Email module...');
-
               let templateContent = module.template || 'Thanks for your email!';
               let selectedTemplateName = '';
               let selectedService = 'General';
@@ -1280,9 +1213,6 @@ export const executeScenarios = async (emailData) => {
                   'shopify partner directory: new service inquiry from'
                 );
                 if (!isValidShopify) {
-                  console.log(
-                    `🚫 Skipping Shopify email — subject doesn't match trigger: "${subject}"`
-                  );
                   continue;
                 }
 
@@ -1348,9 +1278,6 @@ export const executeScenarios = async (emailData) => {
                   templateContent = tpl.content;
                   selectedTemplateName = tpl.name;
                   selectedService = matchedService;
-                  console.log(
-                    `✅ [Shopify] Found template "${tpl.name}" for service "${matchedService}" (${stepType})`
-                  );
                 } else {
                   const generalTpl = await TemplateModel.findOne({
                     userId,
@@ -1374,16 +1301,9 @@ export const executeScenarios = async (emailData) => {
                       `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
                     );
                   } else {
-                    console.warn(
-                      `⚠️ [Shopify] No template found for ${stepType} email (${matchedService})`
-                    );
                   }
                 }
               }
-
-              console.log(
-                `📧 Final Template: "${selectedTemplateName}" | Service: "${selectedService}" | Step: "${stepType}"`
-              );
 
               templateContent = fillTemplate(templateContent, extractedFields);
               const plainModule = module.toObject ? module.toObject() : module;
@@ -1394,8 +1314,6 @@ export const executeScenarios = async (emailData) => {
                 subject,
                 emailId
               );
-
-              console.log('✅ Email sent successfully for module.');
 
               const updatedDoc = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
@@ -1421,10 +1339,9 @@ export const executeScenarios = async (emailData) => {
                 });
               }
             } else {
-              console.log(`⚠️ Unsupported module type: ${module.type}`);
             }
           } catch (err) {
-            console.error('❌ Error executing module:', err);
+            console.error(' Error executing module:', err);
             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
               $set: { status: 'failed', lastExecutedAt: new Date() },
             });
@@ -1436,22 +1353,13 @@ export const executeScenarios = async (emailData) => {
           finalDoc?.pendingModules.length === 0 &&
           finalDoc.status !== 'failed'
         ) {
-          console.log(
-            '🏆 Scenario branch execution complete — marking completed.'
-          );
           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
             $set: { status: 'completed', lastExecutedAt: new Date() },
           });
         }
       }
     }
-
-    console.log(
-      '\n✅ [executeScenarios] All scenarios executed successfully.\n'
-    );
-  } catch (err) {
-    console.error('❌ [executeScenarios] FATAL ERROR:', err);
-  }
+  } catch (err) {}
 };
 
 const convertToMs = (value, unit) => {
@@ -1816,53 +1724,57 @@ export const sendEmailModule = async (
       } catch (err) {
         console.error('[OUTLOOK] send error:', err);
       }
-   } else if (connection.provider === "smtp") {
-  try {
-    console.log("[SMTP] Sending via nodemailer...");
-    console.log("[SMTP] Connection details:", {
-      host: connection.smtp?.host,
-      port: connection.smtp?.port,
-      user: connection.smtp?.username,
-      hasPassword: !!connection.smtp?.password,
-    });
+    } else if (connection.provider === 'smtp') {
+      try {
+        console.log('[SMTP] Sending via nodemailer...');
+        console.log('[SMTP] Connection details:', {
+          host: connection.smtp?.host,
+          port: connection.smtp?.port,
+          user: connection.smtp?.username,
+          hasPassword: !!connection.smtp?.password,
+        });
 
-    if (!connection.smtp?.host || !connection.smtp?.username || !connection.smtp?.password) {
-      throw new Error(
-        `[SMTP] Missing SMTP credentials or host info for ${connection.email}`
-      );
+        if (
+          !connection.smtp?.host ||
+          !connection.smtp?.username ||
+          !connection.smtp?.password
+        ) {
+          throw new Error(
+            `[SMTP] Missing SMTP credentials or host info for ${connection.email}`
+          );
+        }
+
+        const transporter = nodemailer.createTransport({
+          host: connection.smtp?.host,
+          port: connection.smtp?.port || 465,
+          secure: connection.smtp?.port === 465,
+          auth: {
+            user: connection.smtp?.username || connection.email,
+            pass: connection.smtp?.password,
+          },
+          tls: {
+            rejectUnauthorized: false,
+          },
+        });
+
+        await transporter.verify();
+        console.log('[SMTP] Verified SMTP connection successfully.');
+
+        const info = await transporter.sendMail({
+          from: `"${connection.name || 'SMTP Sender'}" <${connection.email}>`,
+          to,
+          cc,
+          bcc,
+          subject: finalSubject,
+          html: emailBody,
+        });
+
+        console.log('[SMTP] Email sent:', info.messageId);
+        sentOk = true;
+      } catch (err) {
+        console.error('[SMTP] send error:', err);
+      }
     }
-
-    const transporter = nodemailer.createTransport({
-      host: connection.smtp?.host,
-      port: connection.smtp?.port || 465,
-      secure: connection.smtp?.port === 465, 
-      auth: {
-        user: connection.smtp?.username || connection.email,
-        pass: connection.smtp?.password,
-      },
-      tls: {
-        rejectUnauthorized: false, 
-      },
-    });
-
-    await transporter.verify();
-    console.log("[SMTP] Verified SMTP connection successfully.");
-
-    const info = await transporter.sendMail({
-      from: `"${connection.name || "SMTP Sender"}" <${connection.email}>`,
-      to,
-      cc,
-      bcc,
-      subject: finalSubject,
-      html: emailBody,
-    });
-
-    console.log("[SMTP] Email sent:", info.messageId);
-    sentOk = true;
-  } catch (err) {
-    console.error("[SMTP] send error:", err);
-  }
-}
 
     if (sentOk) {
       const sentDoc = new EmailModel({
