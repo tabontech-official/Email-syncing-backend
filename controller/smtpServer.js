@@ -2127,32 +2127,22 @@ export const validateTestEmail = async (req, res) => {
     const { userId } = req.params;
     const { toEmail } = req.body;
 
-    console.log("📩 [ValidateTestEmail] API called with:", { userId, toEmail });
-
-    // Step 1️⃣: Validate input
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      console.warn("⚠️ Invalid user ID:", userId);
       return res.status(400).json({ success: false, message: "Invalid user ID." });
     }
 
     if (!toEmail) {
-      console.warn("⚠️ Missing recipient email address (toEmail)");
       return res.status(400).json({
         success: false,
         message: "Missing recipient email address (toEmail).",
       });
     }
 
-    // Step 2️⃣: Check user
     const user = await authModel.findById(userId);
     if (!user) {
-      console.warn("⚠️ No user found for ID:", userId);
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    console.log(`✅ User found: ${user.email || user._id}`);
-
-    // Step 3️⃣: Email content
     const testSubject = "Zenith Forwarding Validation Test";
     const testBody = `Hello,
 
@@ -2161,11 +2151,6 @@ This is a test email from Zenith Inbox to confirm that your email forwarding set
 If you receive this email, your mail forwarding is active and functioning.
 
 — Zenith Inbox Team`;
-
-    console.log("🚀 Preparing to send test email...");
-    console.log("From:", process.env.EMAIL_USER);
-    console.log("To:", toEmail);
-    console.log("Subject:", testSubject);
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -2182,13 +2167,9 @@ If you receive this email, your mail forwarding is active and functioning.
       text: testBody,
     });
 
-    console.log(`Test email successfully sent to: ${toEmail}`);
-
-    // Step 5️⃣: Save or update record in ValidationEmail collection
     const existing = await validationModel.findOne({ userId });
 
     if (existing) {
-      console.log("📝 Existing validation record found — updating...");
       existing.toEmail = toEmail;
       existing.body = testBody;
       existing.subject = testSubject;
@@ -2198,9 +2179,7 @@ If you receive this email, your mail forwarding is active and functioning.
       existing.verifiedAt = null;
       existing.notes = "Resent test email.";
       await existing.save();
-      console.log(" Validation record updated successfully!");
     } else {
-      console.log("No previous validation record found — creating new entry...");
       await validationModel.create({
         userId,
         toEmail,
@@ -2211,17 +2190,14 @@ If you receive this email, your mail forwarding is active and functioning.
         status: "sent",
         notes: "Initial test email sent.",
       });
-      console.log("✅ New validation record created successfully!");
     }
 
-    // Step 6️⃣: Respond success
     return res.json({
       success: true,
       message: `Test email successfully sent to ${toEmail}. Please check your inbox and verify forwarding.`,
       sentTo: toEmail,
     });
   } catch (err) {
-    console.error("💥 [ValidateTestEmail] Error:", err);
     res.status(500).json({
       success: false,
       message: "Failed to send test email.",
@@ -2230,18 +2206,15 @@ If you receive this email, your mail forwarding is active and functioning.
   }
 };
 
+
 export const getValidateEmail = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    console.log("🚀 [GetValidateEmail] Starting multi-provider validation for user:", userId);
-
-    // Step 0️⃣: Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid user ID." });
     }
 
-    // Step 1️⃣: Fetch test record (the email you sent from validateTestEmail)
     const validationRecord = await validationModel.findOne({ userId }).sort({ createdAt: -1 });
     if (!validationRecord) {
       return res.status(404).json({
@@ -2250,9 +2223,6 @@ export const getValidateEmail = async (req, res) => {
       });
     }
 
-    console.log("✅ Validation record found → Expected Email:", validationRecord.toEmail);
-
-    // Step 2️⃣: Build universal search conditions for different providers
     const providerPatterns = [
       {
         name: "Gmail",
@@ -2284,10 +2254,7 @@ export const getValidateEmail = async (req, res) => {
     let matchedEmail = null;
     let matchedProvider = null;
 
-    // Step 3️⃣: Try finding a confirmation email for any known provider
     for (const provider of providerPatterns) {
-      console.log(`🔍 Checking for provider: ${provider.name}`);
-
       const found = await EmailModel.findOne({
         userId,
         senderAddress: { $regex: provider.sender },
@@ -2299,7 +2266,6 @@ export const getValidateEmail = async (req, res) => {
       if (found) {
         matchedEmail = found;
         matchedProvider = provider.name;
-        console.log(`✅ Found confirmation email for provider: ${matchedProvider}`);
         break;
       }
     }
@@ -2311,18 +2277,10 @@ export const getValidateEmail = async (req, res) => {
       });
     }
 
-    console.log("🆔 Email ID:", matchedEmail._id);
-    console.log("📨 Subject:", matchedEmail.subject);
-    console.log("📧 From:", matchedEmail.senderAddress);
-    console.log("📅 Date:", matchedEmail.date);
-
-    // Step 4️⃣: Extract email address from the confirmation body
     const bodyText = matchedEmail.textBody?.toLowerCase() || "";
     const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
     const foundEmails = bodyText.match(emailRegex) || [];
     const extractedFromBody = foundEmails.length > 0 ? foundEmails[0] : null;
-
-    console.log("📬 Extracted Email from Confirmation Body:", extractedFromBody);
 
     if (!extractedFromBody) {
       return res.status(400).json({
@@ -2331,13 +2289,8 @@ export const getValidateEmail = async (req, res) => {
       });
     }
 
-    // Step 5️⃣: Compare the extracted email with the validation test record
     const expectedEmail = validationRecord.toEmail.toLowerCase().trim();
     const matched = extractedFromBody === expectedEmail;
-
-    console.log("🔍 Comparing emails...");
-    console.log("🔸 Expected (from Validation DB):", expectedEmail);
-    console.log("🔸 Found in Confirmation Body:", extractedFromBody);
 
     if (!matched) {
       await validationModel.findOneAndUpdate(
@@ -2355,7 +2308,6 @@ export const getValidateEmail = async (req, res) => {
       });
     }
 
-    // Step 6️⃣: Mark as verified
     await validationModel.findOneAndUpdate(
       { userId },
       {
@@ -2368,9 +2320,6 @@ export const getValidateEmail = async (req, res) => {
       }
     );
 
-    console.log(`✅ ${matchedProvider} forwarding verified successfully!`);
-
-    // Step 7️⃣: Respond success
     return res.json({
       success: true,
       message: `${matchedProvider} forwarding verified successfully.`,
@@ -2384,7 +2333,6 @@ export const getValidateEmail = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("💥 [GetValidateEmail] Error:", err);
     res.status(500).json({
       success: false,
       message: "Server error while verifying forwarding email.",
@@ -2392,6 +2340,7 @@ export const getValidateEmail = async (req, res) => {
     });
   }
 };
+
 
 
 
