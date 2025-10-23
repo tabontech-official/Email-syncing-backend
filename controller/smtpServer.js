@@ -13,6 +13,7 @@ import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
 import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
+import { validationModel } from '../Models/ValidationEmail.js';
 function checkCondition(condition, email) {
   const fieldValue = (email[condition.field] || '').toLowerCase();
   const targetValue = (condition.value || '').toLowerCase();
@@ -2126,30 +2127,45 @@ export const validateTestEmail = async (req, res) => {
     const { userId } = req.params;
     const { toEmail } = req.body;
 
+    console.log("📩 [ValidateTestEmail] API called with:", { userId, toEmail });
+
+    // Step 1️⃣: Validate input
     if (!mongoose.Types.ObjectId.isValid(userId)) {
+      console.warn("⚠️ Invalid user ID:", userId);
       return res.status(400).json({ success: false, message: "Invalid user ID." });
     }
 
     if (!toEmail) {
+      console.warn("⚠️ Missing recipient email address (toEmail)");
       return res.status(400).json({
         success: false,
         message: "Missing recipient email address (toEmail).",
       });
     }
 
+    // Step 2️⃣: Check user
     const user = await authModel.findById(userId);
     if (!user) {
+      console.warn("⚠️ No user found for ID:", userId);
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    console.log(`✅ User found: ${user.email || user._id}`);
+
+    // Step 3️⃣: Email content
     const testSubject = "Zenith Forwarding Validation Test";
-    const testBody = `Hello ,
-    
+    const testBody = `Hello,
+
 This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
 
 If you receive this email, your mail forwarding is active and functioning.
 
 — Zenith Inbox Team`;
+
+    console.log("🚀 Preparing to send test email...");
+    console.log("From:", process.env.EMAIL_USER);
+    console.log("To:", toEmail);
+    console.log("Subject:", testSubject);
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -2166,15 +2182,46 @@ If you receive this email, your mail forwarding is active and functioning.
       text: testBody,
     });
 
-    console.log(`✅ Test email sent to: ${toEmail}`);
+    console.log(`Test email successfully sent to: ${toEmail}`);
 
+    // Step 5️⃣: Save or update record in ValidationEmail collection
+    const existing = await validationModel.findOne({ userId });
+
+    if (existing) {
+      console.log("📝 Existing validation record found — updating...");
+      existing.toEmail = toEmail;
+      existing.body = testBody;
+      existing.subject = testSubject;
+      existing.sentAt = new Date();
+      existing.status = "sent";
+      existing.verified = false;
+      existing.verifiedAt = null;
+      existing.notes = "Resent test email.";
+      await existing.save();
+      console.log(" Validation record updated successfully!");
+    } else {
+      console.log("No previous validation record found — creating new entry...");
+      await validationModel.create({
+        userId,
+        toEmail,
+        subject: testSubject,
+        body: testBody,
+        sentAt: new Date(),
+        verified: false,
+        status: "sent",
+        notes: "Initial test email sent.",
+      });
+      console.log("✅ New validation record created successfully!");
+    }
+
+    // Step 6️⃣: Respond success
     return res.json({
       success: true,
       message: `Test email successfully sent to ${toEmail}. Please check your inbox and verify forwarding.`,
       sentTo: toEmail,
     });
   } catch (err) {
-    console.error("💥 Error sending test email:", err);
+    console.error("💥 [ValidateTestEmail] Error:", err);
     res.status(500).json({
       success: false,
       message: "Failed to send test email.",
@@ -2182,63 +2229,289 @@ If you receive this email, your mail forwarding is active and functioning.
     });
   }
 };
+
 export const getValidateEmail = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const email = await EmailModel.findOne({
-      userId,
-      senderAddress: /forwarding-noreply@google.com/i,
-      subject: { $regex: 'Gmail Forwarding Confirmation', $options: 'i' },
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+    console.log("🚀 [GetValidateEmail] Starting multi-provider validation for user:", userId);
 
-    if (!email) {
+    // Step 0️⃣: Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid user ID." });
+    }
+
+    // Step 1️⃣: Fetch test record (the email you sent from validateTestEmail)
+    const validationRecord = await validationModel.findOne({ userId }).sort({ createdAt: -1 });
+    if (!validationRecord) {
       return res.status(404).json({
         success: false,
-        message: 'No Gmail validation email found yet.',
+        message: "No validation test record found. Please run forwarding validation first.",
       });
     }
 
-    const verificationUrl =
-      email.verificationUrl ||
-      (email.textBody?.match(
-        /https:\/\/mail-settings\.google\.com\/mail\/vf-[^\s]+/i
-      ) || [])[0] ||
-      null;
+    console.log("✅ Validation record found → Expected Email:", validationRecord.toEmail);
 
+    // Step 2️⃣: Build universal search conditions for different providers
+    const providerPatterns = [
+      {
+        name: "Gmail",
+        sender: /forwarding-noreply@google\.com/i,
+        subject: /Gmail Forwarding Confirmation/i,
+      },
+      {
+        name: "Outlook",
+        sender: /(outlook|hotmail|microsoft|accountprotection)\.com/i,
+        subject: /(Outlook|Microsoft|Hotmail|Forwarding|Verify|Confirmation)/i,
+      },
+      {
+        name: "Yahoo",
+        sender: /(yahoo-inc\.com|mail-noreply@yahoo\.com)/i,
+        subject: /(Yahoo|Forwarding|Confirmation|Verify)/i,
+      },
+      {
+        name: "Zoho",
+        sender: /no-reply@zoho\.com/i,
+        subject: /(Zoho|Forwarding|Verification|Confirmation)/i,
+      },
+      {
+        name: "ProtonMail",
+        sender: /no-reply@protonmail\.com/i,
+        subject: /(ProtonMail|Forwarding|Confirmation|Verify)/i,
+      },
+    ];
+
+    let matchedEmail = null;
+    let matchedProvider = null;
+
+    // Step 3️⃣: Try finding a confirmation email for any known provider
+    for (const provider of providerPatterns) {
+      console.log(`🔍 Checking for provider: ${provider.name}`);
+
+      const found = await EmailModel.findOne({
+        userId,
+        senderAddress: { $regex: provider.sender },
+        subject: { $regex: provider.subject },
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      if (found) {
+        matchedEmail = found;
+        matchedProvider = provider.name;
+        console.log(`✅ Found confirmation email for provider: ${matchedProvider}`);
+        break;
+      }
+    }
+
+    if (!matchedEmail) {
+      return res.status(404).json({
+        success: false,
+        message: "No forwarding confirmation email found for any supported provider (Gmail, Outlook, Yahoo, etc).",
+      });
+    }
+
+    console.log("🆔 Email ID:", matchedEmail._id);
+    console.log("📨 Subject:", matchedEmail.subject);
+    console.log("📧 From:", matchedEmail.senderAddress);
+    console.log("📅 Date:", matchedEmail.date);
+
+    // Step 4️⃣: Extract email address from the confirmation body
+    const bodyText = matchedEmail.textBody?.toLowerCase() || "";
+    const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+    const foundEmails = bodyText.match(emailRegex) || [];
+    const extractedFromBody = foundEmails.length > 0 ? foundEmails[0] : null;
+
+    console.log("📬 Extracted Email from Confirmation Body:", extractedFromBody);
+
+    if (!extractedFromBody) {
+      return res.status(400).json({
+        success: false,
+        message: `No email address found inside ${matchedProvider} confirmation body.`,
+      });
+    }
+
+    // Step 5️⃣: Compare the extracted email with the validation test record
+    const expectedEmail = validationRecord.toEmail.toLowerCase().trim();
+    const matched = extractedFromBody === expectedEmail;
+
+    console.log("🔍 Comparing emails...");
+    console.log("🔸 Expected (from Validation DB):", expectedEmail);
+    console.log("🔸 Found in Confirmation Body:", extractedFromBody);
+
+    if (!matched) {
+      await validationModel.findOneAndUpdate(
+        { userId },
+        { $set: { status: "failed", notes: `Mismatch detected from ${matchedProvider} verification email.` } }
+      );
+      return res.status(400).json({
+        success: false,
+        message: `Mismatch between ${matchedProvider} confirmation email and saved test email.`,
+        data: {
+          provider: matchedProvider,
+          expectedEmail,
+          extractedFromBody,
+        },
+      });
+    }
+
+    // Step 6️⃣: Mark as verified
+    await validationModel.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          verified: true,
+          verifiedAt: new Date(),
+          status: "verified",
+          notes: `${matchedProvider} forwarding verified successfully.`,
+        },
+      }
+    );
+
+    console.log(`✅ ${matchedProvider} forwarding verified successfully!`);
+
+    // Step 7️⃣: Respond success
     return res.json({
       success: true,
-      email: {
-        id: email._id,
-        subject: email.subject,
-        sender: email.senderAddress,
-        date: email.date,
-        verificationUrl,
-        textBody: email.textBody,
+      message: `${matchedProvider} forwarding verified successfully.`,
+      data: {
+        provider: matchedProvider,
+        expectedEmail,
+        extractedFromBody,
+        emailId: matchedEmail._id,
+        subject: matchedEmail.subject,
+        date: matchedEmail.date,
       },
     });
   } catch (err) {
-    console.error('Error fetching validation email:', err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("💥 [GetValidateEmail] Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while verifying forwarding email.",
+      error: err.message,
+    });
   }
 };
+
+
 
 export const getTestEmailData = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    console.log("🚀 [getTestEmailData] Starting Gmail forwarding verification for user:", userId);
+
+    // Step 1️⃣: Check test data
+    console.log("🔍 Searching test data for user...");
     const testData = await TestEmailDataModel.findOne({ userId });
 
     if (!testData) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'No test data found' });
+      console.warn("❌ No test data found for user:", userId);
+      return res.status(404).json({ success: false, message: "No test data found." });
     }
 
-    res.json({ success: true, data: testData });
+    console.log("✅ Test data found!");
+    console.log("🧾 Test Data ID:", testData._id);
+
+    // Step 2️⃣: Find Zenith test email
+    console.log("🔍 Searching Zenith validation email...");
+    const zenithEmail = await EmailModel.findOne({
+      userId,
+      subject: { $regex: "Zenith Forwarding Validation Test", $options: "i" },
+      senderAddress: { $regex: process.env.EMAIL_USER, $options: "i" },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!zenithEmail) {
+      console.warn("❌ No Zenith validation email found for user:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "No Zenith validation email received yet.",
+      });
+    }
+
+    console.log("✅ Zenith validation email found!");
+    console.log("🆔 Zenith Email ID:", zenithEmail._id);
+    console.log("📨 Zenith Subject:", zenithEmail.subject);
+    console.log("📧 Zenith From:", zenithEmail.senderAddress);
+    console.log("📬 Zenith To:", zenithEmail.recipientAddress);
+
+    // Step 3️⃣: Find Gmail confirmation email
+    console.log("🔍 Searching Gmail forwarding confirmation email...");
+    const gmailEmail = await EmailModel.findOne({
+      userId,
+      senderAddress: { $regex: "forwarding-noreply@google.com", $options: "i" },
+      subject: { $regex: "Gmail Forwarding Confirmation", $options: "i" },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!gmailEmail) {
+      console.warn("❌ No Gmail forwarding confirmation email found for user:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "No Gmail forwarding confirmation email received yet.",
+      });
+    }
+
+    console.log("✅ Gmail forwarding confirmation email found!");
+    console.log("🆔 Gmail Email ID:", gmailEmail._id);
+    console.log("📧 Gmail From:", gmailEmail.senderAddress);
+    console.log("📅 Gmail Date:", gmailEmail.date);
+
+    // Step 4️⃣: Extract Gmail address from Zenith "From"
+    console.log("🔍 Extracting Gmail address from Zenith sender...");
+    const zenithSender = zenithEmail.senderAddress?.toLowerCase() || "";
+    const extractedGmail = zenithSender.match(/<([^>]+)>/)?.[1] || zenithSender;
+
+    console.log("📤 Extracted Gmail address from Zenith:", extractedGmail);
+
+    const bodyText = gmailEmail.textBody?.toLowerCase() || "";
+    console.log("🧾 Checking Gmail email body for match...");
+
+    const isMatched = bodyText.includes(extractedGmail);
+
+    if (!isMatched) {
+      console.warn("❌ Gmail address mismatch detected!");
+      console.warn("🔸 Expected Gmail:", extractedGmail);
+      console.warn("🔸 Gmail Body (first 200 chars):", bodyText.substring(0, 200));
+
+      return res.status(400).json({
+        success: false,
+        message: "Gmail address mismatch between Zenith and Gmail verification email.",
+        data: {
+          testDataId: testData._id,
+          zenithEmailId: zenithEmail._id,
+          gmailEmailId: gmailEmail._id,
+          expectedGmail: extractedGmail,
+        },
+      });
+    }
+
+    console.log("✅ Gmail address successfully matched!");
+    console.log("🎉 Gmail forwarding verification complete for user:", userId);
+
+    // Step 5️⃣: Return success with all data
+    return res.json({
+      success: true,
+      message: "Forwarding verification successful — Gmail and Zenith emails match.",
+      data: {
+        testData,
+        zenithEmailId: zenithEmail._id,
+        gmailEmailId: gmailEmail._id,
+        gmailSubject: gmailEmail.subject,
+        gmailDate: gmailEmail.date,
+        verifiedGmail: extractedGmail,
+      },
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error("💥 [getTestEmailData] Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error verifying forwarding setup.",
+      error: err.message,
+    });
   }
 };
 
