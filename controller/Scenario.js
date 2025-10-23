@@ -97,18 +97,54 @@ export const getSingleScenario = async (req, res) => {
 
 
 
+
 // export const updateScenario = async (req, res) => {
 //   try {
-//     console.log("🔹 [updateScenario] Called");
-//     console.log("📌 Params ID:", req.params.id);
-//     console.log("📌 Incoming Body:", JSON.stringify(req.body, null, 2));
+//     console.log("[updateScenario] Called");
+//     console.log("Params ID:", req.params.id);
+//     console.log("Incoming Body:", JSON.stringify(req.body, null, 2));
 
-//     // Build update object dynamically
+//     const routerBranches = req.body.routerBranches || [];
+
+//     let missingConnectionFound = false;
+
+//     routerBranches.forEach((branch) => {
+//       (branch.modules || []).forEach((m) => {
+//         const appName = m.app?.name?.toLowerCase?.() || "";
+//         const isEmailModule =
+//           appName.includes("email") ||
+//           appName.includes("gmail") ||
+//           appName.includes("follow") ||
+//           appName.includes("initial");
+
+//         const conn =
+//           m.connectionId && typeof m.connectionId === "string"
+//             ? m.connectionId.trim()
+//             : (m.connectionId ?? "").toString().trim();
+
+//         if (
+//           isEmailModule &&
+//           (conn === "" ||
+//             conn === "(empty)" ||
+//             conn === "undefined" ||
+//             conn === "null")
+//         ) {
+//           missingConnectionFound = true;
+//         }
+//       });
+//     });
+
+//     if (missingConnectionFound) {
+//       console.warn(
+//         "Missing Email/Gmail connection found — scenario will be deactivated."
+//       );
+//     }
+
 //     const updateData = {
 //       name: req.body.name,
 //       description: req.body.description,
 //       type: req.body.type,
-//       routerBranches: (req.body.routerBranches || []).map((branch) => ({
+//       routerBranches: routerBranches.map((branch) => ({
 //         id: branch.id,
 //         hasModule: branch.hasModule,
 //         condition: branch.condition,
@@ -131,11 +167,8 @@ export const getSingleScenario = async (req, res) => {
 //           emailType: m.emailType || "",
 //         })),
 //       })),
+//       scenarioActive: !missingConnectionFound, 
 //     };
-
-//     if (typeof req.body.scenarioActive === "boolean") {
-//       updateData.scenarioActive = req.body.scenarioActive;
-//     }
 
 //     const updated = await scenarioModel.findByIdAndUpdate(
 //       req.params.id,
@@ -144,14 +177,18 @@ export const getSingleScenario = async (req, res) => {
 //     );
 
 //     if (!updated) {
-//       console.warn("⚠️ No scenario found for ID:", req.params.id);
-//       return res.status(404).json({ success: false, message: "Scenario not found" });
+//       console.warn("No scenario found for ID:", req.params.id);
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Scenario not found" });
 //     }
 
-//     console.log("✅ Updated Scenario:", JSON.stringify(updated, null, 2));
+    
+//     console.log("Modules with Missing Connections:", missingConnectionFound);
+
 //     res.status(200).json({ success: true, updated });
 //   } catch (error) {
-//     console.error("❌ [updateScenario] Error:", error);
+//     console.error("[updateScenario] Error:", error);
 //     res.status(400).json({ success: false, message: error.message });
 //   }
 // };
@@ -164,8 +201,7 @@ export const updateScenario = async (req, res) => {
 
     const routerBranches = req.body.routerBranches || [];
 
-    let missingConnectionFound = false;
-
+    const connectionIds = [];
     routerBranches.forEach((branch) => {
       (branch.modules || []).forEach((m) => {
         const appName = m.app?.name?.toLowerCase?.() || "";
@@ -175,27 +211,38 @@ export const updateScenario = async (req, res) => {
           appName.includes("follow") ||
           appName.includes("initial");
 
-        const conn =
-          m.connectionId && typeof m.connectionId === "string"
+        const connId =
+          typeof m.connectionId === "string"
             ? m.connectionId.trim()
-            : (m.connectionId ?? "").toString().trim();
+            : m.connectionId?.toString?.().trim();
 
-        if (
-          isEmailModule &&
-          (conn === "" ||
-            conn === "(empty)" ||
-            conn === "undefined" ||
-            conn === "null")
-        ) {
-          missingConnectionFound = true;
+        if (isEmailModule && connId) {
+          connectionIds.push(connId);
         }
       });
     });
 
-    if (missingConnectionFound) {
-      console.warn(
-        "Missing Email/Gmail connection found — scenario will be deactivated."
+    console.log("🔗 Collected connectionIds:", connectionIds);
+
+    let missingConnectionFound = false;
+
+    if (connectionIds.length > 0) {
+      const validConnections = await ConnectionModel.find({
+        _id: { $in: connectionIds },
+        status: "active",
+      }).select("_id");
+
+      const validIds = validConnections.map((c) => c._id.toString());
+
+      const invalidIds = connectionIds.filter(
+        (id) => !validIds.includes(id)
       );
+
+      if (invalidIds.length > 0) {
+        missingConnectionFound = true;
+      }
+    } else {
+      missingConnectionFound = true;
     }
 
     const updateData = {
@@ -225,7 +272,7 @@ export const updateScenario = async (req, res) => {
           emailType: m.emailType || "",
         })),
       })),
-      scenarioActive: !missingConnectionFound, 
+      scenarioActive: !missingConnectionFound,
     };
 
     const updated = await scenarioModel.findByIdAndUpdate(
@@ -235,15 +282,14 @@ export const updateScenario = async (req, res) => {
     );
 
     if (!updated) {
-      console.warn("No scenario found for ID:", req.params.id);
-      return res
-        .status(404)
-        .json({ success: false, message: "Scenario not found" });
+      console.warn("❌ No scenario found for ID:", req.params.id);
+      return res.status(404).json({
+        success: false,
+        message: "Scenario not found",
+      });
     }
 
-    
-    console.log("Modules with Missing Connections:", missingConnectionFound);
-
+  
     res.status(200).json({ success: true, updated });
   } catch (error) {
     console.error("[updateScenario] Error:", error);
@@ -263,8 +309,7 @@ export const deleteScenario = async (req, res) => {
 
 export const getShopifyScenarioByUserId = async (req, res) => {
   try {
-    // frontend se userId aayega (req.body ya req.query me)
-    const { userId } = req.body; // ya req.query.userId agar query se bhejna ho
+    const { userId } = req.body; 
 
     if (!userId) {
       return res.status(400).json({ message: "userId is required" });

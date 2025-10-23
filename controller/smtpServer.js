@@ -1370,251 +1370,15 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
-// export const sendEmailModule = async (
-//   module,
-//   to,
-//   originalSubject,
-//   parentEmailId
-// ) => {
-//   console.log(' [sendEmailModule] START =====================================');
-//   console.log('[sendEmailModule] Function called with:', {
-//     moduleId: module?._id || null,
-//     to,
-//     originalSubject,
-//     parentEmailId,
-//   });
-
-//   try {
-//     console.log(' [sendEmailModule] Fetching connection...');
-//     const connection = await ConnectionModel.findById(module.connectionId);
-//     if (!connection) {
-//       console.error(
-//         ' [sendEmailModule] No connection found for module:',
-//         module.connectionId
-//       );
-//       return;
-//     }
-
-//     console.log('[sendEmailModule] Connection found:', {
-//       provider: connection.provider,
-//       email: connection.email,
-//       smtpHost: connection.smtpHost,
-//       smtpPort: connection.smtpPort,
-//     });
-
-//     const norm = (v) => {
-//       const val = Array.isArray(v)
-//         ? v.filter(Boolean).join(', ')
-//         : (v || '').toString().trim();
-//       console.log('📏 [norm] normalized value:', val);
-//       return val;
-//     };
-
-//     const cc = norm(module.cc);
-//     const bcc = norm(module.bcc);
-
-//     console.log(' [sendEmailModule] Preparing email headers:', {
-//       from: connection.email,
-//       to,
-//       cc,
-//       bcc,
-//     });
-
-//     const finalSubject =
-//       module.subject && module.subject.trim() !== ''
-//         ? module.subject
-//         : `Re: ${originalSubject || 'No Subject'}`;
-
-//     console.log('[sendEmailModule] Final subject computed:', finalSubject);
-
-//     const emailBody = module.template || 'Thanks for your email!';
-//     console.log('[sendEmailModule] Email body length:', emailBody.length);
-
-//     let sentOk = false;
-
-//     if (connection.provider === 'gmail') {
-//       console.log('[sendEmailModule] Gmail provider detected');
-//       try {
-//         console.log(' [GMAIL] Preparing OAuth2 client...');
-//         const oauth2Client = new google.auth.OAuth2(
-//           process.env.GOOGLE_CLIENT_ID,
-//           process.env.GOOGLE_CLIENT_SECRET,
-//           process.env.GOOGLE_REDIRECT_URI
-//         );
-
-//         console.log(' [GMAIL] Setting credentials...');
-//         oauth2Client.setCredentials(connection.tokens);
-
-//         console.log(' [GMAIL] Creating Gmail client...');
-//         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-//         const lines = [
-//           `From: ${connection.email}`,
-//           `To: ${to}`,
-//           ...(cc ? [`Cc: ${cc}`] : []),
-//           ...(bcc ? [`Bcc: ${bcc}`] : []),
-//           `Subject: ${finalSubject}`,
-//           'MIME-Version: 1.0',
-//           'Content-Type: text/html; charset=UTF-8',
-//           '',
-//           emailBody,
-//         ];
-
-//         const rawMessage = lines.join('\n').trim();
-//         console.log('[GMAIL] Raw message built, size:', rawMessage.length);
-
-//         const encodedMessage = Buffer.from(rawMessage)
-//           .toString('base64')
-//           .replace(/\+/g, '-')
-//           .replace(/\//g, '_')
-//           .replace(/=+$/, '');
-
-//         console.log(' [GMAIL] Sending email via Gmail API...');
-//         const result = await gmail.users.messages.send({
-//           userId: 'me',
-//           requestBody: { raw: encodedMessage },
-//         });
-
-//         console.log(' [GMAIL] Email sent successfully:', result.data.id);
-//         sentOk = true;
-//       } catch (err) {
-//         console.error(' [GMAIL] send error:', err);
-//       }
-//     } else if (
-//       connection.provider === 'outlook' ||
-//       connection.provider === 'smtp'
-//     ) {
-//       console.log(
-//         '[sendEmailModule] SMTP/Outlook provider detected:',
-//         connection.provider
-//       );
-//       try {
-//         const isOutlook = connection.provider === 'outlook';
-//         console.log(' [SMTP] Preparing transporter config...');
-
-//         const transporterConfig = {
-//           host:
-//             connection.smtpHost ||
-//             connection.smtp?.host ||
-//             (isOutlook ? 'smtp.office365.com' : undefined),
-//           port: connection.smtpPort || connection.smtp?.port || 587,
-//           secure: (connection.smtpPort || connection.smtp?.port) === 465,
-//           auth: {
-//             user:
-//               connection.smtpUser ||
-//               connection.smtp?.username ||
-//               connection.email,
-//             pass: connection.smtpPass || connection.smtp?.password,
-//           },
-//         };
-
-//         console.log('🔧 [SMTP] Transporter configuration:', transporterConfig);
-
-//         console.log(
-//           `[${connection.provider.toUpperCase()}] Creating transporter...`
-//         );
-//         const transporter = nodemailer.createTransport(transporterConfig);
-
-//         console.log(`[${connection.provider.toUpperCase()}] Sending email...`);
-//         const info = await transporter.sendMail({
-//           from: connection.email,
-//           to,
-//           cc: cc || undefined,
-//           bcc: bcc || undefined,
-//           subject: finalSubject,
-//           html: emailBody,
-//         });
-
-//         console.log(
-//           `[${connection.provider.toUpperCase()}] Email sent:`,
-//           info.messageId
-//         );
-//         sentOk = true;
-//       } catch (err) {
-//         console.error(
-//           `[${connection.provider.toUpperCase()}] send error:`,
-//           err
-//         );
-//       }
-//     } else {
-//       console.warn(
-//         '[sendEmailModule] Unsupported provider:',
-//         connection.provider
-//       );
-//     }
-
-//     console.log(' [sendEmailModule] Checking if email was sent...');
-//     if (sentOk) {
-//       try {
-//         console.log(' [sendEmailModule] Preparing to save sent email in DB...');
-
-//         const sentDoc = new EmailModel({
-//           userId: connection.userId,
-//           senderAddress: connection.email,
-//           recipientAddress: to,
-//           subject: finalSubject,
-//           textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ''),
-//           htmlBody: emailBody,
-//           cc: cc ? cc.split(',').map((a) => a.trim()) : [],
-//           bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
-//           date: new Date(),
-//           isForwarded: true,
-//           parentEmailId: parentEmailId || null,
-//           forwardedMeta: {
-//             from: connection.email,
-//             to,
-//             subject: originalSubject,
-//             date: new Date().toISOString(),
-//             body: emailBody,
-//           },
-//         });
-
-//         console.log('🗄️ [sendEmailModule] Saving document...');
-//         await sentDoc.save();
-
-//         console.log(
-//           ' [sendEmailModule] Email saved in DB:',
-//           sentDoc._id.toString()
-//         );
-//       } catch (err) {
-//         console.error(' [sendEmailModule] Error saving sent email:', err);
-//       }
-//     } else {
-//       console.warn(' [sendEmailModule] Email not sent, skipping DB save.');
-//     }
-
-//     console.log(
-//       '[sendEmailModule] END =====================================\n'
-//     );
-//   } catch (outerErr) {
-//     console.error(
-//       ' [sendEmailModule] Unexpected error in main try block:',
-//       outerErr
-//     );
-//   }
-// };
-
 export const sendEmailModule = async (
   module,
   to,
   originalSubject,
   parentEmailId
 ) => {
-  console.log(' [sendEmailModule] START =====================================');
-  console.log('[sendEmailModule] Function called with:', {
-    moduleId: module?._id || null,
-    to,
-    originalSubject,
-    parentEmailId,
-  });
-
   try {
     const connection = await ConnectionModel.findById(module.connectionId);
     if (!connection) {
-      console.error(
-        ' [sendEmailModule] No connection found for module:',
-        module.connectionId
-      );
       return;
     }
 
@@ -1638,7 +1402,6 @@ export const sendEmailModule = async (
 
     if (connection.provider === 'gmail') {
       try {
-        console.log('[GMAIL] Preparing OAuth2 client...');
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
           process.env.GOOGLE_CLIENT_SECRET,
@@ -1678,8 +1441,6 @@ export const sendEmailModule = async (
       }
     } else if (connection.provider === 'outlook') {
       try {
-        console.log('[OUTLOOK] Sending via Microsoft Graph API...');
-
         const extractEmail = (input) => {
           const match = input.match(/<(.+?)>/);
           return match ? match[1] : input.trim();
@@ -1715,25 +1476,13 @@ export const sendEmailModule = async (
         );
 
         if (response.ok) {
-          console.log('[OUTLOOK] Email sent successfully via Graph API');
           sentOk = true;
         } else {
           const error = await response.text();
-          console.error('[OUTLOOK] Graph API error:', error);
         }
-      } catch (err) {
-        console.error('[OUTLOOK] send error:', err);
-      }
+      } catch (err) {}
     } else if (connection.provider === 'smtp') {
       try {
-        console.log('[SMTP] Sending via nodemailer...');
-        console.log('[SMTP] Connection details:', {
-          host: connection.smtp?.host,
-          port: connection.smtp?.port,
-          user: connection.smtp?.username,
-          hasPassword: !!connection.smtp?.password,
-        });
-
         if (
           !connection.smtp?.host ||
           !connection.smtp?.username ||
@@ -1799,17 +1548,9 @@ export const sendEmailModule = async (
       });
 
       await sentDoc.save();
-      console.log('[sendEmailModule] Email saved:', sentDoc._id.toString());
     } else {
-      console.warn('[sendEmailModule] Email not sent, skipping save.');
     }
-
-    console.log(
-      '[sendEmailModule] END =====================================\n'
-    );
-  } catch (outerErr) {
-    console.error('[sendEmailModule] Unexpected error:', outerErr);
-  }
+  } catch (outerErr) {}
 };
 
 export const RunTestMode = async (req, res) => {
