@@ -14,6 +14,7 @@ import {
   signIn,
   signUp,
   startOutlookOAuth,
+  updateUserAndOrganization,
   verifyUser,
 } from '../controller/auth.js';
 
@@ -37,6 +38,8 @@ authRouter.put('/setup/:id', completeSetup);
 authRouter.get('/setup/:id', getSetupProgress);
 authRouter.get("/outlook", startOutlookOAuth);
 authRouter.get("/outlook/callback", outlookOAuthCallback);
+authRouter.put("/updateUserAndOrganization/:id", updateUserAndOrganization);
+
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);
 authRouter.get('/getConnection/:userId', getConnections);

@@ -195,10 +195,6 @@ export const getSingleScenario = async (req, res) => {
 
 export const updateScenario = async (req, res) => {
   try {
-    console.log("[updateScenario] Called");
-    console.log("Params ID:", req.params.id);
-    console.log("Incoming Body:", JSON.stringify(req.body, null, 2));
-
     const routerBranches = req.body.routerBranches || [];
 
     const connectionIds = [];
@@ -222,7 +218,6 @@ export const updateScenario = async (req, res) => {
       });
     });
 
-    console.log("🔗 Collected connectionIds:", connectionIds);
 
     let missingConnectionFound = false;
 
@@ -282,7 +277,6 @@ export const updateScenario = async (req, res) => {
     );
 
     if (!updated) {
-      console.warn("❌ No scenario found for ID:", req.params.id);
       return res.status(404).json({
         success: false,
         message: "Scenario not found",

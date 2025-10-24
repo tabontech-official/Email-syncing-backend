@@ -55,52 +55,6 @@ const createToken = (payLoad) => {
   return token;
 };
 
-// export const signUp = async (req, res) => {
-//   try {
-//     const userExist = await authModel.findOne({ email: req.body.email });
-//     if (userExist) {
-//       throw new Error('User already exists with this email');
-//     }
-
-//     const newUser = new authModel(req.body);
-//     const savedUser = await newUser.save();
-
-//     savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
-//     await savedUser.save();
-
-//     const templates = [];
-
-//     defaultServices.forEach((service) => {
-//       ['Initial Email', 'First Email', 'Second Email'].forEach(
-//         (emailName, idx) => {
-//           templates.push({
-//             userId: savedUser._id,
-//             platform: 'shopify',
-//             service,
-//             name: `${service} - ${emailName}`,
-//             type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
-//             conditions: [],
-//             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
-//             active: true,
-//             locked: service === 'General',
-//           });
-//         }
-//       );
-//     });
-
-//     await TemplateModel.insertMany(templates);
-
-//     const token = createToken({ _id: savedUser._id, role: savedUser.role });
-
-//     res.send({
-//       message: 'Successfully registered',
-//       token,
-//       data: savedUser,
-//     });
-//   } catch (error) {
-//     return res.status(400).json({ error: error.message });
-//   }
-// };
 
 export const signUp = async (req, res) => {
   try {
@@ -369,9 +323,8 @@ export const getUserById = async (req, res) => {
     const { id } = req.params;
 
     const user = await authModel.findById(id);
-
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: "User not found" });
     }
 
     const latestEmail = await EmailModel.findOne({
@@ -381,17 +334,97 @@ export const getUserById = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    const organization = await OrganizationModel.findOne({ userId: id }).lean();
+
     res.status(200).json({
-      message: 'User fetched successfully',
+      message: "User fetched successfully",
       data: {
         ...user.toObject(),
         verificationUrl: latestEmail?.verificationUrl || null,
         verificationCode: latestEmail?.verificationCode || null,
+        organization: organization
+          ? {
+              organizationName: organization.organizationName,
+              Region: organization.Region,
+              country: organization.country,
+              TimeZone: organization.TimeZone,
+              PartnerLink: organization.PartnerLink,
+              createdAt: organization.createdAt,
+              updatedAt: organization.updatedAt,
+              _id: organization._id,
+            }
+          : null,
       },
     });
   } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error("Error fetching user:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+
+export const updateUserAndOrganization = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fullName,
+      email,
+      role,
+      TimeZone,
+      organizationName,
+      Region,
+      country,
+      PartnerLink,
+    } = req.body;
+
+    const user = await authModel.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (fullName) user.fullName = fullName;
+    if (email) user.email = email;
+    if (role) user.role = role;
+    if (TimeZone) user.TimeZone = TimeZone;
+
+    await user.save();
+
+    let organization = await OrganizationModel.findOne({ userId: id });
+
+    if (organization) {
+      if (organizationName) organization.organizationName = organizationName;
+      if (Region) organization.Region = Region;
+      if (country) organization.country = country;
+      if (TimeZone) organization.TimeZone = TimeZone;
+      if (PartnerLink) organization.PartnerLink = PartnerLink;
+
+      await organization.save();
+    } else {
+      organization = await OrganizationModel.create({
+        userId: id,
+        organizationName: organizationName || user.organizationName || "My Organization",
+        Region: Region || "Unknown",
+        country: country || "Unknown",
+        TimeZone: TimeZone || "UTC",
+        PartnerLink: PartnerLink || "",
+      });
+    }
+
+    // 🔹 4️⃣ Response
+    res.status(200).json({
+      success: true,
+      message: "User and Organization updated successfully",
+      data: {
+        user,
+        organization,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error updating user and organization:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
   }
 };
 
