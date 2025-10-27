@@ -403,14 +403,13 @@ export const updateUserAndOrganization = async (req, res) => {
       organization = await OrganizationModel.create({
         userId: id,
         organizationName: organizationName || user.organizationName || "My Organization",
-        Region: Region || "Unknown",
-        country: country || "Unknown",
+        Region: Region || "US",
+        country: country || "USA",
         TimeZone: TimeZone || "UTC",
         PartnerLink: PartnerLink || "",
       });
     }
 
-    // 🔹 4️⃣ Response
     res.status(200).json({
       success: true,
       message: "User and Organization updated successfully",
