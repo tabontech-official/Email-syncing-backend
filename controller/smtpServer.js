@@ -381,13 +381,24 @@ function parseKeyValuePairs(text = '') {
 
 export const mailHookWebhook = async (req, res) => {
   try {
+    console.log('==============================');
+    console.log('📩 Incoming MailHook Webhook Triggered');
+    console.log('Headers:', req.headers);
+    console.log('Body keys:', Object.keys(req.body));
+    console.log('Envelope:', req.body.envelope);
+    console.log('Raw "to":', req.body.to);
+    console.log('Raw "from":', req.body.from);
+    console.log('Raw "subject":', req.body.subject);
+    console.log('==============================');
+
     const rawEmail = req.body.email || null;
     let parsed = {};
 
     if (rawEmail) {
+      console.log('📦 Raw email found — parsing with simpleParser...');
       parsed = await simpleParser(rawEmail);
     } else {
-      console.log('⚙️ No raw email — building manual parsed object...');
+      console.log('⚙️ No raw email — using manual fallback parser...');
       parsed = {
         from: { value: [{ address: req.body.from, name: req.body.from }] },
         to: { value: [{ address: req.body.to, name: req.body.to }] },
@@ -398,119 +409,143 @@ export const mailHookWebhook = async (req, res) => {
       };
     }
 
-    const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
-    const subject = parsed.subject || '';
-    const textBody = parsed.text || '';
-    const htmlBody = parsed.html || '';
+    // 📜 Parsed summary
+    console.log('📄 Parsed Email Summary:');
+    console.log('  FROM:', parsed.from?.value?.[0]);
+    console.log('  TO:', parsed.to?.value?.[0]);
+    console.log('  SUBJECT:', parsed.subject);
+    console.log('  TEXT LENGTH:', parsed.text?.length || 0);
+    console.log('  HTML LENGTH:', parsed.html?.length || 0);
+    console.log('----------------------------------------');
 
+    const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
     let mailhookAddress =
       req.body.envelope?.to ||
       (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
       parsed.to?.value?.[0]?.address ||
       '';
 
-    const headerText = req.body.headers || '';
+    const headersRaw = req.body.headers || '';
+    console.log('📫 Initial mailhookAddress candidate:', mailhookAddress);
+    console.log('📋 Raw headers text:', headersRaw?.slice(0, 400), '...');
+
+    // 🔍 Detect forwarding headers
     const forwardedMatch =
-      headerText.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
-      headerText.match(/x-forwarded-for:\s*[^\s]+\s+([^\s>]+)/i);
+      headersRaw.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
+      headersRaw.match(/x-forwarded-for:\s*[^\s]+\s+([^\s>]+)/i) ||
+      headersRaw.match(/delivered-to:\s*([^\s>]+)/i) ||
+      headersRaw.match(/original-to:\s*([^\s>]+)/i);
 
     if (forwardedMatch && forwardedMatch[1]) {
-      console.log('📬 Found forwarded target in headers:', forwardedMatch[1]);
+      console.log('📬 Forwarding header found =>', forwardedMatch[1]);
       mailhookAddress = forwardedMatch[1];
     }
 
     if (mailhookAddress.includes('<')) {
       mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
     }
-    mailhookAddress = mailhookAddress.trim().toLowerCase();
 
+    mailhookAddress = mailhookAddress.trim().toLowerCase();
+    console.log('🎯 Final mailhookAddress:', mailhookAddress);
+
+    // Check mailhook domain
     if (!mailhookAddress.endsWith('@mail.brandfer.com')) {
+      console.log('⛔ Ignored — not a @mail.brandfer.com address.');
+      console.log('🚫 mailhookAddress:', mailhookAddress);
+      console.log('==============================');
       return res.status(200).send('Ignored — not a mailhook email.');
     }
 
+    // Find user
     const user = await authModel.findOne({ mailhook: mailhookAddress });
     if (!user) {
       console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
+      console.log('==============================');
       return res.status(200).send('No matching user found for mailhook.');
     }
 
+    console.log('👤 Matched user:', user.email || user._id?.toString());
+
+    // Forward detection
     let isForwarded = false;
+    let headerString = '';
 
     if (parsed.headers && typeof parsed.headers.keys === 'function') {
-      const headerKeys = [...parsed.headers.keys()].map((k) => k.toLowerCase());
-      const headerValues = [...parsed.headers.values()].join(' ').toLowerCase();
-
-      isForwarded =
-        headerKeys.includes('x-forwarded-for') ||
-        headerKeys.includes('x-forwarded-to') ||
-        headerValues.includes('mail.brandfer.com') ||
-        headerValues.includes('forwarding-noreply@google.com') ||
-        headerValues.includes('mail forwarding') ||
-        subject.toLowerCase().startsWith('fwd:') ||
-        textBody.toLowerCase().includes('forwarded message');
-    } else if (parsed.headers && typeof parsed.headers === 'string') {
-      const headerTextLower = parsed.headers.toLowerCase();
-      isForwarded =
-        headerTextLower.includes('x-forwarded-for') ||
-        headerTextLower.includes('x-forwarded-to') ||
-        headerTextLower.includes('@mail.brandfer.com') ||
-        headerTextLower.includes('forwarding-noreply@google.com') ||
-        headerTextLower.includes('mail forwarding');
+      for (const [key, val] of parsed.headers.entries()) {
+        headerString += `${key}: ${val}\n`;
+      }
+    } else if (typeof parsed.headers === 'string') {
+      headerString = parsed.headers;
+    } else if (headersRaw) {
+      headerString = headersRaw;
     }
+
+    const headerLower = headerString.toLowerCase();
+
+    isForwarded =
+      headerLower.includes('x-forwarded-for') ||
+      headerLower.includes('x-forwarded-to') ||
+      headerLower.includes('forwarding-noreply@google.com') ||
+      headerLower.includes('@mail.brandfer.com') ||
+      headerLower.includes('mail forwarding') ||
+      parsed.subject?.toLowerCase().startsWith('fwd:') ||
+      parsed.text?.toLowerCase().includes('forwarded message');
+
+    console.log('📡 isForwarded?', isForwarded);
+    console.log('Header sample:', headerString.slice(0, 400), '...');
 
     if (!isForwarded) {
       console.log('⏭️ Ignored — not a forwarded email.');
+      console.log('==============================');
       return res.status(200).send('Ignored — not a forwarded email.');
     }
 
-    if (subject.includes('Zenith Forwarding Validation Test')) {
-      // 🧠 Extract the *original Gmail address* from X-Forwarded-For or From
-      let originalEmail = senderAddress; // fallback
-      const xForwardedFor = headerText.match(/x-forwarded-for:\s*([^\s]+)/i);
-      if (
-        xForwardedFor &&
-        xForwardedFor[1] &&
-        xForwardedFor[1].includes('@gmail.com')
-      ) {
+    // Validation forwarding test
+    if (parsed.subject?.includes('Zenith Forwarding Validation Test')) {
+      console.log('✅ Forwarding validation email detected...');
+      let originalEmail = senderAddress;
+      const xForwardedFor = headerLower.match(/x-forwarded-for:\s*([^\s]+)/i);
+      if (xForwardedFor && xForwardedFor[1].includes('@')) {
         originalEmail = xForwardedFor[1].toLowerCase();
       }
 
+      console.log('💡 Original email:', originalEmail);
+
       const existing = await validationModel.findOne({ userId: user._id });
       if (existing) {
-        existing.toEmail = originalEmail;
-        existing.subject = subject;
-        existing.body = textBody || htmlBody;
-        existing.sentAt = new Date();
-        existing.verified = true;
-        existing.verifiedAt = new Date();
-        existing.status = 'verified';
-        existing.notes = 'Forwarding verified successfully (via mailhook).';
-        await existing.save();
-        console.log(
-          '🔄 Updated existing validation record:',
-          existing._id.toString()
-        );
-      } else {
-        await validationModel.create({
-          userId: user._id,
+        Object.assign(existing, {
           toEmail: originalEmail,
-          subject,
-          body: textBody || htmlBody,
+          subject: parsed.subject,
+          body: parsed.text || parsed.html,
           sentAt: new Date(),
           verified: true,
           verifiedAt: new Date(),
           status: 'verified',
           notes: 'Forwarding verified successfully (via mailhook).',
         });
-        console.log('✅ New ValidationEmail created for:', originalEmail);
+        await existing.save();
+        console.log('🔄 Updated existing validation record');
+      } else {
+        await validationModel.create({
+          userId: user._id,
+          toEmail: originalEmail,
+          subject: parsed.subject,
+          body: parsed.text || parsed.html,
+          sentAt: new Date(),
+          verified: true,
+          verifiedAt: new Date(),
+          status: 'verified',
+          notes: 'Forwarding verified successfully (via mailhook).',
+        });
+        console.log('✅ Created new validation record');
       }
 
-      return res
-        .status(200)
-        .send('✅ Test forwarding email saved and verified.');
+      console.log('==============================');
+      return res.status(200).send('✅ Forwarding verified successfully.');
     }
 
-    console.log('📥 Detected normal forwarded email — saving to EmailModel...');
+    // Forwarded normal email
+    console.log('📨 Forwarded normal email detected — saving to DB...');
     const senderName = parsed.from?.value?.[0]?.name || '';
     const { firstName: senderFirstName, lastName: senderLastName } =
       splitName(senderName);
@@ -530,9 +565,9 @@ export const mailHookWebhook = async (req, res) => {
         size: a.size,
       })) || [];
 
-    console.log('📎 Attachments count:', attachments.length);
-    const extraFields = parseKeyValuePairs(textBody);
+    console.log('📎 Attachments:', attachments.length);
 
+    const extraFields = parseKeyValuePairs(parsed.text || '');
     const emailDoc = new EmailModel({
       userId: user._id,
       senderFirstName,
@@ -541,9 +576,9 @@ export const mailHookWebhook = async (req, res) => {
       recipientFirstName,
       recipientLastName,
       recipientAddress: mailhookAddress,
-      subject,
-      textBody,
-      htmlBody,
+      subject: parsed.subject,
+      textBody: parsed.text,
+      htmlBody: parsed.html,
       cc,
       bcc,
       date,
@@ -552,23 +587,27 @@ export const mailHookWebhook = async (req, res) => {
       references,
       attachments,
       extraFields,
-      notes: 'Forwarded email captured.',
+      notes: 'Forwarded email captured (debug mode).',
     });
 
     await emailDoc.save();
+    console.log('💾 Email saved with ID:', emailDoc._id);
 
     await executeScenarios({
       userId: user._id,
       from: senderAddress,
-      subject,
-      body: textBody || htmlBody || '',
+      subject: parsed.subject,
+      body: parsed.text || parsed.html || '',
       emailId: emailDoc._id.toString(),
       parsedEmailObj: parsed,
     });
-    return res
-      .status(200)
-      .send('📥 Forwarded email saved (no scenario execution).');
+
+    console.log('✅ Scenarios executed.');
+    console.log('==============================');
+    return res.status(200).send('📥 Forwarded email saved and processed.');
   } catch (err) {
+    console.error('❌ Error processing mailhook:', err);
+    console.log('==============================');
     res.status(500).send('Error processing email');
   }
 };
@@ -616,40 +655,46 @@ function extractFieldsFromEmail(emailObj = {}) {
 // export const executeScenarios = async (emailData) => {
 //   try {
 //     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
-//     console.log(' [executeScenarios] START EXECUTION');
-//     console.log(' Incoming email data:', emailData);
+
 //     const extractedFields = extractFieldsFromEmail(
 //       parsedEmailObj || { text: body, subject, from }
 //     );
-//     console.log('📡 Fetching scenarios for user:', userId);
 
 //     const scenarios = await scenarioModel.find({ userId });
 
 //     for (const scenario of scenarios) {
-//       if (!scenario.routerBranches || scenario.routerBranches.length === 0)
+//       if (!scenario.routerBranches?.length) {
 //         continue;
+//       }
 
 //       for (const branch of scenario.routerBranches) {
-//         if (!branch.filter || !Array.isArray(branch.filter.conditions))
+//         if (!branch.filter?.conditions?.length) {
+//         }
+
+//         const matches = branch.filter?.conditions
+//           ? branch.filter.conditions.every((cond) => {
+//               const fieldValue =
+//                 cond.field === 'Body'
+//                   ? (body || '').toLowerCase()
+//                   : cond.field === 'Subject'
+//                     ? (subject || '').toLowerCase()
+//                     : '';
+//               const condValue = (cond.value || '').toLowerCase();
+
+//               if (cond.operator === 'Contains')
+//                 return fieldValue.includes(condValue);
+//               if (cond.operator === 'Equal to') return fieldValue === condValue;
+//               return false;
+//             })
+//           : true;
+
+//         if (!matches) {
 //           continue;
+//         }
 
-//         const matches = branch.filter.conditions.every((cond) => {
-//           const fieldValue =
-//             cond.field === 'Body'
-//               ? (body || '').toLowerCase()
-//               : cond.field === 'Subject'
-//                 ? (subject || '').toLowerCase()
-//                 : '';
-//           const condValue = (cond.value || '').toLowerCase();
-
-//           if (cond.operator === 'Contains')
-//             return fieldValue.includes(condValue);
-//           if (cond.operator === 'Equal to') return fieldValue === condValue;
-//           return false;
-//         });
-
-//         if (!matches) continue;
-//         if (!branch.modules || branch.modules.length === 0) continue;
+//         if (!branch.modules?.length) {
+//           continue;
+//         }
 
 //         let statusDoc = await AutomationStatusModel.create({
 //           userId,
@@ -665,32 +710,34 @@ function extractFieldsFromEmail(emailObj = {}) {
 //           const module = branch.modules[i];
 
 //           try {
-//             // 🟢 Normalize module types for Shopify scenarios
-// if (scenario.type?.toLowerCase() === "shopify") {
-//   const rawType = (module.type || module.app?.name || "").toLowerCase();
+//             if (scenario.type?.toLowerCase() === 'shopify') {
+//               const rawType = (
+//                 module.type ||
+//                 module.app?.name ||
+//                 ''
+//               ).toLowerCase();
+//               if (
+//                 rawType.includes('gmail') ||
+//                 rawType.includes('email') ||
+//                 rawType.includes('follow') ||
+//                 rawType.includes('initial')
+//               ) {
+//                 module.type = 'Send an Email';
+//               } else if (rawType.includes('delay')) {
+//                 module.type = 'Delay';
+//               } else if (rawType.includes('router')) {
+//                 module.type = 'Router';
+//               } else if (rawType.includes('webhook')) {
+//                 module.type = 'Webhooks';
+//               }
+//               console.log(`🧠 Normalized Shopify module type → ${module.type}`);
+//             }
 
-//   if (
-//     rawType.includes("gmail") ||
-//     rawType.includes("email") ||
-//     rawType.includes("follow") ||
-//     rawType.includes("initial")
-//   ) {
-//     module.type = "Send an Email";
-//   } else if (rawType.includes("delay")) {
-//     module.type = "Delay";
-//   } else if (rawType.includes("router")) {
-//     module.type = "Router";
-//   } else if (rawType.includes("webhook")) {
-//     module.type = "Webhooks";
-//   }
-// }
-
-//             if (
-//               module.type === 'Delay' ||
-//               (!module.type && module.app?.name === 'Delay')
-//             ) {
+//             if (module.type === 'Delay') {
+//               console.log('⏳ Delay module detected. Scheduling follow-up...');
 
 //               const delayMs = convertToMs(module.delayValue, module.delayUnit);
+
 //               const remainingModules = [];
 
 //               for (const nextModule of branch.modules.slice(i + 1)) {
@@ -698,63 +745,96 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                   ? nextModule.toObject()
 //                   : { ...nextModule };
 
+//                 const nextType = (
+//                   plain.type ||
+//                   plain.app?.name ||
+//                   ''
+//                 ).toLowerCase();
 //                 if (
-//                   plain.type === 'Send an Email' ||
-//                   plain.type === 'Custom Email'
+//                   !(
+//                     nextType.includes('email') ||
+//                     nextType.includes('gmail') ||
+//                     nextType.includes('follow') ||
+//                     nextType.includes('initial')
+//                   )
 //                 ) {
-//                   let templateContent =
-//                     plain.template || 'Thanks for your email!';
+//                   continue;
+//                 }
 
-//                   if (scenario.type?.toLowerCase() === 'shopify') {
-//                     let stepType = 'initial';
-//                     const lower = (plain.template || '').toLowerCase();
-//                     if (lower.includes('first')) stepType = 'first';
-//                     else if (lower.includes('second')) stepType = 'second';
+//                 let templateContent =
+//                   plain.template || 'Thanks for your email!';
+//                 let selectedTemplateName = '';
+//                 let selectedService = 'General';
+//                 let stepType = 'initial';
 
-//                     const defaultServices = [
-//                       'General',
-//                       'Troubleshooting',
-//                       'Theme customization',
-//                       'Store build or redesign',
-//                       'Store migration',
-//                       'Website and marketing content',
-//                       'SEO',
-//                       'Site performance and speed',
-//                       'Custom apps and integrations',
-//                       'Store settings configuration',
-//                       'Product and collection setup',
-//                       'Social media marketing',
-//                       'Product descriptions',
-//                       'Search engine advertising',
-//                       'POS setup and migration',
-//                       'Custom domain setup',
-//                       'Conversion rate optimization',
-//                       'Analytics and tracking',
-//                       'Sales channel setup',
-//                       'Logo and visual branding',
-//                       'Business strategy guidance',
-//                       'Website audit and optimization strategy',
-//                       'Sales tax guidance',
-//                       'Product photography',
-//                       'Email marketing',
-//                       '3D modelling',
-//                       'Banner ads',
-//                       'Video and illustrations',
-//                       'Content marketing',
-//                       'Product sourcing guidance',
-//                     ];
+//                 if (scenario.type?.toLowerCase() === 'shopify') {
+//                   const lower = (plain.template || '').toLowerCase();
+//                   if (lower.includes('first')) stepType = 'first';
+//                   else if (lower.includes('second')) stepType = 'second';
 
-//                     let matchedService = 'General';
-//                     const textToSearch = (subject + ' ' + body).toLowerCase();
-//                     const found = defaultServices.find((s) =>
-//                       textToSearch.includes(s.toLowerCase())
-//                     );
-//                     if (found) matchedService = found;
+//                   const textToSearch = (subject + ' ' + body).toLowerCase();
+//                   const defaultServices = [
+//                     'General',
+//                     'Troubleshooting',
+//                     'Theme customization',
+//                     'Store build or redesign',
+//                     'Store migration',
+//                     'Website and marketing content',
+//                     'SEO',
+//                     'Site performance and speed',
+//                     'Custom apps and integrations',
+//                     'Store settings configuration',
+//                     'Product and collection setup',
+//                     'Social media marketing',
+//                     'Product descriptions',
+//                     'Search engine advertising',
+//                     'POS setup and migration',
+//                     'Custom domain setup',
+//                     'Conversion rate optimization',
+//                     'Analytics and tracking',
+//                     'Sales channel setup',
+//                     'Logo and visual branding',
+//                     'Business strategy guidance',
+//                     'Website audit and optimization strategy',
+//                     'Sales tax guidance',
+//                     'Product photography',
+//                     'Email marketing',
+//                     '3D modelling',
+//                     'Banner ads',
+//                     'Video and illustrations',
+//                     'Content marketing',
+//                     'Product sourcing guidance',
+//                   ];
 
-//                     const tpl = await TemplateModel.findOne({
+//                   let matchedService = defaultServices.find((s) =>
+//                     textToSearch.includes(s.toLowerCase())
+//                   );
+//                   matchedService = matchedService || 'General';
+
+//                   const tpl = await TemplateModel.findOne({
+//                     userId,
+//                     platform: 'shopify',
+//                     service: new RegExp(`^${matchedService}$`, 'i'),
+//                     name: new RegExp(
+//                       stepType === 'initial'
+//                         ? 'Initial Email'
+//                         : stepType === 'first'
+//                           ? 'First Email'
+//                           : 'Second Email',
+//                       'i'
+//                     ),
+//                     active: true,
+//                   });
+
+//                   if (tpl) {
+//                     templateContent = tpl.content;
+//                     selectedTemplateName = tpl.name;
+//                     selectedService = matchedService;
+//                   } else {
+//                     const generalTpl = await TemplateModel.findOne({
 //                       userId,
 //                       platform: 'shopify',
-//                       service: new RegExp(`^${matchedService}$`, 'i'),
+//                       service: /^General$/i,
 //                       name: new RegExp(
 //                         stepType === 'initial'
 //                           ? 'Initial Email'
@@ -765,33 +845,16 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                       ),
 //                       active: true,
 //                     });
-
-//                     if (tpl) templateContent = tpl.content;
-//                     else {
-//                       const generalTpl = await TemplateModel.findOne({
-//                         userId,
-//                         platform: 'shopify',
-//                         service: /^General$/i,
-//                         name: new RegExp(
-//                           stepType === 'initial'
-//                             ? 'Initial Email'
-//                             : stepType === 'first'
-//                               ? 'First Email'
-//                               : 'Second Email',
-//                           'i'
-//                         ),
-//                         active: true,
-//                       });
-//                       if (generalTpl) templateContent = generalTpl.content;
+//                     if (generalTpl) {
+//                       templateContent = generalTpl.content;
+//                       selectedTemplateName = generalTpl.name;
+//                       selectedService = 'General';
+//                     } else {
 //                     }
 //                   }
-
-//                   plain.template = fillTemplate(
-//                     templateContent,
-//                     extractedFields
-//                   );
 //                 }
 
+//                 plain.template = fillTemplate(templateContent, extractedFields);
 //                 remainingModules.push(plain);
 //               }
 
@@ -812,7 +875,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                   lastExecutedAt: new Date(),
 //                 },
 //               });
-
 //               break;
 //             }
 
@@ -821,26 +883,24 @@ function extractFieldsFromEmail(emailObj = {}) {
 //               module.type === 'Custom Email'
 //             ) {
 //               let templateContent = module.template || 'Thanks for your email!';
+//               let selectedTemplateName = '';
+//               let selectedService = 'General';
+//               let stepType = 'initial';
 
-//               if (scenario.type && scenario.type.toLowerCase() === 'shopify') {
-//                 let stepType = 'initial';
+//               if (scenario.type?.toLowerCase() === 'shopify') {
 //                 const subjectLower = (subject || '').toLowerCase().trim();
-
 //                 const isValidShopify = subjectLower.startsWith(
 //                   'shopify partner directory: new service inquiry from'
 //                 );
-
 //                 if (!isValidShopify) {
-//                   console.log(
-//                     '🚫 Skipping Shopify scenario — subject invalid for trigger:',
-//                     subject
-//                   );
 //                   continue;
 //                 }
+
 //                 const lower = (module.template || '').toLowerCase();
 //                 if (lower.includes('first')) stepType = 'first';
 //                 else if (lower.includes('second')) stepType = 'second';
 
+//                 const textToSearch = (subject + ' ' + body).toLowerCase();
 //                 const defaultServices = [
 //                   'General',
 //                   'Troubleshooting',
@@ -874,12 +934,10 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                   'Product sourcing guidance',
 //                 ];
 
-//                 let matchedService = 'General';
-//                 const textToSearch = (subject + ' ' + body).toLowerCase();
-//                 const found = defaultServices.find((s) =>
+//                 let matchedService = defaultServices.find((s) =>
 //                   textToSearch.includes(s.toLowerCase())
 //                 );
-//                 if (found) matchedService = found;
+//                 matchedService = matchedService || 'General';
 
 //                 const tpl = await TemplateModel.findOne({
 //                   userId,
@@ -896,8 +954,11 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                   active: true,
 //                 });
 
-//                 if (tpl) templateContent = tpl.content;
-//                 else {
+//                 if (tpl) {
+//                   templateContent = tpl.content;
+//                   selectedTemplateName = tpl.name;
+//                   selectedService = matchedService;
+//                 } else {
 //                   const generalTpl = await TemplateModel.findOne({
 //                     userId,
 //                     platform: 'shopify',
@@ -912,13 +973,21 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                     ),
 //                     active: true,
 //                   });
-//                   if (generalTpl) templateContent = generalTpl.content;
+//                   if (generalTpl) {
+//                     templateContent = generalTpl.content;
+//                     selectedTemplateName = generalTpl.name;
+//                     selectedService = 'General';
+//                     console.log(
+//                       `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
+//                     );
+//                   } else {
+//                   }
 //                 }
 //               }
 
 //               templateContent = fillTemplate(templateContent, extractedFields);
-
 //               const plainModule = module.toObject ? module.toObject() : module;
+
 //               await sendEmailModule(
 //                 { ...plainModule, template: templateContent },
 //                 from,
@@ -937,19 +1006,22 @@ function extractFieldsFromEmail(emailObj = {}) {
 //               );
 
 //               if (updatedDoc.pendingModules.length > 0) {
+//                 console.log('🔁 Still modules remaining — status: partial');
 //                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //                   $set: { status: 'partial' },
 //                 });
 //               } else {
+//                 console.log(
+//                   '🏁 All modules completed — marking status completed.'
+//                 );
 //                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //                   $set: { status: 'completed' },
 //                 });
 //               }
 //             } else {
-//               console.log('⚠️ Unsupported module type:', module.type);
 //             }
 //           } catch (err) {
-//             console.error('❌ Error in module execution:', err);
+//             console.error(' Error executing module:', err);
 //             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //               $set: { status: 'failed', lastExecutedAt: new Date() },
 //             });
@@ -958,7 +1030,7 @@ function extractFieldsFromEmail(emailObj = {}) {
 
 //         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
 //         if (
-//           finalDoc.pendingModules.length === 0 &&
+//           finalDoc?.pendingModules.length === 0 &&
 //           finalDoc.status !== 'failed'
 //         ) {
 //           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
@@ -967,55 +1039,89 @@ function extractFieldsFromEmail(emailObj = {}) {
 //         }
 //       }
 //     }
-//   } catch (err) {
-//     console.error('❌ [executeScenarios] ERROR:', err);
-//   }
+//   } catch (err) {}
 // };
 
 export const executeScenarios = async (emailData) => {
   try {
+    console.log('=======================================');
+    console.log('🚀 [EXECUTE SCENARIOS] Triggered');
+    console.log('📩 Incoming Email Data:', emailData);
+    console.log('=======================================');
+
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
+    // 🧩 Extract email fields
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
+    console.log('🧩 Extracted Fields:', extractedFields);
 
-    const scenarios = await scenarioModel.find({ userId });
+    // 🧠 Fetch user scenarios
+    const scenarios = await scenarioModel.find({ userId }).lean();
+    console.log(`📚 Found ${scenarios.length} scenario(s) for user ${userId}`);
+
+    if (!scenarios.length) {
+      console.log('⚠️ No scenarios found. Stopping execution.');
+      return;
+    }
 
     for (const scenario of scenarios) {
-      if (!scenario.routerBranches?.length) {
-        continue;
-      }
+      console.log('=======================================');
+      console.log(`🎯 Executing Scenario: ${scenario.name} (${scenario._id})`);
+      console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
+      console.log('=======================================');
+
+      if (!scenario.routerBranches?.length) continue;
 
       for (const branch of scenario.routerBranches) {
-        if (!branch.filter?.conditions?.length) {
-        }
+        console.log('---------------------------------------');
+        console.log(`🌿 Branch ID: ${branch.id || branch._id}`);
+        console.log(
+          `🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`
+        );
 
-        const matches = branch.filter?.conditions
+        // 🧮 Evaluate filter conditions
+        const matches = branch.filter?.conditions?.length
           ? branch.filter.conditions.every((cond) => {
               const fieldValue =
-                cond.field === 'Body'
+                cond.field?.toLowerCase() === 'body'
                   ? (body || '').toLowerCase()
-                  : cond.field === 'Subject'
+                  : cond.field?.toLowerCase() === 'subject'
                     ? (subject || '').toLowerCase()
                     : '';
               const condValue = (cond.value || '').toLowerCase();
 
-              if (cond.operator === 'Contains')
-                return fieldValue.includes(condValue);
-              if (cond.operator === 'Equal to') return fieldValue === condValue;
-              return false;
+              console.log(
+                `   ➤ Checking condition: [${cond.field}] ${cond.operator} "${cond.value}"`
+              );
+
+              switch (cond.operator?.toLowerCase()) {
+                case 'contains':
+                  return fieldValue.includes(condValue);
+                case 'equals':
+                case 'equal to':
+                  return fieldValue === condValue;
+                default:
+                  return false;
+              }
             })
           : true;
 
         if (!matches) {
+          console.log('❌ Branch conditions did NOT match, skipping branch.');
           continue;
         }
 
+        console.log('✅ Branch conditions matched — proceeding.');
         if (!branch.modules?.length) {
+          console.log('⚠️ No modules found in branch, skipping...');
           continue;
         }
 
+        console.log(`📦 Modules found: ${branch.modules.length}`);
+
+        // 🧾 Create execution record
         let statusDoc = await AutomationStatusModel.create({
           userId,
           emailId,
@@ -1026,10 +1132,19 @@ export const executeScenarios = async (emailData) => {
           pendingModules: branch.modules.map((m) => m.id || m._id),
         });
 
+        console.log('🗂️ Created AutomationStatus:', statusDoc._id);
+
+        // 🔁 Execute all modules
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
+          console.log(
+            `---------------------------------------\n⚙️ Executing Module: ${
+              module.app?.name || module.type
+            } (Index ${i})`
+          );
 
           try {
+            // 🧠 Normalize type
             if (scenario.type?.toLowerCase() === 'shopify') {
               const rawType = (
                 module.type ||
@@ -1041,142 +1156,34 @@ export const executeScenarios = async (emailData) => {
                 rawType.includes('email') ||
                 rawType.includes('follow') ||
                 rawType.includes('initial')
-              ) {
+              )
                 module.type = 'Send an Email';
-              } else if (rawType.includes('delay')) {
-                module.type = 'Delay';
-              } else if (rawType.includes('router')) {
-                module.type = 'Router';
-              } else if (rawType.includes('webhook')) {
-                module.type = 'Webhooks';
-              }
-              console.log(`🧠 Normalized Shopify module type → ${module.type}`);
+              else if (rawType.includes('delay')) module.type = 'Delay';
+              else if (rawType.includes('router')) module.type = 'Router';
+              else if (rawType.includes('webhook')) module.type = 'Webhooks';
+              console.log(`🧠 Normalized Type → ${module.type}`);
             }
 
+            // 🕒 Handle Delay
             if (module.type === 'Delay') {
-              console.log('⏳ Delay module detected. Scheduling follow-up...');
+              console.log('⏳ Delay Module Detected!');
+              if (!module.delayValue || !module.delayUnit) {
+                console.warn(
+                  '⚠️ Missing delayValue or delayUnit — skipping delay.'
+                );
+                continue;
+              }
 
               const delayMs = convertToMs(module.delayValue, module.delayUnit);
+              console.log(
+                `🕒 Scheduling delay for ${module.delayValue} ${module.delayUnit} (${delayMs} ms)`
+              );
 
-              const remainingModules = [];
-
-              for (const nextModule of branch.modules.slice(i + 1)) {
-                const plain = nextModule.toObject
-                  ? nextModule.toObject()
-                  : { ...nextModule };
-
-                const nextType = (
-                  plain.type ||
-                  plain.app?.name ||
-                  ''
-                ).toLowerCase();
-                if (
-                  !(
-                    nextType.includes('email') ||
-                    nextType.includes('gmail') ||
-                    nextType.includes('follow') ||
-                    nextType.includes('initial')
-                  )
-                ) {
-                  continue;
-                }
-
-                let templateContent =
-                  plain.template || 'Thanks for your email!';
-                let selectedTemplateName = '';
-                let selectedService = 'General';
-                let stepType = 'initial';
-
-                if (scenario.type?.toLowerCase() === 'shopify') {
-                  const lower = (plain.template || '').toLowerCase();
-                  if (lower.includes('first')) stepType = 'first';
-                  else if (lower.includes('second')) stepType = 'second';
-
-                  const textToSearch = (subject + ' ' + body).toLowerCase();
-                  const defaultServices = [
-                    'General',
-                    'Troubleshooting',
-                    'Theme customization',
-                    'Store build or redesign',
-                    'Store migration',
-                    'Website and marketing content',
-                    'SEO',
-                    'Site performance and speed',
-                    'Custom apps and integrations',
-                    'Store settings configuration',
-                    'Product and collection setup',
-                    'Social media marketing',
-                    'Product descriptions',
-                    'Search engine advertising',
-                    'POS setup and migration',
-                    'Custom domain setup',
-                    'Conversion rate optimization',
-                    'Analytics and tracking',
-                    'Sales channel setup',
-                    'Logo and visual branding',
-                    'Business strategy guidance',
-                    'Website audit and optimization strategy',
-                    'Sales tax guidance',
-                    'Product photography',
-                    'Email marketing',
-                    '3D modelling',
-                    'Banner ads',
-                    'Video and illustrations',
-                    'Content marketing',
-                    'Product sourcing guidance',
-                  ];
-
-                  let matchedService = defaultServices.find((s) =>
-                    textToSearch.includes(s.toLowerCase())
-                  );
-                  matchedService = matchedService || 'General';
-
-                  const tpl = await TemplateModel.findOne({
-                    userId,
-                    platform: 'shopify',
-                    service: new RegExp(`^${matchedService}$`, 'i'),
-                    name: new RegExp(
-                      stepType === 'initial'
-                        ? 'Initial Email'
-                        : stepType === 'first'
-                          ? 'First Email'
-                          : 'Second Email',
-                      'i'
-                    ),
-                    active: true,
-                  });
-
-                  if (tpl) {
-                    templateContent = tpl.content;
-                    selectedTemplateName = tpl.name;
-                    selectedService = matchedService;
-                  } else {
-                    const generalTpl = await TemplateModel.findOne({
-                      userId,
-                      platform: 'shopify',
-                      service: /^General$/i,
-                      name: new RegExp(
-                        stepType === 'initial'
-                          ? 'Initial Email'
-                          : stepType === 'first'
-                            ? 'First Email'
-                            : 'Second Email',
-                        'i'
-                      ),
-                      active: true,
-                    });
-                    if (generalTpl) {
-                      templateContent = generalTpl.content;
-                      selectedTemplateName = generalTpl.name;
-                      selectedService = 'General';
-                    } else {
-                    }
-                  }
-                }
-
-                plain.template = fillTemplate(templateContent, extractedFields);
-                remainingModules.push(plain);
-              }
+              const remainingModules = branch.modules
+                .slice(i + 1)
+                .filter((m) =>
+                  ['Send an Email', 'Custom Email'].includes(m.type)
+                );
 
               await DelayJobModel.create({
                 userId,
@@ -1195,30 +1202,41 @@ export const executeScenarios = async (emailData) => {
                   lastExecutedAt: new Date(),
                 },
               });
+
+              console.log('✅ Delay Job Scheduled. Pausing further execution.');
               break;
             }
 
-            if (
-              module.type === 'Send an Email' ||
-              module.type === 'Custom Email'
-            ) {
+            // 📧 Email sending module
+            if (['Send an Email', 'Custom Email'].includes(module.type)) {
+              console.log('📨 Send Email Module Triggered');
+              console.log('🔗 Connection ID:', module.connectionId);
+
+              if (!module.connectionId) {
+                console.log('🚫 No connectionId found, skipping this module.');
+                continue;
+              }
+
               let templateContent = module.template || 'Thanks for your email!';
-              let selectedTemplateName = '';
-              let selectedService = 'General';
               let stepType = 'initial';
 
+              // Shopify logic
               if (scenario.type?.toLowerCase() === 'shopify') {
+                console.log('🧠 Shopify scenario detected.');
+
                 const subjectLower = (subject || '').toLowerCase().trim();
-                const isValidShopify = subjectLower.startsWith(
-                  'shopify partner directory: new service inquiry from'
-                );
-                if (!isValidShopify) {
+                if (
+                  !subjectLower.startsWith(
+                    'shopify partner directory: new service inquiry from'
+                  )
+                ) {
+                  console.log('🚫 Not a Shopify inquiry. Skipping email.');
                   continue;
                 }
 
-                const lower = (module.template || '').toLowerCase();
-                if (lower.includes('first')) stepType = 'first';
-                else if (lower.includes('second')) stepType = 'second';
+                const lowerTpl = (module.template || '').toLowerCase();
+                if (lowerTpl.includes('first')) stepType = 'first';
+                else if (lowerTpl.includes('second')) stepType = 'second';
 
                 const textToSearch = (subject + ' ' + body).toLowerCase();
                 const defaultServices = [
@@ -1259,30 +1277,13 @@ export const executeScenarios = async (emailData) => {
                 );
                 matchedService = matchedService || 'General';
 
-                const tpl = await TemplateModel.findOne({
-                  userId,
-                  platform: 'shopify',
-                  service: new RegExp(`^${matchedService}$`, 'i'),
-                  name: new RegExp(
-                    stepType === 'initial'
-                      ? 'Initial Email'
-                      : stepType === 'first'
-                        ? 'First Email'
-                        : 'Second Email',
-                    'i'
-                  ),
-                  active: true,
-                });
+                console.log(`🔍 Matched Service: ${matchedService}`);
 
-                if (tpl) {
-                  templateContent = tpl.content;
-                  selectedTemplateName = tpl.name;
-                  selectedService = matchedService;
-                } else {
-                  const generalTpl = await TemplateModel.findOne({
+                const tpl =
+                  (await TemplateModel.findOne({
                     userId,
                     platform: 'shopify',
-                    service: /^General$/i,
+                    service: new RegExp(matchedService, 'i'), // ✅ less strict
                     name: new RegExp(
                       stepType === 'initial'
                         ? 'Initial Email'
@@ -1292,30 +1293,59 @@ export const executeScenarios = async (emailData) => {
                       'i'
                     ),
                     active: true,
-                  });
-                  if (generalTpl) {
-                    templateContent = generalTpl.content;
-                    selectedTemplateName = generalTpl.name;
-                    selectedService = 'General';
-                    console.log(
-                      `ℹ️ [Shopify] Using fallback General template "${generalTpl.name}" (${stepType})`
-                    );
-                  } else {
-                  }
+                  })) ||
+                  (await TemplateModel.findOne({
+                    userId,
+                    platform: 'shopify',
+                    service: /General/i, // ✅ fallback
+                    name: new RegExp(
+                      stepType === 'initial'
+                        ? 'Initial Email'
+                        : stepType === 'first'
+                          ? 'First Email'
+                          : 'Second Email',
+                      'i'
+                    ),
+                    active: true,
+                  }));
+
+                if (tpl) {
+                  console.log(
+                    `✅ Using Template: "${tpl.name}" (Service: ${tpl.service})`
+                  );
+                  console.log(
+                    `🧩 Template Preview: ${tpl.content.slice(0, 100)}...`
+                  );
+                } else {
+                  console.warn(
+                    '⚠️ No template matched. Sending blank or default content.'
+                  );
                 }
               }
 
+              // 🧩 Replace variables in template
               templateContent = fillTemplate(templateContent, extractedFields);
-              const plainModule = module.toObject ? module.toObject() : module;
+              console.log('🧩 Template filled successfully.');
 
+              // 🔍 Extra logging for connection before sending
+              console.log('📦 Preparing sendEmailModule:', {
+                moduleId: module.id,
+                connectionId: module.connectionId,
+                hasTemplate: !!templateContent,
+              });
+
+              // 🚀 Trigger sendEmailModule
               await sendEmailModule(
-                { ...plainModule, template: templateContent },
+                { ...module, template: templateContent },
                 from,
                 subject,
                 emailId
               );
 
-              const updatedDoc = await AutomationStatusModel.findByIdAndUpdate(
+              console.log('✅ Email sent successfully.');
+
+              // 📊 Update status
+              const updated = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
                 {
                   $push: { completedModules: module.id || module._id },
@@ -1325,41 +1355,49 @@ export const executeScenarios = async (emailData) => {
                 { new: true }
               );
 
-              if (updatedDoc.pendingModules.length > 0) {
-                console.log('🔁 Still modules remaining — status: partial');
+              if (updated.pendingModules.length > 0) {
+                console.log('🔁 Modules remaining → status: partial');
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                   $set: { status: 'partial' },
                 });
               } else {
-                console.log(
-                  '🏁 All modules completed — marking status completed.'
-                );
+                console.log('🏁 All modules completed → status: completed');
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                   $set: { status: 'completed' },
                 });
               }
             } else {
+              console.log('🟡 Unsupported Module Type:', module.type);
             }
           } catch (err) {
-            console.error(' Error executing module:', err);
+            console.error('❌ Error executing module:', err);
             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
               $set: { status: 'failed', lastExecutedAt: new Date() },
             });
           }
         }
 
+        // ✅ Final check
         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
         if (
-          finalDoc?.pendingModules.length === 0 &&
+          finalDoc &&
+          finalDoc.pendingModules.length === 0 &&
           finalDoc.status !== 'failed'
         ) {
           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
             $set: { status: 'completed', lastExecutedAt: new Date() },
           });
+          console.log('✅ Final Branch Status: COMPLETED');
         }
       }
     }
-  } catch (err) {}
+
+    console.log('🎉 All Scenarios Execution Complete!');
+    console.log('=======================================');
+  } catch (err) {
+    console.error('🔥 Fatal Error in executeScenarios:', err);
+    console.log('=======================================');
+  }
 };
 
 const convertToMs = (value, unit) => {
@@ -1370,77 +1408,311 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
-export const sendEmailModule = async (
-  module,
-  to,
-  originalSubject,
-  parentEmailId
-) => {
+// export const sendEmailModule = async (
+//   module,
+//   to,
+//   originalSubject,
+//   parentEmailId
+// ) => {
+//   try {
+//     const connection = await ConnectionModel.findById(module.connectionId);
+//     if (!connection) {
+//       return;
+//     }
+
+//     console.log('[sendEmailModule] Connection found:', {
+//       provider: connection.provider,
+//       email: connection.email,
+//     });
+
+//     const finalSubject =
+//       module.subject && module.subject.trim() !== ''
+//         ? module.subject
+//         : `Re: ${originalSubject || 'No Subject'}`;
+
+//     const emailBody = module.template || 'Thanks for your email!';
+//     const cc =
+//       (Array.isArray(module.cc) ? module.cc.join(',') : module.cc) || '';
+//     const bcc =
+//       (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
+
+//     let sentOk = false;
+
+//     if (connection.provider === 'gmail') {
+//       try {
+//         const oauth2Client = new google.auth.OAuth2(
+//           process.env.GOOGLE_CLIENT_ID,
+//           process.env.GOOGLE_CLIENT_SECRET,
+//           process.env.GOOGLE_REDIRECT_URI
+//         );
+//         oauth2Client.setCredentials(connection.tokens);
+
+//         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+//         const lines = [
+//           `From: ${connection.email}`,
+//           `To: ${to}`,
+//           cc ? `Cc: ${cc}` : '',
+//           bcc ? `Bcc: ${bcc}` : '',
+//           `Subject: ${finalSubject}`,
+//           'MIME-Version: 1.0',
+//           'Content-Type: text/html; charset=UTF-8',
+//           '',
+//           emailBody,
+//         ].filter(Boolean);
+
+//         const raw = Buffer.from(lines.join('\n'))
+//           .toString('base64')
+//           .replace(/\+/g, '-')
+//           .replace(/\//g, '_')
+//           .replace(/=+$/, '');
+
+//         const result = await gmail.users.messages.send({
+//           userId: 'me',
+//           requestBody: { raw },
+//         });
+
+//         console.log('[GMAIL] Sent message:', result.data.id);
+//         sentOk = true;
+//       } catch (err) {
+//         console.error('[GMAIL] send error:', err);
+//       }
+//     } else if (connection.provider === 'outlook') {
+//       try {
+//         const extractEmail = (input) => {
+//           const match = input.match(/<(.+?)>/);
+//           return match ? match[1] : input.trim();
+//         };
+
+//         const toClean = extractEmail(to);
+//         const ccClean = cc
+//           ? cc.split(',').map((addr) => ({
+//               emailAddress: { address: extractEmail(addr.trim()) },
+//             }))
+//           : [];
+
+//         const message = {
+//           message: {
+//             subject: finalSubject,
+//             body: { contentType: 'HTML', content: emailBody },
+//             toRecipients: [{ emailAddress: { address: toClean } }],
+//             ccRecipients: ccClean,
+//           },
+//           saveToSentItems: true,
+//         };
+
+//         const response = await fetch(
+//           'https://graph.microsoft.com/v1.0/me/sendMail',
+//           {
+//             method: 'POST',
+//             headers: {
+//               Authorization: `Bearer ${connection.tokens.access_token}`,
+//               'Content-Type': 'application/json',
+//             },
+//             body: JSON.stringify(message),
+//           }
+//         );
+
+//         if (response.ok) {
+//           sentOk = true;
+//         } else {
+//           const error = await response.text();
+//         }
+//       } catch (err) {}
+//     } else if (connection.provider === 'smtp') {
+//       try {
+//         if (
+//           !connection.smtp?.host ||
+//           !connection.smtp?.username ||
+//           !connection.smtp?.password
+//         ) {
+//           throw new Error(
+//             `[SMTP] Missing SMTP credentials or host info for ${connection.email}`
+//           );
+//         }
+
+//         const transporter = nodemailer.createTransport({
+//           host: connection.smtp?.host,
+//           port: connection.smtp?.port || 465,
+//           secure: connection.smtp?.port === 465,
+//           auth: {
+//             user: connection.smtp?.username || connection.email,
+//             pass: connection.smtp?.password,
+//           },
+//           tls: {
+//             rejectUnauthorized: false,
+//           },
+//         });
+
+//         await transporter.verify();
+//         console.log('[SMTP] Verified SMTP connection successfully.');
+
+//         const info = await transporter.sendMail({
+//           from: `"${connection.name || 'SMTP Sender'}" <${connection.email}>`,
+//           to,
+//           cc,
+//           bcc,
+//           subject: finalSubject,
+//           html: emailBody,
+//         });
+
+//         console.log('[SMTP] Email sent:', info.messageId);
+//         sentOk = true;
+//       } catch (err) {
+//         console.error('[SMTP] send error:', err);
+//       }
+//     }
+
+//     if (sentOk) {
+//       const sentDoc = new EmailModel({
+//         userId: connection.userId,
+//         senderAddress: connection.email,
+//         recipientAddress: to,
+//         subject: finalSubject,
+//         textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ''),
+//         htmlBody: emailBody,
+//         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
+//         bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
+//         date: new Date(),
+//         isForwarded: true,
+//         parentEmailId: parentEmailId || null,
+//         forwardedMeta: {
+//           from: connection.email,
+//           to,
+//           subject: originalSubject,
+//           date: new Date().toISOString(),
+//           body: emailBody,
+//         },
+//       });
+
+//       await sentDoc.save();
+//     } else {
+//     }
+//   } catch (outerErr) {}
+// };
+
+
+
+export const sendEmailModule = async (module, to, originalSubject, parentEmailId) => {
+  const log = (...args) => console.log(`[${new Date().toISOString()}]`, ...args);
+
   try {
-    const connection = await ConnectionModel.findById(module.connectionId);
-    if (!connection) {
+    log("=========================================");
+    log("📤 [sendEmailModule] Triggered");
+    log("📦 Module received:", {
+      id: module.id || module._id,
+      type: module.type,
+      connectionId: module.connectionId,
+      subject: module.subject,
+      hasTemplate: !!module.template,
+      app: module.app,
+      emailType: module.emailType,
+    });
+    log("🎯 Recipient (to):", to);
+    log("💬 Original subject:", originalSubject);
+
+    // 🧩 Validate
+    if (!module.connectionId) {
+      log("❌ Missing connectionId in module, cannot send email!");
       return;
     }
 
-    console.log('[sendEmailModule] Connection found:', {
+    // 🔍 Fetch connection
+    log("🔍 Fetching connection for:", module.connectionId);
+    const connection = await ConnectionModel.findById(String(module.connectionId));
+    if (!connection) {
+      log("❌ Connection not found for module:", module.connectionId);
+      return;
+    }
+
+    log("🔌 Connection found:", {
+      id: connection._id,
       provider: connection.provider,
       email: connection.email,
     });
 
+    // 📄 Prepare email details
     const finalSubject =
-      module.subject && module.subject.trim() !== ''
+      module.subject && module.subject.trim() !== ""
         ? module.subject
-        : `Re: ${originalSubject || 'No Subject'}`;
+        : `Re: ${originalSubject || "No Subject"}`;
 
-    const emailBody = module.template || 'Thanks for your email!';
-    const cc =
-      (Array.isArray(module.cc) ? module.cc.join(',') : module.cc) || '';
-    const bcc =
-      (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
+    const emailBody = module.template || "Thanks for your email!";
+    const plainTextBody = emailBody.replace(/<\/?[^>]+(>|$)/g, "");
+
+    const cc = (Array.isArray(module.cc) ? module.cc.join(",") : module.cc) || "";
+    const bcc = (Array.isArray(module.bcc) ? module.bcc.join(",") : module.bcc) || "";
+
+    log("🧾 Email Details:", {
+      subject: finalSubject,
+      to,
+      cc,
+      bcc,
+      bodyLength: emailBody.length,
+    });
 
     let sentOk = false;
 
-    if (connection.provider === 'gmail') {
+    // =====================================================================
+    // ------------------------ 📧 GMAIL PROVIDER ---------------------------
+    // =====================================================================
+    if (connection.provider === "gmail") {
       try {
+        log("📨 Sending via Gmail API...");
+
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
           process.env.GOOGLE_CLIENT_SECRET,
           process.env.GOOGLE_REDIRECT_URI
         );
         oauth2Client.setCredentials(connection.tokens);
+        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-        const lines = [
+        // ✅ Gmail-compatible MIME message (HTML + CRLF)
+        const rawMessage = [
           `From: ${connection.email}`,
           `To: ${to}`,
-          cc ? `Cc: ${cc}` : '',
-          bcc ? `Bcc: ${bcc}` : '',
+          cc ? `Cc: ${cc}` : "",
+          bcc ? `Bcc: ${bcc}` : "",
           `Subject: ${finalSubject}`,
-          'MIME-Version: 1.0',
-          'Content-Type: text/html; charset=UTF-8',
-          '',
-          emailBody,
-        ].filter(Boolean);
+          "MIME-Version: 1.0",
+          "Content-Type: text/html; charset=UTF-8",
+          "",
+          emailBody, // ✅ Template content here
+          "",
+        ]
+          .filter(Boolean)
+          .join("\r\n"); // Gmail requires CRLF
 
-        const raw = Buffer.from(lines.join('\n'))
-          .toString('base64')
-          .replace(/\+/g, '-')
-          .replace(/\//g, '_')
-          .replace(/=+$/, '');
+        const raw = Buffer.from(rawMessage)
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+
+        log("📄 Gmail MIME Preview:\n", rawMessage);
+        log("⚙️ Gmail payload prepared (base64 length):", raw.length);
 
         const result = await gmail.users.messages.send({
-          userId: 'me',
+          userId: "me",
           requestBody: { raw },
         });
 
-        console.log('[GMAIL] Sent message:', result.data.id);
+        log("✅ [GMAIL] Message sent successfully!");
+        log("📨 Gmail Message ID:", result.data.id);
         sentOk = true;
       } catch (err) {
-        console.error('[GMAIL] send error:', err);
+        log("❌ [GMAIL] Send Error:", err.response?.data || err.message);
       }
-    } else if (connection.provider === 'outlook') {
+    }
+
+    // =====================================================================
+    // ------------------------ 🟣 OUTLOOK PROVIDER -------------------------
+    // =====================================================================
+    else if (connection.provider === "outlook") {
       try {
+        log("🟣 Sending via Outlook API...");
+
         const extractEmail = (input) => {
           const match = input.match(/<(.+?)>/);
           return match ? match[1] : input.trim();
@@ -1448,7 +1720,7 @@ export const sendEmailModule = async (
 
         const toClean = extractEmail(to);
         const ccClean = cc
-          ? cc.split(',').map((addr) => ({
+          ? cc.split(",").map((addr) => ({
               emailAddress: { address: extractEmail(addr.trim()) },
             }))
           : [];
@@ -1456,85 +1728,95 @@ export const sendEmailModule = async (
         const message = {
           message: {
             subject: finalSubject,
-            body: { contentType: 'HTML', content: emailBody },
+            body: { contentType: "HTML", content: emailBody },
             toRecipients: [{ emailAddress: { address: toClean } }],
             ccRecipients: ccClean,
           },
           saveToSentItems: true,
         };
 
-        const response = await fetch(
-          'https://graph.microsoft.com/v1.0/me/sendMail',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${connection.tokens.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(message),
-          }
-        );
+        log("⚙️ Outlook API Payload:", JSON.stringify(message, null, 2));
+
+        const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${connection.tokens.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(message),
+        });
 
         if (response.ok) {
+          log("✅ [OUTLOOK] Email sent successfully!");
           sentOk = true;
         } else {
-          const error = await response.text();
+          const errorText = await response.text();
+          log("❌ [OUTLOOK] API Response Error:", errorText);
         }
-      } catch (err) {}
-    } else if (connection.provider === 'smtp') {
+      } catch (err) {
+        log("❌ [OUTLOOK] Send Error:", err);
+      }
+    }
+
+    // =====================================================================
+    // ------------------------ 🟠 SMTP PROVIDER ----------------------------
+    // =====================================================================
+    else if (connection.provider === "smtp") {
       try {
-        if (
-          !connection.smtp?.host ||
-          !connection.smtp?.username ||
-          !connection.smtp?.password
-        ) {
-          throw new Error(
-            `[SMTP] Missing SMTP credentials or host info for ${connection.email}`
-          );
+        log("🟠 Sending via SMTP...");
+
+        if (!connection.smtp?.host || !connection.smtp?.username || !connection.smtp?.password) {
+          throw new Error(`[SMTP] Missing SMTP credentials for ${connection.email}`);
         }
 
         const transporter = nodemailer.createTransport({
-          host: connection.smtp?.host,
-          port: connection.smtp?.port || 465,
-          secure: connection.smtp?.port === 465,
+          host: connection.smtp.host,
+          port: connection.smtp.port || 465,
+          secure: connection.smtp.port === 465,
           auth: {
-            user: connection.smtp?.username || connection.email,
-            pass: connection.smtp?.password,
+            user: connection.smtp.username || connection.email,
+            pass: connection.smtp.password,
           },
-          tls: {
-            rejectUnauthorized: false,
-          },
+          tls: { rejectUnauthorized: false },
         });
 
         await transporter.verify();
-        console.log('[SMTP] Verified SMTP connection successfully.');
+        log("✅ [SMTP] Connection verified successfully.");
 
         const info = await transporter.sendMail({
-          from: `"${connection.name || 'SMTP Sender'}" <${connection.email}>`,
+          from: `"${connection.name || "SMTP Sender"}" <${connection.email}>`,
           to,
           cc,
           bcc,
           subject: finalSubject,
-          html: emailBody,
+          html: emailBody, // ✅ Template body
         });
 
-        console.log('[SMTP] Email sent:', info.messageId);
+        log("✅ [SMTP] Email sent successfully!");
+        log("📨 Message ID:", info.messageId);
         sentOk = true;
       } catch (err) {
-        console.error('[SMTP] send error:', err);
+        log("❌ [SMTP] Send Error:", err.message);
       }
+    } else {
+      log("❌ Unknown provider:", connection.provider);
     }
 
+    // =====================================================================
+    // ------------------------ 💾 SAVE EMAIL LOG --------------------------
+    // =====================================================================
     if (sentOk) {
+      log("💾 Saving sent email record to database...");
+
       const sentDoc = new EmailModel({
         userId: connection.userId,
         senderAddress: connection.email,
         recipientAddress: to,
         subject: finalSubject,
-        textBody: emailBody.replace(/<\/?[^>]+(>|$)/g, ''),
+        textBody: plainTextBody,
         htmlBody: emailBody,
-        cc: cc ? cc.split(',').map((a) => a.trim()) : [],
-        bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
+        cc: cc ? cc.split(",").map((a) => a.trim()) : [],
+        bcc: bcc ? bcc.split(",").map((a) => a.trim()) : [],
         date: new Date(),
         isForwarded: true,
         parentEmailId: parentEmailId || null,
@@ -1548,10 +1830,18 @@ export const sendEmailModule = async (
       });
 
       await sentDoc.save();
+      log("✅ Sent email saved to database with ID:", sentDoc._id);
     } else {
+      log("⚠️ Email was not sent successfully — skipping save.");
     }
-  } catch (outerErr) {}
+
+    log("=========================================");
+  } catch (outerErr) {
+    console.error("🔥 [sendEmailModule] Fatal Error:", outerErr);
+    log("=========================================");
+  }
 };
+
 
 export const RunTestMode = async (req, res) => {
   try {
@@ -2075,7 +2365,6 @@ If you receive this email, your mail forwarding is active and functioning.
       text: testBody,
     });
 
-    // ⚡ No database save here — email will only be saved when webhook receives it
     return res.json({
       success: true,
       message: `✅ Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
@@ -2100,136 +2389,43 @@ export const getValidateEmail = async (req, res) => {
         .json({ success: false, message: 'Invalid user ID.' });
     }
 
-    const validationRecord = await validationModel
-      .findOne({ userId })
-      .sort({ createdAt: -1 });
-    if (!validationRecord) {
+    const testSubject = 'Zenith Forwarding Validation Test';
+
+    // 🔍 Check in ValidationEmail collection instead of EmailModel
+    const testRecord = await validationModel
+      .findOne({ userId, subject: testSubject })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!testRecord) {
       return res.status(404).json({
         success: false,
-        message:
-          'No validation test record found. Please run forwarding validation first.',
+        message: 'Test forwarding email not yet received or verified.',
       });
     }
 
-    const providerPatterns = [
-      {
-        name: 'Gmail',
-        sender: /forwarding-noreply@google\.com/i,
-        subject: /Gmail Forwarding Confirmation/i,
-      },
-      {
-        name: 'Outlook',
-        sender: /(outlook|hotmail|microsoft|accountprotection)\.com/i,
-        subject: /(Outlook|Microsoft|Hotmail|Forwarding|Verify|Confirmation)/i,
-      },
-      {
-        name: 'Yahoo',
-        sender: /(yahoo-inc\.com|mail-noreply@yahoo\.com)/i,
-        subject: /(Yahoo|Forwarding|Confirmation|Verify)/i,
-      },
-      {
-        name: 'Zoho',
-        sender: /no-reply@zoho\.com/i,
-        subject: /(Zoho|Forwarding|Verification|Confirmation)/i,
-      },
-      {
-        name: 'ProtonMail',
-        sender: /no-reply@protonmail\.com/i,
-        subject: /(ProtonMail|Forwarding|Confirmation|Verify)/i,
-      },
-    ];
-
-    let matchedEmail = null;
-    let matchedProvider = null;
-
-    for (const provider of providerPatterns) {
-      const found = await EmailModel.findOne({
-        userId,
-        senderAddress: { $regex: provider.sender },
-        subject: { $regex: provider.subject },
-      })
-        .sort({ createdAt: -1 })
-        .lean();
-
-      if (found) {
-        matchedEmail = found;
-        matchedProvider = provider.name;
-        break;
-      }
-    }
-
-    if (!matchedEmail) {
-      return res.status(404).json({
-        success: false,
-        message:
-          'No forwarding confirmation email found for any supported provider (Gmail, Outlook, Yahoo, etc).',
-      });
-    }
-
-    const bodyText = matchedEmail.textBody?.toLowerCase() || '';
-    const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-    const foundEmails = bodyText.match(emailRegex) || [];
-    const extractedFromBody = foundEmails.length > 0 ? foundEmails[0] : null;
-
-    if (!extractedFromBody) {
-      return res.status(400).json({
-        success: false,
-        message: `No email address found inside ${matchedProvider} confirmation body.`,
-      });
-    }
-
-    const expectedEmail = validationRecord.toEmail.toLowerCase().trim();
-    const matched = extractedFromBody === expectedEmail;
-
-    if (!matched) {
-      await validationModel.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            status: 'failed',
-            notes: `Mismatch detected from ${matchedProvider} verification email.`,
-          },
-        }
-      );
-      return res.status(400).json({
-        success: false,
-        message: `Mismatch between ${matchedProvider} confirmation email and saved test email.`,
-        data: {
-          provider: matchedProvider,
-          expectedEmail,
-          extractedFromBody,
-        },
-      });
-    }
-
-    await validationModel.findOneAndUpdate(
-      { userId },
-      {
-        $set: {
-          verified: true,
-          verifiedAt: new Date(),
-          status: 'verified',
-          notes: `${matchedProvider} forwarding verified successfully.`,
-        },
-      }
-    );
-
+    // ✅ If record exists, show its verification state
     return res.json({
       success: true,
-      message: `${matchedProvider} forwarding verified successfully.`,
+      message: testRecord.verified
+        ? '✅ Forwarding test verified successfully.'
+        : '⚙️ Test email found but not yet verified.',
       data: {
-        provider: matchedProvider,
-        expectedEmail,
-        extractedFromBody,
-        emailId: matchedEmail._id,
-        subject: matchedEmail.subject,
-        date: matchedEmail.date,
+        id: testRecord._id,
+        subject: testRecord.subject,
+        toEmail: testRecord.toEmail,
+        sentAt: testRecord.sentAt,
+        verified: testRecord.verified,
+        verifiedAt: testRecord.verifiedAt,
+        status: testRecord.status,
+        notes: testRecord.notes,
       },
     });
   } catch (err) {
-    res.status(500).json({
+    console.error('❌ Error checking forwarding validation:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Server error while verifying forwarding email.',
+      message: 'Server error while checking forwarding validation.',
       error: err.message,
     });
   }
@@ -2397,5 +2593,56 @@ export const deleteConnectionById = async (req, res) => {
       message: 'Internal server error while deleting connection.',
       error: error.message,
     });
+  }
+};
+
+export const sendTestEmail = async (req, res) => {
+  try {
+    const { toEmail, userId } = req.body;
+
+    if (!toEmail || !userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing email or user ID' });
+    }
+
+    // 🔹 Create transporter using Gmail (or your SMTP service)
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587,
+      secure: false, // use true for port 465
+      auth: {
+        user: process.env.EMAIL_USER, // your email
+        pass: process.env.EMAIL_PASS, // your app password
+      },
+    });
+
+    // 🔹 Email content
+    const mailOptions = {
+      from: `"Zenith Inbox" <${process.env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: 'Zenith Inbox Test Email',
+      text: `Hello,
+
+This is a test email from Zenith Inbox to confirm that your mail forwarding is set up correctly.
+
+If you received this email, forwarding is working fine ✅
+
+Thank you,
+Zenith Inbox Team`,
+    };
+
+    // 🔹 Send the email
+    await transporter.sendMail(mailOptions);
+
+    return res.json({
+      success: true,
+      message: `✅ Test email sent successfully to ${toEmail}`,
+    });
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    return res
+      .status(500)
+      .json({ success: false, message: 'Failed to send test email', error });
   }
 };

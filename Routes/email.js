@@ -1,20 +1,46 @@
-import express from "express";
-import { deleteAllConnections, deleteConnectionById, getEmailDataforUser, getEmails, getEmailsForUsers, getLatestVerificationEmail, getTestEmail, getTestEmailData, getValidateEmail, mailHookWebhook, RunTestMode, validateTestEmail } from "../controller/smtpServer.js";
-import multer from "multer";
+import express from 'express';
+import {
+  deleteAllConnections,
+  deleteConnectionById,
+  getEmailDataforUser,
+  getEmails,
+  getEmailsForUsers,
+  getLatestVerificationEmail,
+  getTestEmail,
+  getTestEmailData,
+  getValidateEmail,
+  mailHookWebhook,
+  RunTestMode,
+  sendTestEmail,
+  validateTestEmail,
+} from '../controller/smtpServer.js';
+import multer from 'multer';
 
 const upload = multer();
 const emailRouter = express.Router();
 
-emailRouter.post("/", upload.none(), mailHookWebhook);
-emailRouter.get('/getAllEmails/:userId',getEmailsForUsers)
-emailRouter.get('/getAllEmailsData/:userId',getEmailDataforUser)
-emailRouter.post("/Run-test-mode/", RunTestMode);
-emailRouter.get('/get-test-email/:userId',getTestEmail)
-emailRouter.delete("/delete",deleteAllConnections)
-emailRouter.get("/verification/:userId", getLatestVerificationEmail);
-emailRouter.post("/validate-forwarding/:userId", validateTestEmail);
-emailRouter.get("/validateTest/:userId", getValidateEmail);
-emailRouter.get("/get-test-data/:userId", getTestEmailData);
-emailRouter.delete("/deleteConnection/:id", deleteConnectionById);
+emailRouter.post(
+  "/",
+  (req, res, next) => {
+    const type = req.headers["content-type"] || "";
+    if (type.includes("multipart/form-data")) {
+      return upload.any()(req, res, next);     // only use multer for multipart
+    }
+    return express.text({ type: "*/*", limit: "50mb" })(req, res, next); // otherwise use raw text
+  },
+  mailHookWebhook
+);
+
+emailRouter.get('/getAllEmails/:userId', getEmailsForUsers);
+emailRouter.get('/getAllEmailsData/:userId', getEmailDataforUser);
+emailRouter.post('/Run-test-mode/', RunTestMode);
+emailRouter.get('/get-test-email/:userId', getTestEmail);
+emailRouter.delete('/delete', deleteAllConnections);
+emailRouter.get('/verification/:userId', getLatestVerificationEmail);
+emailRouter.post('/validate-forwarding/:userId', validateTestEmail);
+emailRouter.get('/validateTest/:userId', getValidateEmail);
+emailRouter.get('/get-test-data/:userId', getTestEmailData);
+emailRouter.delete('/deleteConnection/:id', deleteConnectionById);
+emailRouter.post('/sendTestEmail', sendTestEmail);
 
 export default emailRouter;

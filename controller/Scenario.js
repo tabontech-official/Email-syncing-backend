@@ -1,5 +1,5 @@
 import { scenarioModel } from "../Models/Scenario.js";
-
+import { ConnectionModel } from "../Models/Connection.js";
 // export const addScenario = async (req, res) => {
 //   try {
 //     console.log("=======================================");
