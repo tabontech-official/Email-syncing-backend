@@ -479,11 +479,11 @@ export const completeSetup = async (req, res) => {
     const { stepCompleted, setupCompleted = false, skipped = false } = req.body;
 
     const stepTitles = {
-      1: 'Mailhook created',
-      2: 'Mailhook verified',
+      1: 'Start Wizard',
+      2: 'Mailhook instruction',
       3: 'Forwarding rules configured',
-      4: 'SMTP credentials connected',
-      5: 'Automation mode selected',
+      4: 'Email Credential activated',
+      5: 'Automation Enabled',
     };
 
     const user = await authModel.findById(id);

@@ -264,3 +264,68 @@ export const updateAllTemplateStatus = async (req, res) => {
     });
   }
 };
+
+
+export const getAllTemplatesByQuery = async (req, res) => {
+  try {
+    const { userId, service, platform } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // 🔍 Base Query
+    const query = { userId };
+
+    // ✅ Service-based filter (case-insensitive exact match)
+    if (service && service.trim() !== "") {
+      query.service = { $regex: new RegExp(`^${service.trim()}$`, "i") };
+      // ↑ example: service="Troubleshooting" → only "Troubleshooting" match karega (case-insensitive)
+    }
+
+    // ✅ Platform optional filter
+    if (platform && platform.trim() !== "") {
+      query.platform = { $regex: new RegExp(platform.trim(), "i") };
+    }
+
+    // 🔹 Fetch templates
+    const templates = await TemplateModel.find(query).sort({ createdAt: 1 });
+
+    // 🔹 Apply priority sorting only for email-type services
+    let finalTemplates = templates;
+    if (service) {
+      const priority = ["Initial Email", "First Email", "Second Email"];
+      finalTemplates = templates
+        .filter((t) =>
+          priority.some((p) => t.name?.toLowerCase().includes(p.toLowerCase()))
+        )
+        .sort(
+          (a, b) =>
+            priority.findIndex((p) =>
+              a.name?.toLowerCase().includes(p.toLowerCase())
+            ) -
+            priority.findIndex((p) =>
+              b.name?.toLowerCase().includes(p.toLowerCase())
+            )
+        );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "✅ Templates fetched successfully",
+      count: finalTemplates.length,
+      data: finalTemplates,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching templates:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch templates",
+      error: err.message,
+    });
+  }
+};
+

@@ -3,6 +3,7 @@ import {
   addTemplate,
   deleteTemplate,
   getAllTemplates,
+  getAllTemplatesByQuery,
   getTemplates,
   updateAllTemplateStatus,
   updateTemplate,
@@ -12,6 +13,8 @@ import {
 const templateRouter = express.Router();
 templateRouter.post('/create', addTemplate);
 templateRouter.get('/all/', getTemplates);
+templateRouter.get('/alltemplates/query', getAllTemplatesByQuery);
+
 templateRouter.delete('/delete/:id', deleteTemplate);
 templateRouter.put('/update/:id', updateTemplate);
 templateRouter.get('/alltemplates', getAllTemplates);
