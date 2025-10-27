@@ -671,6 +671,52 @@ export const getOrganizationByUserId = async (req, res) => {
   }
 };
 
+export const skipAllSteps = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await authModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Mark all steps as skipped
+    const updatedSteps = user.setup.steps.map((step) => ({
+      ...step.toObject(),
+      status: "skipped",
+      updatedAt: new Date(),
+    }));
+
+    user.setup.steps = updatedSteps;
+    user.setup.skipped = true;
+    user.setup.completed = false;
+    user.setup.stepCompleted = 0;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "All steps marked as skipped successfully",
+      setup: user.setup,
+    });
+  } catch (error) {
+    console.error("Error skipping setup steps:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;

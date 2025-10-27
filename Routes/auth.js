@@ -13,6 +13,7 @@ import {
   outlookOAuthCallback,
   signIn,
   signUp,
+  skipAllSteps,
   startOutlookOAuth,
   updateUserAndOrganization,
   verifyUser,
@@ -39,6 +40,7 @@ authRouter.get('/setup/:id', getSetupProgress);
 authRouter.get("/outlook", startOutlookOAuth);
 authRouter.get("/outlook/callback", outlookOAuthCallback);
 authRouter.put("/updateUserAndOrganization/:id", updateUserAndOrganization);
+authRouter.post("/skip-all/:userId", skipAllSteps);
 
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);
