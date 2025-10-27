@@ -1041,28 +1041,25 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
       email: connection.email,
     });
 
-    // ✅ Prepare Email Subject
+    // ✅ Prepare Subject
     const finalSubject =
       module.subject && module.subject.trim() !== ""
         ? module.subject
         : `Re: ${originalSubject || "Shopify Inquiry"}`;
-
-    // 🧠 Fix: Remove newlines & sanitize subject to one line
     const safeSubject = finalSubject.replace(/\r?\n|\r/g, " ").trim();
 
-    // ✅ Prepare Email Body
+    // ✅ Prepare Body
     let emailBody = module.template?.trim() || "Thanks for your email!";
     if (!emailBody || emailBody.length === 0) {
       log("⚠️ Email body is empty — using fallback text.");
       emailBody = "Thanks for your email!";
     }
 
-    // 🧠 Ensure HTML wrapping
-    if (!emailBody.trim().startsWith("<")) {
+    // 🧠 Wrap non-HTML text in <div>
+    if (!emailBody.startsWith("<")) {
       emailBody = `<div>${emailBody}</div>`;
     }
 
-    // 🔍 Log full body
     log("📧 ================= EMAIL CONTENT START =================");
     log(emailBody);
     log("📧 ================= EMAIL CONTENT END ===================");
@@ -1089,19 +1086,17 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
         oauth2Client.setCredentials(connection.tokens);
         const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-        // ✅ Correct MIME format with CRLF and blank line before body
-        const rawMessage = [
-          `From: ${connection.email}`,
-          `To: ${to}`,
-          cc ? `Cc: ${cc}` : "",
-          bcc ? `Bcc: ${bcc}` : "",
-          `Subject: ${safeSubject}`,
-          "MIME-Version: 1.0",
-          "Content-Type: text/html; charset=UTF-8",
-          "", // CRLF separator before body
-          emailBody,
-          "",
-        ].join("\r\n");
+        // ✅ Correct MIME Format — DOUBLE CRLF before body!
+        const rawMessage =
+          `From: ${connection.email}\r\n` +
+          `To: ${to}\r\n` +
+          (cc ? `Cc: ${cc}\r\n` : "") +
+          (bcc ? `Bcc: ${bcc}\r\n` : "") +
+          `Subject: ${safeSubject}\r\n` +
+          "MIME-Version: 1.0\r\n" +
+          "Content-Type: text/html; charset=UTF-8\r\n" +
+          "\r\n" + // DOUBLE CRLF separates headers from body
+          emailBody + "\r\n";
 
         log("📄 Gmail MIME Raw Message (first 400 chars):");
         log(rawMessage.slice(0, 400));
@@ -1265,6 +1260,7 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
     console.error("🔥 [sendEmailModule] Fatal Error:", outerErr);
   }
 };
+
 
 
 
