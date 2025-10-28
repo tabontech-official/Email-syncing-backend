@@ -944,154 +944,154 @@ export const startOutlookOAuth = (req, res) => {
   res.redirect(authorizationUri);
 };
 
-// export const outlookOAuthCallback = async (req, res) => {
-//   const { code, state } = req.query;
-
-//   let userId;
-//   try {
-//     const parsed = JSON.parse(state);
-//     userId = parsed.userId;
-//   } catch (err) {
-//     return res.status(400).send('Invalid state parameter');
-//   }
-
-//   try {
-//     const tokenParams = {
-//       code,
-//       redirect_uri: MICROSOFT_REDIRECT_URI,
-//       scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
-//     };
-
-//     const accessToken = await client.getToken(tokenParams);
-
-//     const userInfoRes = await fetch(
-//       'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
-//       {
-//         headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
-//       }
-//     );
-//     const user = await userInfoRes.json();
-//     console.log(' Microsoft user info:', user);
-
-//     const userEmail =
-//       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
-//     const userName = user.displayName || '';
-
-//     if (!userEmail)
-//       return res.status(400).send('No email found from Microsoft account');
-
-//     let connection = await ConnectionModel.findOne({
-//       userId,
-//       email: userEmail,
-//     });
-
-//     if (!connection) {
-//       connection = new ConnectionModel({
-//         userId,
-//         provider: 'outlook',
-//         email: userEmail,
-//         name: userName,
-//         tokens: accessToken.token,
-//         status: 'active',
-//         createdAt: new Date(),
-//       });
-//     } else {
-//       connection.tokens = accessToken.token;
-//       connection.status = 'active';
-//       connection.lastConnected = new Date();
-//     }
-
-//     await connection.save();
-
-//     return res.redirect(
-//       `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
-//     );
-//   } catch (err) {
-//     console.error(' Outlook OAuth error:', err);
-//     res.redirect(`${FRONTEND_URL}/connection?status=error`);
-//   }
-// };
-
-
 export const outlookOAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
-  let userId, from;
+  let userId;
   try {
     const parsed = JSON.parse(state);
     userId = parsed.userId;
-    from = parsed.from || "connection"; // default if not provided
   } catch (err) {
-    return res.status(400).send("Invalid state parameter");
+    return res.status(400).send('Invalid state parameter');
   }
 
   try {
     const tokenParams = {
       code,
       redirect_uri: MICROSOFT_REDIRECT_URI,
-      scope: "openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite",
+      scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
     };
 
     const accessToken = await client.getToken(tokenParams);
 
     const userInfoRes = await fetch(
-      "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName",
+      'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
       {
         headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
       }
     );
     const user = await userInfoRes.json();
-    console.log(" Microsoft user info:", user);
+    console.log(' Microsoft user info:', user);
 
     const userEmail =
       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
-    const userName = user.displayName || "";
+    const userName = user.displayName || '';
 
     if (!userEmail)
-      return res.status(400).send("No email found from Microsoft account");
+      return res.status(400).send('No email found from Microsoft account');
 
-    let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+    let connection = await ConnectionModel.findOne({
+      userId,
+      email: userEmail,
+    });
 
     if (!connection) {
       connection = new ConnectionModel({
         userId,
-        provider: "outlook",
+        provider: 'outlook',
         email: userEmail,
         name: userName,
         tokens: accessToken.token,
-        status: "active",
+        status: 'active',
         createdAt: new Date(),
       });
     } else {
       connection.tokens = accessToken.token;
-      connection.status = "active";
+      connection.status = 'active';
       connection.lastConnected = new Date();
     }
 
     await connection.save();
 
-    // ✅ Smart Redirect — based on origin
-    let redirectUrl;
-    switch (from) {
-      case "setup":
-        redirectUrl = `${FRONTEND_URL}/setup?outlook-auth-success=true&connectionId=${connection._id}`;
-        break;
-      case "connection":
-        redirectUrl = `${FRONTEND_URL}/connections?outlook-auth-success=true&connectionId=${connection._id}`;
-        break;
-      case "shopify":
-        redirectUrl = `${FRONTEND_URL}/scenarios/shopify?outlook-auth-success=true&connectionId=${connection._id}`;
-        break;
-      default:
-        redirectUrl = `${FRONTEND_URL}/connections?outlook-auth-success=true&connectionId=${connection._id}`;
-    }
-
-    return res.redirect(redirectUrl);
+    return res.redirect(
+      `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+    );
   } catch (err) {
-    console.error(" Outlook OAuth error:", err);
+    console.error(' Outlook OAuth error:', err);
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
+
+
+// export const outlookOAuthCallback = async (req, res) => {
+//   const { code, state } = req.query;
+
+//   let userId, from;
+//   try {
+//     const parsed = JSON.parse(state);
+//     userId = parsed.userId;
+//     from = parsed.from || "connection"; // default if not provided
+//   } catch (err) {
+//     return res.status(400).send("Invalid state parameter");
+//   }
+
+//   try {
+//     const tokenParams = {
+//       code,
+//       redirect_uri: MICROSOFT_REDIRECT_URI,
+//       scope: "openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite",
+//     };
+
+//     const accessToken = await client.getToken(tokenParams);
+
+//     const userInfoRes = await fetch(
+//       "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName",
+//       {
+//         headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
+//       }
+//     );
+//     const user = await userInfoRes.json();
+//     console.log(" Microsoft user info:", user);
+
+//     const userEmail =
+//       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
+//     const userName = user.displayName || "";
+
+//     if (!userEmail)
+//       return res.status(400).send("No email found from Microsoft account");
+
+//     let connection = await ConnectionModel.findOne({ userId, email: userEmail });
+
+//     if (!connection) {
+//       connection = new ConnectionModel({
+//         userId,
+//         provider: "outlook",
+//         email: userEmail,
+//         name: userName,
+//         tokens: accessToken.token,
+//         status: "active",
+//         createdAt: new Date(),
+//       });
+//     } else {
+//       connection.tokens = accessToken.token;
+//       connection.status = "active";
+//       connection.lastConnected = new Date();
+//     }
+
+//     await connection.save();
+
+//     // ✅ Smart Redirect — based on origin
+//     let redirectUrl;
+//     switch (from) {
+//       case "setup":
+//         redirectUrl = `${FRONTEND_URL}/setup?outlook-auth-success=true&connectionId=${connection._id}`;
+//         break;
+//       case "connection":
+//         redirectUrl = `${FRONTEND_URL}/connections?outlook-auth-success=true&connectionId=${connection._id}`;
+//         break;
+//       case "shopify":
+//         redirectUrl = `${FRONTEND_URL}/scenarios/shopify?outlook-auth-success=true&connectionId=${connection._id}`;
+//         break;
+//       default:
+//         redirectUrl = `${FRONTEND_URL}/connections?outlook-auth-success=true&connectionId=${connection._id}`;
+//     }
+
+//     return res.redirect(redirectUrl);
+//   } catch (err) {
+//     console.error(" Outlook OAuth error:", err);
+//     res.redirect(`${FRONTEND_URL}/connection?status=error`);
+//   }
+// };
 
 export const forgotPassword = async (req, res) => {
   try {
