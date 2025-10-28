@@ -483,7 +483,6 @@ export const completeSetup = async (req, res) => {
       2: 'Mailhook instruction',
       3: 'Forwarding rules configured',
       4: 'Email Credential activated',
-      5: 'Automation Enabled',
     };
 
     const user = await authModel.findById(id);
@@ -503,7 +502,7 @@ export const completeSetup = async (req, res) => {
         updatedAt: new Date(),
       }));
 
-      user.setup.stepCompleted = 5; 
+      user.setup.stepCompleted = 4; 
       user.setup.skipped = true;
       user.setup.completed = false;
       user.setup.updatedAt = new Date();
@@ -574,7 +573,7 @@ export const getSetupProgress = async (req, res) => {
 
     res.json({
       success: true,
-      message: '✅ Setup progress fetched successfully',
+      message: ' Setup progress fetched successfully',
       data: {
         userId: user._id,
         name: user.name,
@@ -818,34 +817,32 @@ export const googleAuthCallback = async (req, res) => {
 
     await connection.save();
 
-    return res.send(`
+   return res.send(`
   <html>
     <body style="font-family: sans-serif; text-align: center; padding: 40px;">
       <h2>Gmail connected successfully!</h2>
       <p>You can close this window.</p>
       <script>
         (function() {
-          // Wait a short moment to ensure opener is ready
           function notifyParent() {
             if (window.opener) {
-              // ✅ Replace this with your frontend origin
-              const frontendOrigin = "http://localhost:3000"; 
-              // or "https://your-frontend-domain.com"
+              const frontendOrigin = "http://localhost:3006"; // ✅ your frontend origin
               
               window.opener.postMessage(
-                { type: "google-auth-success", connectionId: "${connection._id}" },
+                {
+                  type: "google-auth-success",
+                  success: true, // ✅ Added success flag
+                  connectionId: "${connection._id}"
+                },
                 frontendOrigin
               );
               console.log("✅ Message sent to opener:", frontendOrigin);
             } else {
               console.warn("⚠️ No opener found.");
             }
-
-            // Close popup after a brief delay
             setTimeout(() => window.close(), 1500);
           }
 
-          // Wait to ensure parent window’s listener is attached
           setTimeout(notifyParent, 500);
         })();
       </script>
