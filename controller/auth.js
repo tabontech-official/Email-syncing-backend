@@ -1161,11 +1161,9 @@ export const requestLogin = async (req, res) => {
         .status(401)
         .json({ success: false, message: "Invalid credentials." });
 
-    // ✅ Generate a short-lived token for verification
-    const token = createToken({ id: user._id, type: "loginVerify" }, "10m"); // 10 min expiry
+    const token = createToken({ id: user._id, type: "loginVerify" }, "10m");
     const verifyUrl = `http://localhost:3006/login-verify/${token}`;
 
-    // ✅ Send verification email
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -1208,12 +1206,9 @@ export const requestLogin = async (req, res) => {
   }
 };
 
-// 🔹 Step 2: Verify Email Token and Complete Login
 export const verifyLogin = async (req, res) => {
   try {
     const { token } = req.params;
-    console.log("🟢 Incoming login verification request...");
-    console.log("🔹 Token received:", token?.slice(0, 25) + "...");
 
     if (!token) {
       console.warn("⚠️ Missing token in verification request.");
@@ -1222,19 +1217,15 @@ export const verifyLogin = async (req, res) => {
         .json({ success: false, message: "Token missing." });
     }
 
-    // 🔍 Decode and verify JWT token
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.SECRET_KEY);
-      console.log("✅ Token successfully verified:", decoded);
     } catch (err) {
-      console.error("❌ Token verification failed:", err.message);
       return res
         .status(400)
         .json({ success: false, message: "Invalid or expired token." });
     }
 
-    // 🧩 Validate token type
     if (decoded?.payLoad?.type !== "loginVerify") {
       console.warn(
         "⚠️ Invalid token type received:",
@@ -1245,21 +1236,16 @@ export const verifyLogin = async (req, res) => {
         .json({ success: false, message: "Invalid token type." });
     }
 
-    // 🧠 Extract user ID from token payload
     const userId = decoded?.payLoad?.id;
     if (!userId) {
-      console.error("❌ Token payload missing userId:", decoded);
       return res
         .status(400)
         .json({ success: false, message: "Invalid token payload." });
     }
 
-    console.log("🔍 Looking up user in DB with ID:", userId);
 
-    // 🧾 Check if user exists
     const user = await authModel.findById(userId);
     if (!user) {
-      console.warn("⚠️ No user found for ID:", userId);
       return res
         .status(404)
         .json({ success: false, message: "User not found." });
@@ -1267,17 +1253,13 @@ export const verifyLogin = async (req, res) => {
 
     console.log("👤 User found:", { id: user._id, email: user.email });
 
-    // 🛠️ Create a new login session token (1-day expiry)
     const loginToken = createToken({ id: user._id }, "1d");
     console.log("🔐 Session token generated successfully for user:", user.email);
     console.log("📤 Redirecting user to frontend...");
 
-    // ✅ Redirect user to frontend login success page
 res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
 
-    console.log("✅ Login verification complete for user:", user.email);
   } catch (err) {
-    console.error("💥 Error verifying login:", err);
     res
       .status(500)
       .json({ success: false, message: "Internal server error." });
