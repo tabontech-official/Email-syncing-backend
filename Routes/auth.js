@@ -3,6 +3,7 @@ import {
   addSmtpConnection,
   completeSetup,
   createOrganization,
+  forgotPassword,
   getConnections,
   getOrganizationByUserId,
   getSetupProgress,
@@ -11,11 +12,14 @@ import {
   googleAuthCallback,
   logout,
   outlookOAuthCallback,
+  requestLogin,
+  setPassword,
   signIn,
   signUp,
   skipAllSteps,
   startOutlookOAuth,
   updateUserAndOrganization,
+  verifyLogin,
   verifyUser,
 } from '../controller/auth.js';
 
@@ -41,6 +45,10 @@ authRouter.get("/outlook", startOutlookOAuth);
 authRouter.get("/outlook/callback", outlookOAuthCallback);
 authRouter.put("/updateUserAndOrganization/:id", updateUserAndOrganization);
 authRouter.post("/skip-all/:userId", skipAllSteps);
+authRouter.post("/forgot-password", forgotPassword);
+authRouter.post("/set-password", setPassword)
+authRouter.post("/request-login", requestLogin)
+authRouter.post("/verify-login/:token", verifyLogin);  // Step 1
 
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);

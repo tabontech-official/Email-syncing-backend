@@ -14,6 +14,8 @@ import nodemailer from 'nodemailer';
 import path from 'path';
 import { scenarioModel } from '../Models/Scenario.js';
 import { OrganizationModel } from '../Models/Organization.js';
+import bcrypt from 'bcrypt';
+
 
 export const defaultServices = [
   'General',
@@ -54,7 +56,6 @@ const createToken = (payLoad) => {
   });
   return token;
 };
-
 
 export const signUp = async (req, res) => {
   try {
@@ -324,7 +325,7 @@ export const getUserById = async (req, res) => {
 
     const user = await authModel.findById(id);
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const latestEmail = await EmailModel.findOne({
@@ -337,7 +338,7 @@ export const getUserById = async (req, res) => {
     const organization = await OrganizationModel.findOne({ userId: id }).lean();
 
     res.status(200).json({
-      message: "User fetched successfully",
+      message: 'User fetched successfully',
       data: {
         ...user.toObject(),
         verificationUrl: latestEmail?.verificationUrl || null,
@@ -357,11 +358,10 @@ export const getUserById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching user:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
-
 
 export const updateUserAndOrganization = async (req, res) => {
   try {
@@ -379,7 +379,9 @@ export const updateUserAndOrganization = async (req, res) => {
 
     const user = await authModel.findById(id);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
     }
 
     if (fullName) user.fullName = fullName;
@@ -402,27 +404,28 @@ export const updateUserAndOrganization = async (req, res) => {
     } else {
       organization = await OrganizationModel.create({
         userId: id,
-        organizationName: organizationName || user.organizationName || "My Organization",
-        Region: Region || "US",
-        country: country || "USA",
-        TimeZone: TimeZone || "UTC",
-        PartnerLink: PartnerLink || "",
+        organizationName:
+          organizationName || user.organizationName || 'My Organization',
+        Region: Region || 'US',
+        country: country || 'USA',
+        TimeZone: TimeZone || 'UTC',
+        PartnerLink: PartnerLink || '',
       });
     }
 
     res.status(200).json({
       success: true,
-      message: "User and Organization updated successfully",
+      message: 'User and Organization updated successfully',
       data: {
         user,
         organization,
       },
     });
   } catch (error) {
-    console.error("❌ Error updating user and organization:", error);
+    console.error('❌ Error updating user and organization:', error);
     res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: 'Internal Server Error',
     });
   }
 };
@@ -502,7 +505,7 @@ export const completeSetup = async (req, res) => {
         updatedAt: new Date(),
       }));
 
-      user.setup.stepCompleted = 4; 
+      user.setup.stepCompleted = 4;
       user.setup.skipped = true;
       user.setup.completed = false;
       user.setup.updatedAt = new Date();
@@ -674,13 +677,15 @@ export const skipAllSteps = async (req, res) => {
 
     const user = await authModel.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
     }
 
     // Mark all steps as skipped
     const updatedSteps = user.setup.steps.map((step) => ({
       ...step.toObject(),
-      status: "skipped",
+      status: 'skipped',
       updatedAt: new Date(),
     }));
 
@@ -693,26 +698,18 @@ export const skipAllSteps = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "All steps marked as skipped successfully",
+      message: 'All steps marked as skipped successfully',
       setup: user.setup,
     });
   } catch (error) {
-    console.error("Error skipping setup steps:", error);
+    console.error('Error skipping setup steps:', error);
     res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: 'Internal server error',
       error: error.message,
     });
   }
 };
-
-
-
-
-
-
-
-
 
 // const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -817,9 +814,9 @@ export const googleAuthCallback = async (req, res) => {
 
     await connection.save();
 
-   return res.redirect(
-  `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
-);
+    return res.redirect(
+      `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+    );
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
     return res.redirect('http://localhost:3006/connection?status=error');
@@ -1003,11 +1000,287 @@ export const outlookOAuthCallback = async (req, res) => {
 
     await connection.save();
 
-   return res.redirect(
-  `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
-);
+    return res.redirect(
+      `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+    );
   } catch (err) {
     console.error(' Outlook OAuth error:', err);
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res
+        .status(400)
+        .json({ success: false, message: 'Email is required.' });
+
+    const user = await authModel.findOne({ email });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+
+    const token = createToken({ id: user._id });
+
+    const resetUrl = `http://localhost:3006/reset-password/${token}`;
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: `"Make Support" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Reset Your Password',
+      html: `
+        <div style="font-family: Arial; padding: 20px; background: #f9f9f9;">
+          <h2>Reset Your Password</h2>
+          <p>Hello ${user.name || ''},</p>
+          <p>Click the link below to reset your password:</p>
+          <a href="${resetUrl}" 
+             style="display:inline-block;padding:10px 20px;background:#007bff;
+                    color:#fff;text-decoration:none;border-radius:5px;">
+            Reset Password
+          </a>
+          <p>This link will expire in 24 hours.</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.json({
+      success: true,
+      message: 'Password reset link sent to your email!',
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error.',
+      error: err.message,
+    });
+  }
+};
+
+export const setPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    console.log("🟢 Incoming setPassword request:", { token, passwordLength: password?.length });
+
+    if (!token || !password) {
+      console.warn("⚠️ Missing token or password in request body.");
+      return res
+        .status(400)
+        .json({ success: false, message: "Token and password are required." });
+    }
+
+    // 🔹 Verify JWT token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.SECRET_KEY);
+      console.log("✅ Token verified successfully:", decoded);
+    } catch (err) {
+      console.error("❌ Token verification failed:", err.message);
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or expired token." });
+    }
+
+    // 🔹 Extract user ID from token payload
+    const userId = decoded?.payLoad?.id;
+    if (!userId) {
+      console.error("❌ Invalid token payload — userId not found.");
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid token payload." });
+    }
+
+    console.log("🔍 Decoded userId:", userId);
+
+    // 🔹 Find user in database
+    const user = await authModel.findById(userId);
+    if (!user) {
+      console.warn("⚠️ No user found for ID:", userId);
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found." });
+    }
+
+    console.log("👤 User found:", { id: user._id, email: user.email });
+
+    // 🔹 Hash new password
+    const hashed = await bcrypt.hash(password, 10);
+    console.log("🔐 Password hashed successfully.");
+
+    // 🔹 Update user password
+    await authModel.findByIdAndUpdate(userId, { password: hashed });
+    console.log("✅ Password updated in database for user:", userId);
+
+    // 🔹 Send response
+    res.json({
+      success: true,
+      message: "Password updated successfully!",
+    });
+    console.log("✅ Password reset complete for:", user.email);
+  } catch (error) {
+    console.error("💥 Internal server error in setPassword:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+      error: error.message,
+    });
+  }
+};
+
+
+export const requestLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password)
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and password required." });
+
+    const user = await authModel.findOne({ email });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found." });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch)
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid credentials." });
+
+    // ✅ Generate a short-lived token for verification
+    const token = createToken({ id: user._id, type: "loginVerify" }, "10m"); // 10 min expiry
+    const verifyUrl = `http://localhost:3006/login-verify/${token}`;
+
+    // ✅ Send verification email
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Make Support" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "Login Verification",
+      html: `
+        <div style="font-family: Arial; padding: 20px;">
+          <h2>Verify Your Login</h2>
+          <p>Hello ${user.name || ""},</p>
+          <p>Someone (hopefully you) tried to log into your account.</p>
+          <p>Click below to verify your login:</p>
+          <a href="${verifyUrl}" 
+             style="display:inline-block;background:#4f46e5;color:white;
+                    padding:10px 20px;text-decoration:none;border-radius:6px;">
+             Verify Login
+          </a>
+          <p style="margin-top:10px;font-size:13px;color:#666">
+            This link will expire in 10 minutes. If it wasn’t you, please ignore this email.
+          </p>
+        </div>
+      `,
+    });
+
+    console.log("📧 Login verification email sent to:", user.email);
+
+    res.json({
+      success: true,
+      message: "Verification email sent. Please check your inbox.",
+    });
+  } catch (err) {
+    console.error("❌ Error in requestLogin:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 🔹 Step 2: Verify Email Token and Complete Login
+export const verifyLogin = async (req, res) => {
+  try {
+    const { token } = req.params;
+    console.log("🟢 Incoming login verification request...");
+    console.log("🔹 Token received:", token?.slice(0, 25) + "...");
+
+    if (!token) {
+      console.warn("⚠️ Missing token in verification request.");
+      return res
+        .status(400)
+        .json({ success: false, message: "Token missing." });
+    }
+
+    // 🔍 Decode and verify JWT token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.SECRET_KEY);
+      console.log("✅ Token successfully verified:", decoded);
+    } catch (err) {
+      console.error("❌ Token verification failed:", err.message);
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or expired token." });
+    }
+
+    // 🧩 Validate token type
+    if (decoded?.payLoad?.type !== "loginVerify") {
+      console.warn(
+        "⚠️ Invalid token type received:",
+        decoded?.payLoad?.type || "(none)"
+      );
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid token type." });
+    }
+
+    // 🧠 Extract user ID from token payload
+    const userId = decoded?.payLoad?.id;
+    if (!userId) {
+      console.error("❌ Token payload missing userId:", decoded);
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid token payload." });
+    }
+
+    console.log("🔍 Looking up user in DB with ID:", userId);
+
+    // 🧾 Check if user exists
+    const user = await authModel.findById(userId);
+    if (!user) {
+      console.warn("⚠️ No user found for ID:", userId);
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found." });
+    }
+
+    console.log("👤 User found:", { id: user._id, email: user.email });
+
+    // 🛠️ Create a new login session token (1-day expiry)
+    const loginToken = createToken({ id: user._id }, "1d");
+    console.log("🔐 Session token generated successfully for user:", user.email);
+    console.log("📤 Redirecting user to frontend...");
+
+    // ✅ Redirect user to frontend login success page
+res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
+
+    console.log("✅ Login verification complete for user:", user.email);
+  } catch (err) {
+    console.error("💥 Error verifying login:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Internal server error." });
+  }
+};
+
