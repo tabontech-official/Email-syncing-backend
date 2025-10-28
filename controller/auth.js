@@ -495,7 +495,6 @@ export const completeSetup = async (req, res) => {
     if (!user.setup) user.setup = { steps: [] };
     if (!user.setup.steps) user.setup.steps = [];
 
-    // 🟢 CASE 1 — user skipped everything at once
     if (skipped && stepCompleted === 1) {
       user.setup.steps = Object.entries(stepTitles).map(([num, title]) => ({
         step: Number(num),
@@ -504,7 +503,7 @@ export const completeSetup = async (req, res) => {
         updatedAt: new Date(),
       }));
 
-      user.setup.stepCompleted = 5; // assume full wizard skipped
+      user.setup.stepCompleted = 5; 
       user.setup.skipped = true;
       user.setup.completed = false;
       user.setup.updatedAt = new Date();
@@ -517,7 +516,6 @@ export const completeSetup = async (req, res) => {
       });
     }
 
-    // 🟠 CASE 2 — normal flow or partial skip
     for (let i = 1; i <= stepCompleted; i++) {
       const existing = user.setup.steps.find((s) => s.step === i);
       const isCurrent = i === stepCompleted;
@@ -544,11 +542,11 @@ export const completeSetup = async (req, res) => {
 
     res.json({
       success: true,
-      message: '✅ Setup progress updated successfully',
+      message: 'Setup progress updated successfully',
       data: user.setup,
     });
   } catch (err) {
-    console.error('❌ Error updating setup:', err);
+    console.error('Error updating setup:', err);
     res.status(500).json({ success: false, message: 'Failed to update setup' });
   }
 };

@@ -1908,3 +1908,139 @@ Zenith Inbox Team`,
       .json({ success: false, message: 'Failed to send test email', error });
   }
 };
+
+
+export const verifyConnection = async (req, res) => {
+  const { connectionId } = req.body;
+
+  console.log("🔍 [verifyConnection] Verifying connection:", connectionId);
+
+  if (!connectionId) {
+    return res.status(400).json({ success: false, message: "connectionId is required" });
+  }
+
+  try {
+    const connection = await ConnectionModel.findById(connectionId);
+    if (!connection) {
+      return res.status(404).json({ success: false, message: "Connection not found" });
+    }
+
+    console.log("🔌 Provider:", connection.provider, "| Email:", connection.email);
+
+    let verified = false;
+
+ 
+    if (connection.provider === "gmail") {
+      try {
+        console.log("📨 Verifying Gmail OAuth2...");
+
+        const oauth2Client = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI
+        );
+        oauth2Client.setCredentials(connection.tokens);
+
+        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+        await gmail.users.getProfile({ userId: "me" });
+
+        verified = true;
+        console.log("✅ Gmail verification successful!");
+      } catch (err) {
+        console.error("❌ Gmail verification failed:", err.message);
+      }
+    }
+
+
+    else if (connection.provider === "outlook") {
+      try {
+        console.log("📨 Verifying Outlook token...");
+        const resp = await fetch("https://graph.microsoft.com/v1.0/me", {
+          headers: {
+            Authorization: `Bearer ${connection.tokens.access_token}`,
+          },
+        });
+
+        if (resp.ok) {
+          verified = true;
+          console.log("✅ Outlook verification successful!");
+        } else {
+          const error = await resp.text();
+          console.error("❌ Outlook token invalid:", error);
+        }
+      } catch (err) {
+        console.error("❌ Outlook verification failed:", err.message);
+      }
+    }
+
+ 
+    else if (connection.provider === "smtp") {
+      try {
+        console.log("📨 Verifying SMTP credentials...");
+
+        if (!connection.smtp?.host || !connection.smtp?.username || !connection.smtp?.password) {
+          throw new Error("Missing SMTP credentials");
+        }
+
+        const transporter = nodemailer.createTransport({
+          host: connection.smtp.host,
+          port: connection.smtp.port || 465,
+          secure: connection.smtp.port === 465,
+          auth: {
+            user: connection.smtp.username,
+            pass: connection.smtp.password,
+          },
+          tls: { rejectUnauthorized: false },
+        });
+
+        await transporter.verify();
+        verified = true;
+        console.log("✅ SMTP verification successful!");
+      } catch (err) {
+        console.error("❌ SMTP verification failed:", err.message);
+      }
+    } else {
+      console.error("❌ Unknown provider:", connection.provider);
+    }
+
+ 
+    if (verified) {
+      connection.verified = true;
+      await connection.save();
+
+      console.log("💾 Connection marked as verified in DB:", connection._id);
+      return res.json({ success: true, message: "Connection verified successfully!" });
+    } else {
+      connection.verified = false;
+      await connection.save();
+
+      return res.status(400).json({
+        success: false,
+        message: "Verification failed. Invalid or expired credentials.",
+      });
+    }
+  } catch (error) {
+    console.error("🔥 [verifyConnection] Error:", error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+
+export const getConnectionById = async (req, res) => {
+  try {
+    const connection = await ConnectionModel.findById(req.params.id);
+
+    if (!connection) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Connection not found" });
+    }
+
+    res.status(200).json(connection); // includes "verified"
+  } catch (err) {
+    console.error("❌ [getConnectionById] Error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};

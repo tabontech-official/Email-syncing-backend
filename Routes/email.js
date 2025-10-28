@@ -2,6 +2,7 @@ import express from 'express';
 import {
   deleteAllConnections,
   deleteConnectionById,
+  getConnectionById,
   getEmailDataforUser,
   getEmails,
   getEmailsForUsers,
@@ -13,6 +14,7 @@ import {
   RunTestMode,
   sendTestEmail,
   validateTestEmail,
+  verifyConnection,
 } from '../controller/smtpServer.js';
 import multer from 'multer';
 
@@ -42,5 +44,7 @@ emailRouter.get('/validateTest/:userId', getValidateEmail);
 emailRouter.get('/get-test-data/:userId', getTestEmailData);
 emailRouter.delete('/deleteConnection/:id', deleteConnectionById);
 emailRouter.post('/sendTestEmail', sendTestEmail);
+emailRouter.post("/verify", verifyConnection);
+emailRouter.get("/:id", getConnectionById);
 
 export default emailRouter;
