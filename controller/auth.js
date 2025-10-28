@@ -510,7 +510,7 @@ export const completeSetup = async (req, res) => {
       await user.save();
       return res.json({
         success: true,
-        message: '✅ All steps marked as skipped',
+        message: 'All steps marked as skipped',
         data: user.setup,
       });
     }
@@ -573,7 +573,7 @@ export const getSetupProgress = async (req, res) => {
 
     res.json({
       success: true,
-      message: ' Setup progress fetched successfully',
+      message: 'Setup progress fetched successfully',
       data: {
         userId: user._id,
         name: user.name,
@@ -582,7 +582,7 @@ export const getSetupProgress = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('❌ Error fetching setup progress:', err);
+    console.error('Error fetching setup progress:', err);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch setup progress',
