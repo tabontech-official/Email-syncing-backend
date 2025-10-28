@@ -711,17 +711,17 @@ export const skipAllSteps = async (req, res) => {
   }
 };
 
-// const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-// const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-// const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-const CLIENT_ID =
-  '1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com';
-const CLIENT_SECRET = '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';
-const REDIRECT_URI = 'http://localhost:5000/auth/google/callback';
-console.log('CLIENT_ID', CLIENT_ID);
-console.log('CLIENT_SECRET', CLIENT_SECRET);
-console.log('REDIRECT_URI', REDIRECT_URI);
+// const CLIENT_ID =
+//   '1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com';
+// const CLIENT_SECRET = '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';
+// const REDIRECT_URI = 'http://localhost:5000/auth/google/callback';
+// console.log('CLIENT_ID', CLIENT_ID);
+// console.log('CLIENT_SECRET', CLIENT_SECRET);
+// console.log('REDIRECT_URI', REDIRECT_URI);
 
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
@@ -775,7 +775,7 @@ export const googleAuthCallback = async (req, res) => {
 
     if (!tokens.refresh_token) {
       return res.redirect(
-        'http://localhost:3006/connection?status=no_refresh_token'
+        `${FRONTEND_URL}/connection?status=no_refresh_token`
       );
     }
 
@@ -815,11 +815,11 @@ export const googleAuthCallback = async (req, res) => {
     await connection.save();
 
     return res.redirect(
-      `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+      `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
     );
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
-    return res.redirect('http://localhost:3006/connection?status=error');
+    return res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
 
@@ -906,11 +906,14 @@ export const addSmtpConnection = async (req, res) => {
   }
 };
 
-const MICROSOFT_CLIENT_ID = '09979dca-57cd-450e-8934-24887f1f368c';
-const MICROSOFT_CLIENT_SECRET = 'TQK8Q~Awgm.47QKh2QT5w~D4nqZiwkGGJpoQ5c._';
-const MICROSOFT_REDIRECT_URI = 'http://localhost:5000/auth/outlook/callback';
-const FRONTEND_URL = 'http://localhost:3006';
-
+// const MICROSOFT_CLIENT_ID = '09979dca-57cd-450e-8934-24887f1f368c';
+// const MICROSOFT_CLIENT_SECRET = 'TQK8Q~Awgm.47QKh2QT5w~D4nqZiwkGGJpoQ5c._';
+// const MICROSOFT_REDIRECT_URI = 'http://localhost:5000/auth/outlook/callback';
+// const FRONTEND_URL = 'http://localhost:3006';
+const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID
+const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
+const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
+const FRONTEND_URL = process.env.FRONTEND_URL;
 const oauthConfig = {
   client: {
     id: MICROSOFT_CLIENT_ID,
@@ -1001,7 +1004,7 @@ export const outlookOAuthCallback = async (req, res) => {
     await connection.save();
 
     return res.redirect(
-      `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+      `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
     );
   } catch (err) {
     console.error(' Outlook OAuth error:', err);
@@ -1025,7 +1028,7 @@ export const forgotPassword = async (req, res) => {
 
     const token = createToken({ id: user._id });
 
-    const resetUrl = `http://localhost:3006/reset-password/${token}`;
+    const resetUrl = `${FRONTEND_URL}/reset-password/${token}`;
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
