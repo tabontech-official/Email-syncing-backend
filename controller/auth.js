@@ -817,38 +817,9 @@ export const googleAuthCallback = async (req, res) => {
 
     await connection.save();
 
-   return res.send(`
-  <html>
-    <body style="font-family: sans-serif; text-align: center; padding: 40px;">
-      <h2>Gmail connected successfully!</h2>
-      <p>You can close this window.</p>
-      <script>
-        (function() {
-          function notifyParent() {
-            if (window.opener) {
-              const frontendOrigin = "http://localhost:3006"; // ✅ your frontend origin
-              
-              window.opener.postMessage(
-                {
-                  type: "google-auth-success",
-                  success: true, // ✅ Added success flag
-                  connectionId: "${connection._id}"
-                },
-                frontendOrigin
-              );
-              console.log("✅ Message sent to opener:", frontendOrigin);
-            } else {
-              console.warn("⚠️ No opener found.");
-            }
-            setTimeout(() => window.close(), 1500);
-          }
-
-          setTimeout(notifyParent, 500);
-        })();
-      </script>
-    </body>
-  </html>
-`);
+   return res.redirect(
+  `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+);
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
     return res.redirect('http://localhost:3006/connection?status=error');
@@ -1032,32 +1003,9 @@ export const outlookOAuthCallback = async (req, res) => {
 
     await connection.save();
 
-    return res.send(`
-      <html>
-        <body style="font-family: sans-serif; text-align: center; padding: 40px;">
-          <h2> Outlook connected successfully!</h2>
-          <p>You can close this window.</p>
-          <script>
-            (function() {
-              function notifyParent() {
-                if (window.opener) {
-                  const frontendOrigin = "${FRONTEND_URL}";
-                  window.opener.postMessage(
-                    { type: "outlook-auth-success", connectionId: "${connection._id}" },
-                    frontendOrigin
-                  );
-                  console.log(" Message sent to opener:", frontendOrigin);
-                } else {
-                  console.warn(" No opener found.");
-                }
-                setTimeout(() => window.close(), 1500);
-              }
-              setTimeout(notifyParent, 500);
-            })();
-          </script>
-        </body>
-      </html>
-    `);
+   return res.redirect(
+  `http://localhost:3006/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+);
   } catch (err) {
     console.error(' Outlook OAuth error:', err);
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
