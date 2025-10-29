@@ -1188,7 +1188,7 @@ export const startOutlookOAuth = (req, res) => {
     redirect_uri: MICROSOFT_REDIRECT_URI,
     scope:
       "openid profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send",
-    state: JSON.stringify({ userId, redirect }), // ✅ store redirect here
+    state: JSON.stringify({ userId, redirect }), 
     prompt: "consent",
   });
 
@@ -1203,7 +1203,7 @@ export const outlookOAuthCallback = async (req, res) => {
   try {
     const parsed = JSON.parse(state);
     userId = parsed.userId;
-    redirectPath = parsed.redirect || "connection"; // ✅ fallback if missing
+    redirectPath = parsed.redirect || "connection"; 
   } catch (err) {
     return res.status(400).send("Invalid state parameter");
   }
@@ -1218,7 +1218,6 @@ export const outlookOAuthCallback = async (req, res) => {
 
     const accessToken = await client.getToken(tokenParams);
 
-    // ✅ Fetch user info from Microsoft Graph
     const userInfoRes = await fetch(
       "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName",
       {
@@ -1257,12 +1256,10 @@ export const outlookOAuthCallback = async (req, res) => {
 
     await connection.save();
 
-    // ✅ Redirect dynamically based on the redirectPath (setup / connection / shopify)
     return res.redirect(
       `${FRONTEND_URL}/${redirectPath}?outlook-auth-success=true&connectionId=${connection._id}`
     );
   } catch (err) {
-    console.error("❌ Outlook OAuth error:", err);
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
