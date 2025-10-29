@@ -16,7 +16,6 @@ import { scenarioModel } from '../Models/Scenario.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
 
-
 export const defaultServices = [
   'General',
   'Troubleshooting',
@@ -738,27 +737,114 @@ const SCOPES = [
   'https://mail.google.com/',
 ];
 
+// export const googleAuth = (req, res) => {
+//   const { userId } = req.query;
+//   if (!userId) return res.status(400).send('userId is required');
+
+//   const authUrl = oauth2Client.generateAuthUrl({
+//     access_type: 'offline',
+//     scope: SCOPES,
+//     prompt: 'consent',
+//     state: JSON.stringify({ userId }),
+//   });
+
+//   res.redirect(authUrl);
+// };
+
+// export const googleAuthCallback = async (req, res) => {
+//   const { code, state } = req.query;
+
+//   let userId;
+//   try {
+//     const parsedState = JSON.parse(state);
+//     userId = parsedState.userId;
+//   } catch (err) {
+//     return res.status(400).send('Invalid state parameter');
+//   }
+
+//   try {
+//     const oauth2Client = new google.auth.OAuth2(
+//       CLIENT_ID,
+//       CLIENT_SECRET,
+//       REDIRECT_URI
+//     );
+
+//     const { tokens } = await oauth2Client.getToken(code);
+//     oauth2Client.setCredentials(tokens);
+
+//     if (!tokens.refresh_token) {
+//       return res.redirect(
+//         `${FRONTEND_URL}/connection?status=no_refresh_token`
+//       );
+//     }
+
+//     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+//     const response = await peopleApi.people.get({
+//       resourceName: 'people/me',
+//       personFields: 'emailAddresses,names',
+//     });
+
+//     const userEmail = response.data.emailAddresses?.[0]?.value;
+//     const userName = response.data.names?.[0]?.displayName || '';
+
+//     if (!userEmail)
+//       return res.status(400).send('No email found in Google profile');
+
+//     let connection = await ConnectionModel.findOne({
+//       userId,
+//       email: userEmail,
+//     });
+
+//     if (!connection) {
+//       connection = new ConnectionModel({
+//         userId,
+//         provider: 'gmail',
+//         email: userEmail,
+//         name: userName,
+//         tokens,
+//         status: 'active',
+//         createdAt: new Date(),
+//       });
+//     } else {
+//       connection.tokens = tokens;
+//       connection.status = 'active';
+//       connection.lastConnected = new Date();
+//     }
+
+//     await connection.save();
+
+//     return res.redirect(
+//       `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+//     );
+//   } catch (error) {
+//     console.error('❌ Error during Google auth callback:', error);
+//     return res.redirect(`${FRONTEND_URL}/connection?status=error`);
+//   }
+// };
+
 export const googleAuth = (req, res) => {
-  const { userId } = req.query;
+  const { userId, redirect } = req.query;
+
   if (!userId) return res.status(400).send('userId is required');
 
+  // Include redirect in the state
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
-    state: JSON.stringify({ userId }),
+    state: JSON.stringify({ userId, redirect }), // ✅ Added redirect info
   });
 
   res.redirect(authUrl);
 };
-
 export const googleAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
-  let userId;
+  let userId, redirectPath;
   try {
     const parsedState = JSON.parse(state);
     userId = parsedState.userId;
+    redirectPath = parsedState.redirect || 'connection'; // default if missing
   } catch (err) {
     return res.status(400).send('Invalid state parameter');
   }
@@ -775,7 +861,7 @@ export const googleAuthCallback = async (req, res) => {
 
     if (!tokens.refresh_token) {
       return res.redirect(
-        `${FRONTEND_URL}/connection?status=no_refresh_token`
+        `${FRONTEND_URL}/${redirectPath}?status=no_refresh_token`
       );
     }
 
@@ -815,11 +901,11 @@ export const googleAuthCallback = async (req, res) => {
     await connection.save();
 
     return res.redirect(
-      `${FRONTEND_URL}/scenarios/shopify?google-auth-success=true&connectionId=${connection._id}`
+      `${FRONTEND_URL}/${redirectPath}?google-auth-success=true&connectionId=${connection._id}`
     );
   } catch (error) {
     console.error('❌ Error during Google auth callback:', error);
-    return res.redirect(`${FRONTEND_URL}/connection?status=error`);
+    return res.redirect(`${FRONTEND_URL}/${redirectPath}?status=error`);
   }
 };
 
@@ -910,7 +996,7 @@ export const addSmtpConnection = async (req, res) => {
 // const MICROSOFT_CLIENT_SECRET = 'TQK8Q~Awgm.47QKh2QT5w~D4nqZiwkGGJpoQ5c._';
 // const MICROSOFT_REDIRECT_URI = 'http://localhost:5000/auth/outlook/callback';
 // const FRONTEND_URL = 'http://localhost:3006';
-const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID
+const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
 const FRONTEND_URL = process.env.FRONTEND_URL;
@@ -1011,7 +1097,6 @@ export const outlookOAuthCallback = async (req, res) => {
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
-
 
 // export const outlookOAuthCallback = async (req, res) => {
 //   const { code, state } = req.query;
@@ -1156,73 +1241,75 @@ export const forgotPassword = async (req, res) => {
 export const setPassword = async (req, res) => {
   try {
     const { token, password } = req.body;
-    console.log("🟢 Incoming setPassword request:", { token, passwordLength: password?.length });
+    console.log('🟢 Incoming setPassword request:', {
+      token,
+      passwordLength: password?.length,
+    });
 
     if (!token || !password) {
-      console.warn("⚠️ Missing token or password in request body.");
+      console.warn('⚠️ Missing token or password in request body.');
       return res
         .status(400)
-        .json({ success: false, message: "Token and password are required." });
+        .json({ success: false, message: 'Token and password are required.' });
     }
 
     // 🔹 Verify JWT token
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.SECRET_KEY);
-      console.log("✅ Token verified successfully:", decoded);
+      console.log('✅ Token verified successfully:', decoded);
     } catch (err) {
-      console.error("❌ Token verification failed:", err.message);
+      console.error('❌ Token verification failed:', err.message);
       return res
         .status(400)
-        .json({ success: false, message: "Invalid or expired token." });
+        .json({ success: false, message: 'Invalid or expired token.' });
     }
 
     // 🔹 Extract user ID from token payload
     const userId = decoded?.payLoad?.id;
     if (!userId) {
-      console.error("❌ Invalid token payload — userId not found.");
+      console.error('❌ Invalid token payload — userId not found.');
       return res
         .status(400)
-        .json({ success: false, message: "Invalid token payload." });
+        .json({ success: false, message: 'Invalid token payload.' });
     }
 
-    console.log("🔍 Decoded userId:", userId);
+    console.log('🔍 Decoded userId:', userId);
 
     // 🔹 Find user in database
     const user = await authModel.findById(userId);
     if (!user) {
-      console.warn("⚠️ No user found for ID:", userId);
+      console.warn('⚠️ No user found for ID:', userId);
       return res
         .status(404)
-        .json({ success: false, message: "User not found." });
+        .json({ success: false, message: 'User not found.' });
     }
 
-    console.log("👤 User found:", { id: user._id, email: user.email });
+    console.log('👤 User found:', { id: user._id, email: user.email });
 
     // 🔹 Hash new password
     const hashed = await bcrypt.hash(password, 10);
-    console.log("🔐 Password hashed successfully.");
+    console.log('🔐 Password hashed successfully.');
 
     // 🔹 Update user password
     await authModel.findByIdAndUpdate(userId, { password: hashed });
-    console.log("✅ Password updated in database for user:", userId);
+    console.log('✅ Password updated in database for user:', userId);
 
     // 🔹 Send response
     res.json({
       success: true,
-      message: "Password updated successfully!",
+      message: 'Password updated successfully!',
     });
-    console.log("✅ Password reset complete for:", user.email);
+    console.log('✅ Password reset complete for:', user.email);
   } catch (error) {
-    console.error("💥 Internal server error in setPassword:", error);
+    console.error('💥 Internal server error in setPassword:', error);
     res.status(500).json({
       success: false,
-      message: "Internal server error.",
+      message: 'Internal server error.',
       error: error.message,
     });
   }
 };
-
 
 export const requestLogin = async (req, res) => {
   try {
@@ -1231,25 +1318,25 @@ export const requestLogin = async (req, res) => {
     if (!email || !password)
       return res
         .status(400)
-        .json({ success: false, message: "Email and password required." });
+        .json({ success: false, message: 'Email and password required.' });
 
     const user = await authModel.findOne({ email });
     if (!user)
       return res
         .status(404)
-        .json({ success: false, message: "User not found." });
+        .json({ success: false, message: 'User not found.' });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res
         .status(401)
-        .json({ success: false, message: "Invalid credentials." });
+        .json({ success: false, message: 'Invalid credentials.' });
 
-    const token = createToken({ id: user._id, type: "loginVerify" }, "10m");
+    const token = createToken({ id: user._id, type: 'loginVerify' }, '10m');
     const verifyUrl = `http://localhost:3006/login-verify/${token}`;
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -1259,11 +1346,11 @@ export const requestLogin = async (req, res) => {
     await transporter.sendMail({
       from: `"Make Support" <${process.env.EMAIL_USER}>`,
       to: user.email,
-      subject: "Login Verification",
+      subject: 'Login Verification',
       html: `
         <div style="font-family: Arial; padding: 20px;">
           <h2>Verify Your Login</h2>
-          <p>Hello ${user.name || ""},</p>
+          <p>Hello ${user.name || ''},</p>
           <p>Someone (hopefully you) tried to log into your account.</p>
           <p>Click below to verify your login:</p>
           <a href="${verifyUrl}" 
@@ -1278,15 +1365,15 @@ export const requestLogin = async (req, res) => {
       `,
     });
 
-    console.log("📧 Login verification email sent to:", user.email);
+    console.log('📧 Login verification email sent to:', user.email);
 
     res.json({
       success: true,
-      message: "Verification email sent. Please check your inbox.",
+      message: 'Verification email sent. Please check your inbox.',
     });
   } catch (err) {
-    console.error("❌ Error in requestLogin:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error('❌ Error in requestLogin:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -1295,10 +1382,10 @@ export const verifyLogin = async (req, res) => {
     const { token } = req.params;
 
     if (!token) {
-      console.warn("⚠️ Missing token in verification request.");
+      console.warn('⚠️ Missing token in verification request.');
       return res
         .status(400)
-        .json({ success: false, message: "Token missing." });
+        .json({ success: false, message: 'Token missing.' });
     }
 
     let decoded;
@@ -1307,46 +1394,44 @@ export const verifyLogin = async (req, res) => {
     } catch (err) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid or expired token." });
+        .json({ success: false, message: 'Invalid or expired token.' });
     }
 
-    if (decoded?.payLoad?.type !== "loginVerify") {
+    if (decoded?.payLoad?.type !== 'loginVerify') {
       console.warn(
-        "⚠️ Invalid token type received:",
-        decoded?.payLoad?.type || "(none)"
+        '⚠️ Invalid token type received:',
+        decoded?.payLoad?.type || '(none)'
       );
       return res
         .status(400)
-        .json({ success: false, message: "Invalid token type." });
+        .json({ success: false, message: 'Invalid token type.' });
     }
 
     const userId = decoded?.payLoad?.id;
     if (!userId) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid token payload." });
+        .json({ success: false, message: 'Invalid token payload.' });
     }
-
 
     const user = await authModel.findById(userId);
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found." });
+        .json({ success: false, message: 'User not found.' });
     }
 
-    console.log("👤 User found:", { id: user._id, email: user.email });
+    console.log('👤 User found:', { id: user._id, email: user.email });
 
-    const loginToken = createToken({ id: user._id }, "1d");
-    console.log("🔐 Session token generated successfully for user:", user.email);
-    console.log("📤 Redirecting user to frontend...");
+    const loginToken = createToken({ id: user._id }, '1d');
+    console.log(
+      '🔐 Session token generated successfully for user:',
+      user.email
+    );
+    console.log('📤 Redirecting user to frontend...');
 
-res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
-
+    res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
   } catch (err) {
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error." });
+    res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
-
