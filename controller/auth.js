@@ -163,7 +163,7 @@ export const signUp = async (req, res) => {
     // };
     const defaultScenario = {
       userId: savedUser._id,
-      name: 'Untitled Scenario',
+      name: 'Shopify Scenario',
       description: '',
       type: 'shopify',
       scenarioActive: false,
