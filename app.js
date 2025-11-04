@@ -22,6 +22,8 @@ import { startSMTPServer } from './controller/smtpServer.js';
 import emailRouter from './Routes/email.js';
 import scenarioRouter from './Routes/Scenario.js';
 import { startDelayWorker } from './controller/delayWorker.js';
+import mailhookRouter from './Routes/mailhook.js';
+import { mailhookModel } from './Models/MailhookSchema.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -49,8 +51,20 @@ app.use('/approval', approvalRouter);
 app.use('/template', templateRouter);
 app.use('/mailhook', emailRouter);
 app.use('/scenario', scenarioRouter);
+app.use('/mailhookcard', mailhookRouter);
 
-
+(async () => {
+  try {
+    const indexes = await mailhookModel.collection.indexes();
+    const hasUnique = indexes.find((i) => i.name === "mailhook_1");
+    if (hasUnique) {
+      await mailhookModel.collection.dropIndex("mailhook_1");
+      console.log("✅ Dropped unique index on mailhook field");
+    }
+  } catch (err) {
+    console.log("No duplicate index to drop or already removed:", err.message);
+  }
+})();
 app.use((req, res, next) => {
   res.setTimeout(300000, () => {  
     res.status(504).send('Request timed out');

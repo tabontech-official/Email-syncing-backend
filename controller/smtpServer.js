@@ -14,6 +14,7 @@ import mongoose from 'mongoose';
 import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
 import { validationModel } from '../Models/ValidationEmail.js';
+import { mailhookModel } from '../Models/MailhookSchema.js';
 function checkCondition(condition, email) {
   const fieldValue = (email[condition.field] || '').toLowerCase();
   const targetValue = (condition.value || '').toLowerCase();
@@ -1578,6 +1579,74 @@ export const getLatestVerificationEmail = async (req, res) => {
   }
 };
 
+// export const validateTestEmail = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const { toEmail } = req.body;
+
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: 'Invalid user ID.' });
+//     }
+
+//     if (!toEmail) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Missing recipient email address (toEmail).',
+//       });
+//     }
+
+//     const user = await authModel.findById(userId);
+//     if (!user) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: 'User not found.' });
+//     }
+
+//     const testSubject = 'Zenith Forwarding Validation Test';
+//     const testBody = `Hello,
+
+// This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
+
+// If you receive this email, your mail forwarding is active and functioning.
+
+// — Zenith Inbox Team`;
+
+//     const transporter = nodemailer.createTransport({
+//       service: 'gmail',
+//       auth: {
+//         user: process.env.EMAIL_USER,
+//         pass: process.env.EMAIL_PASS,
+//       },
+//     });
+
+//     await transporter.sendMail({
+//       from: `"Zenith System" <${process.env.EMAIL_USER}>`,
+//       to: toEmail,
+//       subject: testSubject,
+//       text: testBody,
+//     });
+
+//     return res.json({
+//       success: true,
+//       message: `✅ Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
+//       sentTo: toEmail,
+//     });
+//   } catch (err) {
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to send test email.',
+//       error: err.message,
+//     });
+//   }
+// };
+
+
+
+
+
+
 export const validateTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1586,13 +1655,13 @@ export const validateTestEmail = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
-        .json({ success: false, message: 'Invalid user ID.' });
+        .json({ success: false, message: "Invalid user ID." });
     }
 
     if (!toEmail) {
       return res.status(400).json({
         success: false,
-        message: 'Missing recipient email address (toEmail).',
+        message: "Missing recipient email address (toEmail).",
       });
     }
 
@@ -1600,10 +1669,22 @@ export const validateTestEmail = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: 'User not found.' });
+        .json({ success: false, message: "User not found." });
     }
 
-    const testSubject = 'Zenith Forwarding Validation Test';
+    const existing = await mailhookModel.findOne({
+      userId,
+      forwardingEmail: toEmail.toLowerCase(),
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: ` Forwarding is already set up for ${toEmail}. Please use a different email address.`,
+      });
+    }
+
+    const testSubject = "Zenith Forwarding Validation Test";
     const testBody = `Hello,
 
 This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
@@ -1613,7 +1694,7 @@ If you receive this email, your mail forwarding is active and functioning.
 — Zenith Inbox Team`;
 
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: "gmail",
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -1629,31 +1710,203 @@ If you receive this email, your mail forwarding is active and functioning.
 
     return res.json({
       success: true,
-      message: `✅ Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
+      message: ` Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
       sentTo: toEmail,
     });
   } catch (err) {
+    console.error("❌ Error sending validation test email:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to send test email.',
+      message: "Failed to send test email.",
       error: err.message,
     });
   }
 };
 
+
+
+
+// export const getValidateEmail = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: 'Invalid user ID.' });
+//     }
+
+//     const testSubject = 'Zenith Forwarding Validation Test';
+
+//     const testRecord = await validationModel
+//       .findOne({ userId, subject: testSubject })
+//       .sort({ createdAt: -1 })
+//       .lean();
+
+//     if (!testRecord) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Test forwarding email not yet received or verified.',
+//       });
+//     }
+
+//     return res.json({
+//       success: true,
+//       message: testRecord.verified
+//         ? '✅ Forwarding test verified successfully.'
+//         : '⚙️ Test email found but not yet verified.',
+//       data: {
+//         id: testRecord._id,
+//         subject: testRecord.subject,
+//         toEmail: testRecord.toEmail,
+//         sentAt: testRecord.sentAt,
+//         verified: testRecord.verified,
+//         verifiedAt: testRecord.verifiedAt,
+//         status: testRecord.status,
+//         notes: testRecord.notes,
+//       },
+//     });
+//   } catch (err) {
+//     console.error('❌ Error checking forwarding validation:', err);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Server error while checking forwarding validation.',
+//       error: err.message,
+//     });
+//   }
+// };
+
+// export const getValidateEmail = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const { cardId } = req.query;
+
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Invalid user ID." });
+//     }
+
+//     const testSubject = "Zenith Forwarding Validation Test";
+
+//     // 🟡 Find latest test record for this user
+//     const testRecord = await validationModel
+//       .findOne({ userId, subject: testSubject })
+//       .sort({ createdAt: -1 })
+//       .lean();
+
+//     if (!testRecord) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Test forwarding email not yet received or verified.",
+//       });
+//     }
+
+//     // 🟢 Proceed only if test verified
+//     if (testRecord.verified) {
+//       const user = await authModel.findById(userId).select("mailhook");
+
+//       if (!user) {
+//         return res
+//           .status(404)
+//           .json({ success: false, message: "User not found" });
+//       }
+
+//       // 🧩 Check for duplicate forwarding email
+//       const existing = await mailhookModel.findOne({
+//         userId,
+//         forwardingEmail: testRecord.toEmail,
+//       });
+
+//       if (existing) {
+//         console.log(
+//           `⚠️ Forwarding already exists for ${testRecord.toEmail}, skipping update/create.`
+//         );
+//         return res.status(400).json({
+//           success: false,
+//           message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
+//         });
+//       }
+
+//       let updatedMailhook;
+
+//       // 🧠 CASE 1: Update existing Mailhook card by ID
+//       if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
+//         updatedMailhook = await mailhookModel.findByIdAndUpdate(
+//           cardId,
+//           {
+//             forwardingEmail: testRecord.toEmail,
+//             connectionVerified: true,
+//             validationId: testRecord._id, // 🟢 save validation record ID
+//           },
+//           { new: true }
+//         );
+
+//         if (!updatedMailhook) {
+//           return res.status(404).json({
+//             success: false,
+//             message: "Mailhook card not found for the given ID.",
+//           });
+//         }
+
+//         console.log("✅ Mailhook card updated:", updatedMailhook._id);
+//       } else {
+//         // 🧠 CASE 2: Create new Mailhook if not exists
+//         const newMailhook = new mailhookModel({
+//           userId,
+//           mailhook: user.mailhook,
+//           forwardingEmail: testRecord.toEmail,
+//           connectionVerified: true,
+//           validationId: testRecord._id, // 🟢 also save validation record ID
+//         });
+
+//         updatedMailhook = await newMailhook.save();
+//         console.log("🆕 New mailhook created:", updatedMailhook._id);
+//       }
+//     }
+
+//     // ✅ Final Response
+//     return res.json({
+//       success: true,
+//       message: testRecord.verified
+//         ? "✅ Forwarding test verified and mailhook updated successfully."
+//         : "⚙️ Test email found but not yet verified.",
+//       data: {
+//         id: testRecord._id,
+//         subject: testRecord.subject,
+//         toEmail: testRecord.toEmail,
+//         sentAt: testRecord.sentAt,
+//         verified: testRecord.verified,
+//         verifiedAt: testRecord.verifiedAt,
+//         status: testRecord.status,
+//         notes: testRecord.notes,
+//       },
+//     });
+//   } catch (err) {
+//     console.error("❌ Error checking forwarding validation:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error while checking forwarding validation.",
+//       error: err.message,
+//     });
+//   }
+// };
+
+
 export const getValidateEmail = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { cardId } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
-        .json({ success: false, message: 'Invalid user ID.' });
+        .json({ success: false, message: "Invalid user ID." });
     }
 
-    const testSubject = 'Zenith Forwarding Validation Test';
+    const testSubject = "Zenith Forwarding Validation Test";
 
-    // 🔍 Check in ValidationEmail collection instead of EmailModel
+    // 🟡 Get latest test email for verification
     const testRecord = await validationModel
       .findOne({ userId, subject: testSubject })
       .sort({ createdAt: -1 })
@@ -1662,16 +1915,81 @@ export const getValidateEmail = async (req, res) => {
     if (!testRecord) {
       return res.status(404).json({
         success: false,
-        message: 'Test forwarding email not yet received or verified.',
+        message: "Test forwarding email not yet received or verified.",
       });
     }
 
-    // ✅ If record exists, show its verification state
+    // 🟢 Only proceed if the test is verified
+    if (testRecord.verified) {
+      const user = await authModel.findById(userId).select("mailhook");
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
+
+      // 🧠 Check if that email already exists for this user (avoid duplicates)
+      const existing = await mailhookModel.findOne({
+        userId,
+        forwardingEmail: testRecord.toEmail,
+      });
+
+      // If found and not the same cardId → block creation or update
+      if (existing && existing._id.toString() !== cardId) {
+        console.log(
+          `⚠️ Duplicate forwarding attempt for ${testRecord.toEmail}, blocked.`
+        );
+        return res.status(400).json({
+          success: false,
+          message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
+        });
+      }
+
+      let updatedMailhook;
+
+      // 🧩 CASE 1: Update existing Mailhook if cardId provided
+      if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
+        updatedMailhook = await mailhookModel.findByIdAndUpdate(
+          cardId,
+          {
+            forwardingEmail: testRecord.toEmail,
+            connectionVerified: true,
+            validationId: testRecord._id,
+          },
+          { new: true }
+        );
+
+        if (!updatedMailhook) {
+          return res.status(404).json({
+            success: false,
+            message: "Mailhook card not found for the given ID.",
+          });
+        }
+
+        console.log("✅ Existing Mailhook card updated:", updatedMailhook._id);
+      } else {
+        // 🧩 CASE 2: Create new mailhook only if not exists
+        if (!existing) {
+          const newMailhook = new mailhookModel({
+            userId,
+            mailhook: user.mailhook,
+            forwardingEmail: testRecord.toEmail,
+            connectionVerified: true,
+            validationId: testRecord._id,
+          });
+
+          updatedMailhook = await newMailhook.save();
+          console.log("🆕 New mailhook created:", updatedMailhook._id);
+        }
+      }
+    }
+
+    // ✅ Final Response
     return res.json({
       success: true,
       message: testRecord.verified
-        ? '✅ Forwarding test verified successfully.'
-        : '⚙️ Test email found but not yet verified.',
+        ? "✅ Forwarding test verified and mailhook updated successfully."
+        : "⚙️ Test email found but not yet verified.",
       data: {
         id: testRecord._id,
         subject: testRecord.subject,
@@ -1684,14 +2002,16 @@ export const getValidateEmail = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('❌ Error checking forwarding validation:', err);
+    console.error("❌ Error checking forwarding validation:", err);
     return res.status(500).json({
       success: false,
-      message: 'Server error while checking forwarding validation.',
+      message: "Server error while checking forwarding validation.",
       error: err.message,
     });
   }
 };
+
+
 
 export const getTestEmailData = async (req, res) => {
   try {
@@ -1868,14 +2188,13 @@ export const sendTestEmail = async (req, res) => {
         .json({ success: false, message: 'Missing email or user ID' });
     }
 
-    // 🔹 Create transporter using Gmail (or your SMTP service)
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: process.env.SMTP_PORT || 587,
-      secure: false, // use true for port 465
+      secure: false, 
       auth: {
-        user: process.env.EMAIL_USER, // your email
-        pass: process.env.EMAIL_PASS, // your app password
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS, 
       },
     });
 
@@ -1888,18 +2207,18 @@ export const sendTestEmail = async (req, res) => {
 
 This is a test email from Zenith Inbox to confirm that your mail forwarding is set up correctly.
 
-If you received this email, forwarding is working fine ✅
+If you received this email, forwarding is working fine 
 
 Thank you,
 Zenith Inbox Team`,
     };
 
-    // 🔹 Send the email
+    // 🔹 Send the 
     await transporter.sendMail(mailOptions);
 
     return res.json({
       success: true,
-      message: `✅ Test email sent successfully to ${toEmail}`,
+      message: ` Test email sent successfully to ${toEmail}`,
     });
   } catch (error) {
     console.error('Error sending test email:', error);

@@ -40,7 +40,7 @@ emailRouter.get('/get-test-email/:userId', getTestEmail);
 emailRouter.delete('/delete', deleteAllConnections);
 emailRouter.get('/verification/:userId', getLatestVerificationEmail);
 emailRouter.post('/validate-forwarding/:userId', validateTestEmail);
-emailRouter.get('/validateTest/:userId', getValidateEmail);
+emailRouter.get('/validateTest/:userId/', getValidateEmail);
 emailRouter.get('/get-test-data/:userId', getTestEmailData);
 emailRouter.delete('/deleteConnection/:id', deleteConnectionById);
 emailRouter.post('/sendTestEmail', sendTestEmail);
