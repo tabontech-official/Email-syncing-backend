@@ -15,6 +15,7 @@ import path from 'path';
 import { scenarioModel } from '../Models/Scenario.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
+import { mailhookModel } from '../Models/MailhookSchema.js';
 
 export const defaultServices = [
   'General',
@@ -289,34 +290,67 @@ export const signUp = async (req, res) => {
   }
 };
 
+// export const signIn = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     const emailExist = await authModel.findOne({
+//       email: email,
+//     });
+
+//     if (!emailExist) {
+//       throw new Error('User does not exist with this email');
+//     }
+
+//     const isMatch = await emailExist.comparePassword(password);
+//     if (!isMatch) {
+//       throw new Error('Password does not match');
+//     }
+
+//     const token = createToken({ _id: emailExist._id, role: emailExist.role });
+
+//     res.send({
+//       message: 'Successfully logged in',
+//       token,
+//       data: emailExist,
+//     });
+//   } catch (error) {
+//     return res.status(400).json({ error: error.message });
+//   }
+// };
+
+
 export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const emailExist = await authModel.findOne({
-      email: email,
-    });
-
-    if (!emailExist) {
-      throw new Error('User does not exist with this email');
+    const user = await authModel.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: "User does not exist" });
     }
 
-    const isMatch = await emailExist.comparePassword(password);
+    const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      throw new Error('Password does not match');
+      return res.status(400).json({ error: "Password does not match" });
     }
 
-    const token = createToken({ _id: emailExist._id, role: emailExist.role });
+    // ✅ Record login timestamp
+    user.lastLogin = new Date();
+    await user.save();
 
-    res.send({
-      message: 'Successfully logged in',
+    const token = createToken({ _id: user._id, role: user.role });
+
+    res.status(200).json({
+      message: "Successfully logged in",
       token,
-      data: emailExist,
+      data: user,
     });
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    console.error("Error during login:", error);
+    res.status(500).json({ error: error.message });
   }
 };
+
 
 export const getUserById = async (req, res) => {
   try {
@@ -456,24 +490,34 @@ export const verifyUser = async (req, res) => {
 export const logout = async (req, res) => {
   try {
     const { userId } = req.params;
+
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(400).json({ error: "User ID is required" });
     }
 
     const user = await authModel.findById(userId);
-
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: "User not found" });
     }
 
-    res.clearCookie('token', { path: '/' });
+    // ✅ Record logout timestamp
+    user.lastLogout = new Date();
+    await user.save();
 
-    res.status(200).json({ message: 'Logout successfully', userId });
+    // Optional: if you use cookies for auth
+    res.clearCookie("token", { path: "/" });
+
+    res.status(200).json({
+      message: "Logout successful",
+      userId,
+      lastLogout: user.lastLogout,
+    });
   } catch (error) {
-    console.error('Error during logout:', error);
-    res.status(500).json({ error: 'An error occurred' });
+    console.error("Error during logout:", error);
+    res.status(500).json({ error: "An error occurred during logout" });
   }
 };
+
 
 export const completeSetup = async (req, res) => {
   try {
@@ -1520,5 +1564,314 @@ export const verifyLogin = async (req, res) => {
     res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Internal server error.' });
+  }
+};
+
+
+
+export const getSummaryForAdmin = async (req, res) => {
+  try {
+    // 🧠 Get all userIds that have verified mailhooks
+    const verifiedMailhookUsersRaw = await mailhookModel.distinct("userId", {
+      connectionVerified: true,
+    });
+    const verifiedMailhookUsers = verifiedMailhookUsersRaw.map((id) => id.toString());
+
+    // Fetch base metrics
+    const [
+      totalUsers,
+      totalEmails,
+      activeScenarios,
+      totalConnections,
+      totalTemplates,
+      activeTemplates,
+      inactiveTemplates,
+      recentUsersRaw,
+    ] = await Promise.all([
+      authModel.countDocuments(),
+      EmailModel.countDocuments(),
+      scenarioModel.countDocuments({ scenarioActive: true }),
+      ConnectionModel.countDocuments(),
+      TemplateModel.countDocuments(),
+      TemplateModel.countDocuments({ active: true }),
+      TemplateModel.countDocuments({ active: false }),
+      authModel.find().sort({ createdAt: -1 }).limit(10).lean(),
+    ]);
+
+    // Aggregate template stats for recent users
+    const userIds = recentUsersRaw.map((u) => u._id);
+    const userTemplates = await TemplateModel.aggregate([
+      { $match: { userId: { $in: userIds } } },
+      {
+        $group: {
+          _id: "$userId",
+          total: { $sum: 1 },
+          active: { $sum: { $cond: ["$active", 1, 0] } },
+          inactive: { $sum: { $cond: ["$active", 0, 1] } },
+        },
+      },
+    ]);
+
+    // Convert template data to a lookup map
+    const templateStats = {};
+    userTemplates.forEach((t) => {
+      templateStats[t._id.toString()] = {
+        total: t.total,
+        active: t.active,
+        inactive: t.inactive,
+      };
+    });
+
+    // 🧩 Attach template counts & verified flag to users
+    const recentUsers = recentUsersRaw.map((u) => ({
+      ...u,
+      verified: verifiedMailhookUsers.includes(u._id.toString()),
+      templates: templateStats[u._id.toString()] || {
+        total: 0,
+        active: 0,
+        inactive: 0,
+      },
+    }));
+
+    // ✅ Return summary
+    res.json({
+      totalUsers,
+      verifiedUsers: verifiedMailhookUsers.length,
+      totalEmails,
+      activeScenarios,
+      totalConnections,
+      templates: {
+        total: totalTemplates,
+        active: activeTemplates,
+        inactive: inactiveTemplates,
+      },
+      recentUsers,
+    });
+  } catch (err) {
+    console.error("Error fetching admin summary:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+
+
+
+
+export const getAllUsers = async (req, res) => {
+  try {
+    const users = await authModel
+      .find({})
+      .sort({ createdAt: -1 })
+      .select("fullName email role setup createdAt");
+
+    const verifiedMailhooks = await mailhookModel
+      .find({ connectionVerified: true })
+      .select("userId")
+      .lean();
+
+    const verifiedUserIds = new Set(
+      verifiedMailhooks.map((m) => m.userId.toString())
+    );
+
+    const formattedUsers = users.map((u) => ({
+      ...u.toObject(),
+      verified: verifiedUserIds.has(u._id.toString()), 
+    }));
+
+    res.json({ users: formattedUsers });
+  } catch (err) {
+    console.error("Error fetching users:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+export const getAllConnections = async (req, res) => {
+  try {
+    const connections = await ConnectionModel.find()
+      .populate("userId", "fullName email role")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Format for frontend
+    const formatted = connections.map((c) => ({
+      _id: c._id,
+      email: c.email,
+      provider: c.provider,
+      status: c.status,
+      verified: c.verified,
+      createdAt: c.createdAt,
+      user: c.userId || {},
+    }));
+
+    res.json({ connections: formatted });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching connections", error: err.message });
+  }
+};
+
+export const getUserActivity = async (req, res) => {
+  try {
+    // 🧱 Step 1: Get all users (admins & normal)
+    const users = await authModel
+      .find({})
+      .sort({ updatedAt: -1 })
+      .select("fullName email role createdAt updatedAt lastLogin lastLogout")
+      .lean();
+
+    // 🧱 Step 2: Get all templates, emails, and scenarios (to avoid N+1 lookups)
+    const [templates, emails, scenarios] = await Promise.all([
+      TemplateModel.find().select("_id name userId").lean(),
+      EmailModel.find()
+        .select("userId templateId createdAt")
+        .sort({ createdAt: -1 })
+        .lean(),
+      scenarioModel.find()
+        .select("userId name routerBranches")
+        .lean(),
+    ]);
+
+    // 🔍 Helper map for quick lookups
+    const templateMap = {};
+    templates.forEach((t) => {
+      templateMap[t._id.toString()] = t;
+    });
+
+    // 🧩 Build activity list per user
+    const activities = users.map((user) => {
+      // Find user’s sent emails
+      const userEmails = emails.filter(
+        (em) => em.userId?.toString() === user._id.toString()
+      );
+
+      // Identify templates used
+      const usedTemplateIds = [
+        ...new Set(
+          userEmails
+            .map((em) => em.templateId?.toString())
+            .filter((id) => id)
+        ),
+      ];
+
+      // Build template usage summary
+      const usedTemplates = usedTemplateIds.map((tid) => {
+        const template = templateMap[tid];
+        const lastUsedEmail = userEmails.find(
+          (em) => em.templateId?.toString() === tid
+        );
+
+        // Find which scenario(s) this template belongs to
+        const relatedScenarios = scenarios
+          .filter((sc) => {
+            if (sc.userId?.toString() !== user._id.toString()) return false;
+            return sc.routerBranches.some((branch) =>
+              branch.modules.some((m) => m.template === template?.name)
+            );
+          })
+          .map((sc) => sc.name);
+
+        return {
+          _id: tid,
+          name: template?.name || "Unknown Template",
+          lastUsed: lastUsedEmail?.createdAt || null,
+          triggeredIn: relatedScenarios,
+        };
+      });
+
+      return {
+        ...user,
+        lastLogin: user.lastLogin || null,
+        lastLogout: user.lastLogout || null,
+        templatesUsed: usedTemplates,
+      };
+    });
+
+    res.json({ activities });
+  } catch (err) {
+    console.error("❌ Error fetching user activity:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+export const getEmailTrackingForAdmin = async (req, res) => {
+  try {
+    // 1️⃣ Fetch users
+    const users = await authModel.find({}, "fullName email").lean();
+
+    // 2️⃣ Fetch data from existing collections
+    const [emails, scenarios, templates, connections] = await Promise.all([
+      // Only scenario-triggered emails (with templateId)
+      EmailModel.find(
+        { templateId: { $ne: null } },
+        "userId subject textBody htmlBody templateId createdAt"
+      ).lean(),
+      scenarioModel.find({}).lean(),
+      TemplateModel.find({}, "userId name service active createdAt").lean(),
+      ConnectionModel.find({}, "userId provider email verified").lean(),
+    ]);
+
+    // 3️⃣ Build per-user summary
+    const userSummary = users.map((user) => {
+      const userId = user._id.toString();
+
+      const userEmails = emails.filter((e) => e.userId?.toString() === userId);
+      const userTemplates = templates.filter((t) => t.userId?.toString() === userId);
+      const userScenarios = scenarios.filter((s) => s.userId?.toString() === userId);
+      const userConnections = connections.filter((c) => c.userId?.toString() === userId);
+
+      const activeTemplates = userTemplates.filter((t) => t.active).length;
+      const inactiveTemplates = userTemplates.filter((t) => !t.active).length;
+      const activeScenarios = userScenarios.filter((s) => s.scenarioActive).length;
+
+      // 4️⃣ Email → Template + Service Mapping
+      const emailTemplateMap = userEmails.map((email) => {
+        // Find which template triggered it
+        const matchedTemplate = userTemplates.find(
+          (t) => t._id.toString() === email.templateId?.toString()
+        );
+
+        // Determine service by checking keywords inside email body
+        let detectedService = "Unknown";
+        if (email.textBody || email.htmlBody) {
+          const bodyText = (
+            (email.textBody || "") + " " + (email.htmlBody || "")
+          ).toLowerCase();
+
+          for (const service of defaultServices) {
+            if (bodyText.includes(service.toLowerCase())) {
+              detectedService = service;
+              break;
+            }
+          }
+        }
+
+        return {
+          emailSubject: email.subject || "(No Subject)",
+          templateUsed: matchedTemplate?.name || "—",
+          serviceDetected: detectedService,
+          date: email.createdAt,
+        };
+      });
+
+      return {
+        user,
+        totalEmails: userEmails.length,
+        totalConnections: userConnections.length,
+        activeTemplates,
+        inactiveTemplates,
+        activeScenarios,
+        emailTemplateMap,
+      };
+    });
+
+    res.json({ success: true, data: userSummary });
+  } catch (error) {
+    console.error("Error in email tracking summary:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

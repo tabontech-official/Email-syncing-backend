@@ -4,9 +4,14 @@ import {
   completeSetup,
   createOrganization,
   forgotPassword,
+  getAllConnections,
+  getAllUsers,
   getConnections,
+  getEmailTrackingForAdmin,
   getOrganizationByUserId,
   getSetupProgress,
+  getSummaryForAdmin,
+  getUserActivity,
   getUserById,
   googleAuth,
   googleAuthCallback,
@@ -54,5 +59,14 @@ authRouter.post("/verify-login/:token", verifyLogin);  // Step 1
 // authRouter.post('/pubsub', EmailWebhook);
 authRouter.get('/getConnection/:userId', getConnections);
 // authRouter.post('/addPlatform', savePlatformForUser);
+
+
+// Admin Routes ///
+authRouter.get("/summary",getSummaryForAdmin)
+authRouter.get("/users", getAllUsers);
+authRouter.get("/connections", getAllConnections);
+authRouter.get("/user-activity", getUserActivity);
+authRouter.get("/email-tracking", getEmailTrackingForAdmin);
+
 
 export default authRouter;

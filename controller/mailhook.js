@@ -1,26 +1,25 @@
-import { authModel } from "../Models/auth.js";
-import { mailhookModel } from "../Models/MailhookSchema.js";
-import { validationModel } from "../Models/ValidationEmail.js";
-import mongoose from "mongoose";
+import { authModel } from '../Models/auth.js';
+import { mailhookModel } from '../Models/MailhookSchema.js';
+import { validationModel } from '../Models/ValidationEmail.js';
+import mongoose from 'mongoose';
+
 export const addMailhookCard = async (req, res) => {
   try {
     const { userId, forwardingEmail } = req.body;
 
-   
-
-    const user = await authModel.findById(userId).select("mailhook email");
+    const user = await authModel.findById(userId).select('mailhook email');
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
     if (!user.mailhook) {
       return res.status(400).json({
         success: false,
-        message: "User does not have a mailhook yet",
+        message: 'User does not have a mailhook yet',
       });
     }
 
@@ -34,18 +33,17 @@ export const addMailhookCard = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Mailhook created successfully",
+      message: 'Mailhook created successfully',
       data: newMailhook,
     });
   } catch (error) {
-    console.error("Error creating mailhook:", error);
+    console.error('Error creating mailhook:', error);
     res.status(500).json({
       success: false,
-      message: "Server error creating mailhook",
+      message: 'Server error creating mailhook',
     });
   }
 };
-
 
 export const getMailhookCard = async (req, res) => {
   try {
@@ -54,16 +52,18 @@ export const getMailhookCard = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "User ID is required",
+        message: 'User ID is required',
       });
     }
 
-    const mailhooks = await mailhookModel.find({ userId }).sort({ createdAt: -1 });
+    const mailhooks = await mailhookModel
+      .find({ userId })
+      .sort({ createdAt: -1 });
 
     if (!mailhooks.length) {
       return res.status(404).json({
         success: false,
-        message: "No mailhook records found for this user",
+        message: 'No mailhook records found for this user',
       });
     }
 
@@ -73,14 +73,13 @@ export const getMailhookCard = async (req, res) => {
       data: mailhooks,
     });
   } catch (error) {
-    console.error("Error fetching mailhooks:", error);
+    console.error('Error fetching mailhooks:', error);
     res.status(500).json({
       success: false,
-      message: "Server error fetching mailhooks",
+      message: 'Server error fetching mailhooks',
     });
   }
 };
-
 
 export const deleteMailhookCard = async (req, res) => {
   try {
@@ -89,16 +88,17 @@ export const deleteMailhookCard = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(cardId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid Mailhook card ID.",
+        message: 'Invalid Mailhook card ID.',
       });
     }
+    
 
     const mailhook = await mailhookModel.findById(cardId);
 
     if (!mailhook) {
       return res.status(404).json({
         success: false,
-        message: "Mailhook card not found.",
+        message: 'Mailhook card not found.',
       });
     }
 
@@ -107,25 +107,20 @@ export const deleteMailhookCard = async (req, res) => {
         mailhook.validationId
       );
       if (deletedValidation) {
-        console.log(
-          `🗑️ Deleted validation email with ID ${mailhook.validationId}`
-        );
       }
     }
 
     await mailhookModel.findByIdAndDelete(cardId);
 
-    console.log(`✅ Mailhook card deleted: ${cardId}`);
-
     return res.status(200).json({
       success: true,
-      message: "Mailhook card and linked validation record deleted successfully.",
+      message:
+        'Mailhook card and linked validation record deleted successfully.',
     });
   } catch (error) {
-    console.error("❌ Error deleting mailhook card:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error deleting mailhook card.",
+      message: 'Server error deleting mailhook card.',
       error: error.message,
     });
   }

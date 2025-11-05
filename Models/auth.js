@@ -39,7 +39,7 @@ const authSchema = new mongoose.Schema(
           step: { type: Number },
           title: { type: String },
           status: {
-            type: String, // "completed", "skipped", "pending"
+            type: String, 
             default: 'pending',
           },
           updatedAt: { type: Date, default: Date.now },
@@ -59,28 +59,28 @@ const authSchema = new mongoose.Schema(
     PartnerLink: {
       type: String,
     },
-     TimeZone: {
+    TimeZone: {
       type: String,
-      default: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      default: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     },
+      lastLogin: { type: Date, default: null },
+  lastLogout: { type: Date, default: null },
   },
 
   { timestamps: true }
 );
 
-// Password hashing before saving to the database
 authSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next(); // Only hash if the password has been modified
+  if (!this.isModified('password')) return next(); 
 
-  const salt = await bcrypt.genSalt(10); // Generates salt
-  this.password = await bcrypt.hash(this.password, salt); // Hash the password
+  const salt = await bcrypt.genSalt(10); 
+  this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
-// Password comparison method
 authSchema.methods.comparePassword = async function (candidatePassword) {
   try {
-    return await bcrypt.compare(candidatePassword, this.password); // Compares hashed password with entered password
+    return await bcrypt.compare(candidatePassword, this.password); 
   } catch (error) {
     throw new Error('Error comparing passwords');
   }

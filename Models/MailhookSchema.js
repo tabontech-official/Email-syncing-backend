@@ -7,7 +7,7 @@ const mailhookSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
-    mailhook: { type: String, required: true }, 
+    mailhook: { type: String, required: true },
 
     forwardingEmail: {
       type: String,
