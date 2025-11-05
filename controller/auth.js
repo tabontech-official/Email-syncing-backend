@@ -1696,7 +1696,6 @@ export const getAllConnections = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // Format for frontend
     const formatted = connections.map((c) => ({
       _id: c._id,
       email: c.email,
@@ -1715,14 +1714,12 @@ export const getAllConnections = async (req, res) => {
 
 export const getUserActivity = async (req, res) => {
   try {
-    // 🧱 Step 1: Get all users (admins & normal)
     const users = await authModel
       .find({})
       .sort({ updatedAt: -1 })
       .select("fullName email role createdAt updatedAt lastLogin lastLogout")
       .lean();
 
-    // 🧱 Step 2: Get all templates, emails, and scenarios (to avoid N+1 lookups)
     const [templates, emails, scenarios] = await Promise.all([
       TemplateModel.find().select("_id name userId").lean(),
       EmailModel.find()
@@ -1740,14 +1737,12 @@ export const getUserActivity = async (req, res) => {
       templateMap[t._id.toString()] = t;
     });
 
-    // 🧩 Build activity list per user
     const activities = users.map((user) => {
       // Find user’s sent emails
       const userEmails = emails.filter(
         (em) => em.userId?.toString() === user._id.toString()
       );
 
-      // Identify templates used
       const usedTemplateIds = [
         ...new Set(
           userEmails
@@ -1756,14 +1751,12 @@ export const getUserActivity = async (req, res) => {
         ),
       ];
 
-      // Build template usage summary
       const usedTemplates = usedTemplateIds.map((tid) => {
         const template = templateMap[tid];
         const lastUsedEmail = userEmails.find(
           (em) => em.templateId?.toString() === tid
         );
 
-        // Find which scenario(s) this template belongs to
         const relatedScenarios = scenarios
           .filter((sc) => {
             if (sc.userId?.toString() !== user._id.toString()) return false;
@@ -1797,15 +1790,11 @@ export const getUserActivity = async (req, res) => {
 };
 
 
-
 export const getEmailTrackingForAdmin = async (req, res) => {
   try {
-    // 1️⃣ Fetch users
     const users = await authModel.find({}, "fullName email").lean();
 
-    // 2️⃣ Fetch data from existing collections
     const [emails, scenarios, templates, connections] = await Promise.all([
-      // Only scenario-triggered emails (with templateId)
       EmailModel.find(
         { templateId: { $ne: null } },
         "userId subject textBody htmlBody templateId createdAt"
@@ -1815,7 +1804,6 @@ export const getEmailTrackingForAdmin = async (req, res) => {
       ConnectionModel.find({}, "userId provider email verified").lean(),
     ]);
 
-    // 3️⃣ Build per-user summary
     const userSummary = users.map((user) => {
       const userId = user._id.toString();
 
@@ -1828,14 +1816,14 @@ export const getEmailTrackingForAdmin = async (req, res) => {
       const inactiveTemplates = userTemplates.filter((t) => !t.active).length;
       const activeScenarios = userScenarios.filter((s) => s.scenarioActive).length;
 
-      // 4️⃣ Email → Template + Service Mapping
       const emailTemplateMap = userEmails.map((email) => {
-        // Find which template triggered it
-        const matchedTemplate = userTemplates.find(
-          (t) => t._id.toString() === email.templateId?.toString()
-        );
+        const matchedTemplate = userTemplates.find((t) => {
+          return (
+            t._id?.toString() === email.templateId?.toString() ||
+            t._id?.toString() === String(email.templateId)
+          );
+        });
 
-        // Determine service by checking keywords inside email body
         let detectedService = "Unknown";
         if (email.textBody || email.htmlBody) {
           const bodyText = (
