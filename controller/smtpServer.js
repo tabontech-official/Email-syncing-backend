@@ -1068,6 +1068,7 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
         userId: connection.userId,
         senderAddress: connection.email,
         recipientAddress: to,
+        templateId: tpl?._id || null,  
         subject: safeSubject,
         textBody: plainTextBody,
         htmlBody: emailBody,

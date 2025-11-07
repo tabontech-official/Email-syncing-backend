@@ -1792,74 +1792,142 @@ export const getUserActivity = async (req, res) => {
 
 export const getEmailTrackingForAdmin = async (req, res) => {
   try {
-    const users = await authModel.find({}, "fullName email").lean();
-
-    const [emails, scenarios, templates, connections] = await Promise.all([
+    const [users, emails, templates] = await Promise.all([
+      authModel.find({}, "fullName email").lean(),
+      // Fetch only emails that belong to a known user and are not test
       EmailModel.find(
-        { templateId: { $ne: null } },
+        { isTestEmail: { $ne: true } },
         "userId subject textBody htmlBody templateId createdAt"
       ).lean(),
-      scenarioModel.find({}).lean(),
-      TemplateModel.find({}, "userId name service active createdAt").lean(),
-      ConnectionModel.find({}, "userId provider email verified").lean(),
+      TemplateModel.find({}, "userId name service type active platform conditions").lean(),
     ]);
 
     const userSummary = users.map((user) => {
-      const userId = user._id.toString();
+      const userId = String(user._id);
+      const userEmails = emails.filter((e) => String(e.userId) === userId);
+      const userTemplates = templates.filter((t) => String(t.userId) === userId);
 
-      const userEmails = emails.filter((e) => e.userId?.toString() === userId);
-      const userTemplates = templates.filter((t) => t.userId?.toString() === userId);
-      const userScenarios = scenarios.filter((s) => s.userId?.toString() === userId);
-      const userConnections = connections.filter((c) => c.userId?.toString() === userId);
+      if (userEmails.length === 0) {
+        // no emails at all, skip empty users
+        return {
+          user,
+          totalEmails: 0,
+          activeTemplates: 0,
+          inactiveTemplates: 0,
+          templatesByService: {},
+          emailTemplateMap: [],
+        };
+      }
 
-      const activeTemplates = userTemplates.filter((t) => t.active).length;
-      const inactiveTemplates = userTemplates.filter((t) => !t.active).length;
-      const activeScenarios = userScenarios.filter((s) => s.scenarioActive).length;
+      // --- Detect template usage only for emails that exist ---
+      const templateUsageMap = {};
+      const emailTemplateMap = [];
 
-      const emailTemplateMap = userEmails.map((email) => {
-        const matchedTemplate = userTemplates.find((t) => {
-          return (
-            t._id?.toString() === email.templateId?.toString() ||
-            t._id?.toString() === String(email.templateId)
-          );
+      userEmails.forEach((email) => {
+        const matchedTemplate =
+          email.templateId &&
+          userTemplates.find((t) => String(t._id) === String(email.templateId));
+
+        const detectedTemplate =
+          matchedTemplate || detectTemplateMatch(email, userTemplates);
+
+        const detectedPlatform = detectPlatform(email);
+
+        // Store per-email record
+        emailTemplateMap.push({
+          subject: email.subject || "(No Subject)",
+          matchedTemplate: detectedTemplate?.name || "—",
+          serviceDetected: detectedTemplate?.service || "Unknown",
+          detectedPlatform,
+          date: email.createdAt,
         });
 
-        let detectedService = "Unknown";
-        if (email.textBody || email.htmlBody) {
-          const bodyText = (
-            (email.textBody || "") + " " + (email.htmlBody || "")
-          ).toLowerCase();
-
-          for (const service of defaultServices) {
-            if (bodyText.includes(service.toLowerCase())) {
-              detectedService = service;
-              break;
-            }
-          }
+        // Count only templates that triggered
+        if (detectedTemplate) {
+          const key = String(detectedTemplate._id);
+          templateUsageMap[key] = (templateUsageMap[key] || 0) + 1;
         }
+      });
 
-        return {
-          emailSubject: email.subject || "(No Subject)",
-          templateUsed: matchedTemplate?.name || "—",
-          serviceDetected: detectedService,
-          date: email.createdAt,
-        };
+      // --- Build templatesByService only for triggered templates ---
+      const triggeredTemplates = userTemplates.filter((tpl) =>
+        Object.keys(templateUsageMap).includes(String(tpl._id))
+      );
+
+      const templatesByService = {};
+      triggeredTemplates.forEach((tpl) => {
+        if (!templatesByService[tpl.service]) {
+          templatesByService[tpl.service] = [];
+        }
+        templatesByService[tpl.service].push({
+          name: tpl.name,
+          type: tpl.type,
+          active: tpl.active,
+          platform: tpl.platform,
+          usageCount: templateUsageMap[String(tpl._id)] || 0,
+        });
       });
 
       return {
         user,
         totalEmails: userEmails.length,
-        totalConnections: userConnections.length,
-        activeTemplates,
-        inactiveTemplates,
-        activeScenarios,
+        activeTemplates: triggeredTemplates.filter((t) => t.active).length,
+        inactiveTemplates: triggeredTemplates.filter((t) => !t.active).length,
+        templatesByService,
         emailTemplateMap,
       };
     });
 
-    res.json({ success: true, data: userSummary });
+    // Filter out users with 0 total emails
+    const filteredSummary = userSummary.filter((u) => u.totalEmails > 0);
+
+    res.json({ success: true, data: filteredSummary });
   } catch (error) {
     console.error("Error in email tracking summary:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+//
+// --- Helper: Match email text to template conditions ---
+function detectTemplateMatch(email, templates) {
+  const emailText =
+    (email.subject || "") + " " + (email.textBody || "") + " " + (email.htmlBody || "");
+  for (const template of templates) {
+    if (!template.conditions || !template.conditions.length) continue;
+    const match = template.conditions.every((cond) => {
+      const val = email[cond.field] || emailText;
+      switch (cond.operator) {
+        case "equals":
+          return val === cond.value;
+        case "contains":
+          return val.toLowerCase().includes(cond.value.toLowerCase());
+        case "not_equals":
+          return val !== cond.value;
+        case "starts_with":
+          return val.startsWith(cond.value);
+        default:
+          return false;
+      }
+    });
+    if (match) return template;
+  }
+  return null;
+}
+
+//
+// --- Helper: Detect service/platform ---
+function detectPlatform(email) {
+  const text = (
+    (email.subject || "") +
+    " " +
+    (email.textBody || "") +
+    " " +
+    (email.htmlBody || "")
+  ).toLowerCase();
+
+  if (text.includes("shopify")) return "Shopify";
+  if (text.includes("gmail")) return "Gmail";
+  if (text.includes("outlook")) return "Outlook";
+  return "Other";
+}
