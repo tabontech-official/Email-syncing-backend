@@ -1,5 +1,6 @@
 import { scenarioModel } from "../Models/Scenario.js";
 import { ConnectionModel } from "../Models/Connection.js";
+import { authModel } from "../Models/auth.js";
 // export const addScenario = async (req, res) => {
 //   try {
 //     console.log("=======================================");
@@ -339,5 +340,71 @@ export const getShopifyScenarioByUserId = async (req, res) => {
     res.json(scenario);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+
+
+export const getScenarioStatsForAdmin = async (req, res) => {
+  try {
+    const [users, scenarios] = await Promise.all([
+      authModel.find({}, "fullName email").lean(),
+      scenarioModel.find({}).lean(),
+    ]);
+
+    const summary = users.map((user) => {
+      const userId = String(user._id);
+      const userScenarios = scenarios.filter(
+        (s) => String(s.userId) === userId
+      );
+
+      const totalScenarios = userScenarios.length;
+      const activeScenarios = userScenarios.filter(
+        (s) => s.scenarioActive
+      ).length;
+      const inactiveScenarios = totalScenarios - activeScenarios;
+
+      let totalModules = 0;
+      let totalDelays = 0;
+      let totalFilters = 0;
+
+      userScenarios.forEach((scenario) => {
+        scenario.routerBranches.forEach((branch) => {
+          totalFilters += branch.filter?.conditions?.length || 0;
+          branch.modules.forEach((mod) => {
+            totalModules += 1;
+            if (mod.type === "Delay") totalDelays += 1;
+          });
+        });
+      });
+
+      return {
+        user,
+        totalScenarios,
+        activeScenarios,
+        inactiveScenarios,
+        totalModules,
+        totalDelays,
+        totalFilters,
+        scenarios: userScenarios.map((s) => ({
+          name: s.name,
+          type: s.type,
+          active: s.scenarioActive,
+          totalBranches: s.routerBranches.length,
+          totalModules: s.routerBranches.reduce(
+            (acc, b) => acc + b.modules.length,
+            0
+          ),
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        })),
+      };
+    });
+
+    const filtered = summary.filter((s) => s.totalScenarios > 0);
+    res.json({ success: true, data: filtered });
+  } catch (error) {
+    console.error("Error in scenario stats:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

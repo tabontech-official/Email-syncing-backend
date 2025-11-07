@@ -11,6 +11,7 @@ import {
   getOrganizationByUserId,
   getSetupProgress,
   getSummaryForAdmin,
+  getTemplateUsageForAdmin,
   getUserActivity,
   getUserById,
   googleAuth,
@@ -62,6 +63,8 @@ authRouter.get('/getConnection/:userId', getConnections);
 
 
 // Admin Routes ///
+authRouter.get("/template-usage",getTemplateUsageForAdmin)
+
 authRouter.get("/summary",getSummaryForAdmin)
 authRouter.get("/users", getAllUsers);
 authRouter.get("/connections", getAllConnections);

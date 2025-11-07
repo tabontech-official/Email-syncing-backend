@@ -1789,37 +1789,45 @@ export const getUserActivity = async (req, res) => {
   }
 };
 
-
 export const getEmailTrackingForAdmin = async (req, res) => {
   try {
+    const { userId, service, type } = req.query; // optional filters
+
+    // Fetch data in parallel
     const [users, emails, templates] = await Promise.all([
       authModel.find({}, "fullName email").lean(),
-      // Fetch only emails that belong to a known user and are not test
       EmailModel.find(
-        { isTestEmail: { $ne: true } },
-        "userId subject textBody htmlBody templateId createdAt"
+        { isTestEmail: { $ne: true }, isForwarded: true },
+        "userId subject textBody htmlBody templateId service stepType parentEmailId createdAt"
       ).lean(),
-      TemplateModel.find({}, "userId name service type active platform conditions").lean(),
+      TemplateModel.find({}, "userId name service type active platform").lean(),
     ]);
 
-    const userSummary = users.map((user) => {
-      const userId = String(user._id);
-      const userEmails = emails.filter((e) => String(e.userId) === userId);
-      const userTemplates = templates.filter((t) => String(t.userId) === userId);
+    // Filter by user if provided
+    const filteredUsers = userId
+      ? users.filter((u) => String(u._id) === String(userId))
+      : users;
 
-      if (userEmails.length === 0) {
-        // no emails at all, skip empty users
-        return {
-          user,
-          totalEmails: 0,
-          activeTemplates: 0,
-          inactiveTemplates: 0,
-          templatesByService: {},
-          emailTemplateMap: [],
-        };
+    const userSummary = filteredUsers.map((user) => {
+      const userIdStr = String(user._id);
+
+      // Filter emails/templates for this user
+      let userEmails = emails.filter((e) => String(e.userId) === userIdStr);
+      let userTemplates = templates.filter((t) => String(t.userId) === userIdStr);
+
+      // Apply optional filters
+      if (service) {
+        userEmails = userEmails.filter((e) => e.service?.toLowerCase() === service.toLowerCase());
+        userTemplates = userTemplates.filter((t) => t.service?.toLowerCase() === service.toLowerCase());
+      }
+      if (type) {
+        userEmails = userEmails.filter((e) => e.stepType?.toLowerCase() === type.toLowerCase());
+        userTemplates = userTemplates.filter((t) => t.type?.toLowerCase() === type.toLowerCase());
       }
 
-      // --- Detect template usage only for emails that exist ---
+      if (userEmails.length === 0)
+        return null; // skip if no matching emails
+
       const templateUsageMap = {};
       const emailTemplateMap = [];
 
@@ -1828,58 +1836,58 @@ export const getEmailTrackingForAdmin = async (req, res) => {
           email.templateId &&
           userTemplates.find((t) => String(t._id) === String(email.templateId));
 
-        const detectedTemplate =
-          matchedTemplate || detectTemplateMatch(email, userTemplates);
-
+        const detectedTemplate = matchedTemplate || null;
         const detectedPlatform = detectPlatform(email);
 
-        // Store per-email record
         emailTemplateMap.push({
           subject: email.subject || "(No Subject)",
           matchedTemplate: detectedTemplate?.name || "—",
-          serviceDetected: detectedTemplate?.service || "Unknown",
+          serviceDetected: email.service || detectedTemplate?.service || "Unknown",
+          stepType: email.stepType || detectedTemplate?.type || "initial",
           detectedPlatform,
           date: email.createdAt,
+          parentEmailId: email.parentEmailId || null,
+          htmlBody: email.htmlBody || "",
         });
 
-        // Count only templates that triggered
         if (detectedTemplate) {
           const key = String(detectedTemplate._id);
           templateUsageMap[key] = (templateUsageMap[key] || 0) + 1;
         }
       });
 
-      // --- Build templatesByService only for triggered templates ---
-      const triggeredTemplates = userTemplates.filter((tpl) =>
-        Object.keys(templateUsageMap).includes(String(tpl._id))
-      );
-
       const templatesByService = {};
-      triggeredTemplates.forEach((tpl) => {
-        if (!templatesByService[tpl.service]) {
-          templatesByService[tpl.service] = [];
+      userTemplates.forEach((tpl) => {
+        const usageCount = templateUsageMap[String(tpl._id)] || 0;
+        if (usageCount > 0) {
+          if (!templatesByService[tpl.service]) {
+            templatesByService[tpl.service] = [];
+          }
+          templatesByService[tpl.service].push({
+            name: tpl.name,
+            type: tpl.type,
+            active: tpl.active,
+            platform: tpl.platform,
+            usageCount,
+          });
         }
-        templatesByService[tpl.service].push({
-          name: tpl.name,
-          type: tpl.type,
-          active: tpl.active,
-          platform: tpl.platform,
-          usageCount: templateUsageMap[String(tpl._id)] || 0,
-        });
       });
 
       return {
         user,
         totalEmails: userEmails.length,
-        activeTemplates: triggeredTemplates.filter((t) => t.active).length,
-        inactiveTemplates: triggeredTemplates.filter((t) => !t.active).length,
+        activeTemplates: Object.values(templatesByService)
+          .flat()
+          .filter((t) => t.active).length,
+        inactiveTemplates: Object.values(templatesByService)
+          .flat()
+          .filter((t) => !t.active).length,
         templatesByService,
         emailTemplateMap,
       };
     });
 
-    // Filter out users with 0 total emails
-    const filteredSummary = userSummary.filter((u) => u.totalEmails > 0);
+    const filteredSummary = userSummary.filter(Boolean);
 
     res.json({ success: true, data: filteredSummary });
   } catch (error) {
@@ -1888,35 +1896,6 @@ export const getEmailTrackingForAdmin = async (req, res) => {
   }
 };
 
-//
-// --- Helper: Match email text to template conditions ---
-function detectTemplateMatch(email, templates) {
-  const emailText =
-    (email.subject || "") + " " + (email.textBody || "") + " " + (email.htmlBody || "");
-  for (const template of templates) {
-    if (!template.conditions || !template.conditions.length) continue;
-    const match = template.conditions.every((cond) => {
-      const val = email[cond.field] || emailText;
-      switch (cond.operator) {
-        case "equals":
-          return val === cond.value;
-        case "contains":
-          return val.toLowerCase().includes(cond.value.toLowerCase());
-        case "not_equals":
-          return val !== cond.value;
-        case "starts_with":
-          return val.startsWith(cond.value);
-        default:
-          return false;
-      }
-    });
-    if (match) return template;
-  }
-  return null;
-}
-
-//
-// --- Helper: Detect service/platform ---
 function detectPlatform(email) {
   const text = (
     (email.subject || "") +
@@ -1931,3 +1910,122 @@ function detectPlatform(email) {
   if (text.includes("outlook")) return "Outlook";
   return "Other";
 }
+
+
+export const getTemplateUsageForAdmin = async (req, res) => {
+  try {
+    const { userId, service, type } = req.query;
+
+    const [users, templates, emails] = await Promise.all([
+      authModel.find({}, "fullName email").lean(),
+      TemplateModel.find(
+        {},
+        "userId name service type active platform createdAt updatedAt"
+      ).lean(),
+      EmailModel.find(
+        { isForwarded: true, templateId: { $ne: null } },
+        "userId templateId createdAt"
+      ).lean(),
+    ]);
+
+    // --- Global stats ---
+    const totalTemplates = templates.length;
+    const totalEmails = emails.length;
+
+    // Build a map of templateId → usage count
+    const globalUsageMap = {};
+    emails.forEach((e) => {
+      const key = String(e.templateId);
+      globalUsageMap[key] = (globalUsageMap[key] || 0) + 1;
+    });
+
+    // Identify top used template
+    let mostUsedTemplate = null;
+    let maxUsage = 0;
+    for (const tpl of templates) {
+      const usage = globalUsageMap[String(tpl._id)] || 0;
+      if (usage > maxUsage) {
+        maxUsage = usage;
+        mostUsedTemplate = tpl;
+      }
+    }
+
+    const summary = users.map((user) => {
+      const userIdStr = String(user._id);
+      const userTemplates = templates.filter((t) => String(t.userId) === userIdStr);
+      const userEmails = emails.filter((e) => String(e.userId) === userIdStr);
+
+      const usageMap = {};
+      userEmails.forEach((e) => {
+        usageMap[String(e.templateId)] =
+          (usageMap[String(e.templateId)] || 0) + 1;
+      });
+
+      // --- Apply filters per user ---
+      let filteredTemplates = userTemplates;
+      if (service)
+        filteredTemplates = filteredTemplates.filter(
+          (t) => t.service?.toLowerCase() === service.toLowerCase()
+        );
+      if (type)
+        filteredTemplates = filteredTemplates.filter(
+          (t) => t.type?.toLowerCase() === type.toLowerCase()
+        );
+
+      const templatesData = filteredTemplates.map((tpl) => {
+        const usageCount = usageMap[String(tpl._id)] || 0;
+        const usagePercentage = totalEmails
+          ? ((usageCount / totalEmails) * 100).toFixed(2)
+          : 0;
+
+        return {
+          name: tpl.name,
+          service: tpl.service,
+          type: tpl.type,
+          active: tpl.active,
+          platform: tpl.platform,
+          usageCount,
+          usagePercentage: Number(usagePercentage),
+          lastUsed:
+            userEmails
+              .filter((e) => String(e.templateId) === String(tpl._id))
+              .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+              ?.createdAt || null,
+        };
+      });
+
+      return {
+        user,
+        totalTemplates: templatesData.length,
+        totalUsedTemplates: templatesData.filter((t) => t.usageCount > 0).length,
+        totalUsageCount: templatesData.reduce((sum, t) => sum + t.usageCount, 0),
+        templatesData,
+      };
+    });
+
+    const filteredSummary = summary.filter((s) => s.totalTemplates > 0);
+
+    // --- Global summary ---
+    const globalStats = {
+      totalTemplates,
+      totalEmails,
+      totalUsedTemplates: Object.keys(globalUsageMap).length,
+      mostUsedTemplate: mostUsedTemplate
+        ? {
+            name: mostUsedTemplate.name,
+            service: mostUsedTemplate.service,
+            type: mostUsedTemplate.type,
+            usageCount: maxUsage,
+            usagePercentage: totalEmails
+              ? ((maxUsage / totalEmails) * 100).toFixed(2)
+              : 0,
+          }
+        : null,
+    };
+
+    res.json({ success: true, globalStats, data: filteredSummary });
+  } catch (error) {
+    console.error("Error in template usage stats:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

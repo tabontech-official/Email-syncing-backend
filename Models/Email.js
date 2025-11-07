@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { type } from 'os';
 
 const emailSchema = new mongoose.Schema(
   {
@@ -18,6 +19,12 @@ const emailSchema = new mongoose.Schema(
     textBody: String,
     htmlBody: String,
     cc: [String],
+    service: {
+      type: String,
+    },
+    stepType: {
+      type: String,
+    },
     bcc: [String],
     date: Date,
     messageId: String,
@@ -30,15 +37,15 @@ const emailSchema = new mongoose.Schema(
         size: Number,
       },
     ],
-//     parentEmailId: { 
-//   type: mongoose.Schema.Types.ObjectId, 
-//   ref: "Email", 
-//   default: null 
-// },
-isValidateTestEmail:{
-type:Boolean
-},
- parentEmailId: {
+    //     parentEmailId: {
+    //   type: mongoose.Schema.Types.ObjectId,
+    //   ref: "Email",
+    //   default: null
+    // },
+    isValidateTestEmail: {
+      type: Boolean,
+    },
+    parentEmailId: {
       type: mongoose.Schema.Types.Mixed, // allows ObjectId OR string
       default: null,
     },
@@ -50,7 +57,7 @@ type:Boolean
       date: { type: String, default: null },
       body: { type: String, default: null }, // full forwarded block
     },
-    isTestEmail:Boolean,
+    isTestEmail: Boolean,
     verificationCode: { type: String, default: null },
     verificationUrl: { type: String, default: null },
     extraFields: { type: Object, default: {} },

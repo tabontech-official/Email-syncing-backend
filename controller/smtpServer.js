@@ -214,7 +214,6 @@ function parseKeyValuePairs(text = '') {
   return fields;
 }
 
-
 export const mailHookWebhook = async (req, res) => {
   try {
     console.log('==============================');
@@ -488,13 +487,12 @@ function extractFieldsFromEmail(emailObj = {}) {
   return fields;
 }
 
-
 export const executeScenarios = async (emailData) => {
   try {
-    console.log("=======================================");
-    console.log("🚀 [EXECUTE SCENARIOS] Triggered (Shopify Only)");
-    console.log("📩 Incoming Email Data:", emailData);
-    console.log("=======================================");
+    console.log('=======================================');
+    console.log('🚀 [EXECUTE SCENARIOS] Triggered (Shopify Only)');
+    console.log('📩 Incoming Email Data:', emailData);
+    console.log('=======================================');
 
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
@@ -502,50 +500,60 @@ export const executeScenarios = async (emailData) => {
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
-    console.log("🧩 Extracted Fields:", extractedFields);
+    console.log('🧩 Extracted Fields:', extractedFields);
 
     // 🧠 Fetch only Shopify scenarios
-    const scenarios = await scenarioModel.find({ userId, type: "shopify" }).lean();
-    console.log(`📚 Found ${scenarios.length} Shopify scenario(s) for user ${userId}`);
+    const scenarios = await scenarioModel
+      .find({ userId, type: 'shopify' })
+      .lean();
+    console.log(
+      `📚 Found ${scenarios.length} Shopify scenario(s) for user ${userId}`
+    );
 
     if (!scenarios.length) {
-      console.log("⚠️ No Shopify scenarios found — stopping execution.");
+      console.log('⚠️ No Shopify scenarios found — stopping execution.');
       return;
     }
 
     // 🔁 Loop through Shopify scenarios
     for (const scenario of scenarios) {
-      console.log("=======================================");
-      console.log(`🎯 Executing Shopify Scenario: ${scenario.name} (${scenario._id})`);
+      console.log('=======================================');
+      console.log(
+        `🎯 Executing Shopify Scenario: ${scenario.name} (${scenario._id})`
+      );
       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
-      console.log("=======================================");
+      console.log('=======================================');
 
       if (!scenario.routerBranches?.length) continue;
 
       // 🔁 Loop through each branch
       for (const branch of scenario.routerBranches) {
-        console.log("---------------------------------------");
+        console.log('---------------------------------------');
         console.log(`🌿 Branch ID: ${branch.id || branch._id}`);
-        console.log(`🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`);
+        console.log(
+          `🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`
+        );
 
         // 🧮 Condition check
         const matches = branch.filter?.conditions?.length
           ? branch.filter.conditions.every((cond) => {
               const fieldValue =
-                cond.field?.toLowerCase() === "body"
-                  ? (body || "").toLowerCase()
-                  : cond.field?.toLowerCase() === "subject"
-                  ? (subject || "").toLowerCase()
-                  : "";
-              const condValue = (cond.value || "").toLowerCase();
+                cond.field?.toLowerCase() === 'body'
+                  ? (body || '').toLowerCase()
+                  : cond.field?.toLowerCase() === 'subject'
+                    ? (subject || '').toLowerCase()
+                    : '';
+              const condValue = (cond.value || '').toLowerCase();
 
-              console.log(`   ➤ Checking: [${cond.field}] ${cond.operator} "${cond.value}"`);
+              console.log(
+                `   ➤ Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
+              );
 
               switch (cond.operator?.toLowerCase()) {
-                case "contains":
+                case 'contains':
                   return fieldValue.includes(condValue);
-                case "equals":
-                case "equal to":
+                case 'equals':
+                case 'equal to':
                   return fieldValue === condValue;
                 default:
                   return false;
@@ -554,13 +562,13 @@ export const executeScenarios = async (emailData) => {
           : true;
 
         if (!matches) {
-          console.log("❌ Branch conditions did NOT match — skipping.");
+          console.log('❌ Branch conditions did NOT match — skipping.');
           continue;
         }
 
-        console.log("✅ Branch conditions matched — proceeding...");
+        console.log('✅ Branch conditions matched — proceeding...');
         if (!branch.modules?.length) {
-          console.log("⚠️ No modules found in this branch, skipping...");
+          console.log('⚠️ No modules found in this branch, skipping...');
           continue;
         }
 
@@ -572,39 +580,45 @@ export const executeScenarios = async (emailData) => {
           emailId,
           scenarioId: scenario._id,
           branchId: branch.id || branch._id,
-          status: "pending",
+          status: 'pending',
           completedModules: [],
           pendingModules: branch.modules.map((m) => m.id || m._id),
         });
-        console.log("🗂️ Created AutomationStatus:", statusDoc._id);
+        console.log('🗂️ Created AutomationStatus:', statusDoc._id);
 
         // 🔁 Execute modules one by one
         for (let i = 0; i < branch.modules.length; i++) {
           const module = branch.modules[i];
           console.log(`---------------------------------------`);
-          console.log(`⚙️ Executing Module: ${module.app?.name || module.type} (Index ${i})`);
+          console.log(
+            `⚙️ Executing Module: ${module.app?.name || module.type} (Index ${i})`
+          );
 
           try {
             // 🧠 Normalize type for Shopify
-            const rawType = (module.type || module.app?.name || "").toLowerCase();
+            const rawType = (
+              module.type ||
+              module.app?.name ||
+              ''
+            ).toLowerCase();
             if (
-              rawType.includes("gmail") ||
-              rawType.includes("email") ||
-              rawType.includes("follow") ||
-              rawType.includes("initial")
+              rawType.includes('gmail') ||
+              rawType.includes('email') ||
+              rawType.includes('follow') ||
+              rawType.includes('initial')
             ) {
-              module.type = "Send an Email";
-            } else if (rawType.includes("delay")) {
-              module.type = "Delay";
+              module.type = 'Send an Email';
+            } else if (rawType.includes('delay')) {
+              module.type = 'Delay';
             }
 
             console.log(`🧠 Normalized Type → ${module.type}`);
 
             // 🕒 Handle Delay
-            if (module.type === "Delay") {
-              console.log("⏳ Delay Module Detected");
+            if (module.type === 'Delay') {
+              console.log('⏳ Delay Module Detected');
               if (!module.delayValue || !module.delayUnit) {
-                console.warn("⚠️ Missing delayValue/unit — skipping delay.");
+                console.warn('⚠️ Missing delayValue/unit — skipping delay.');
                 continue;
               }
 
@@ -614,7 +628,7 @@ export const executeScenarios = async (emailData) => {
               const remainingModules = branch.modules
                 .slice(i + 1)
                 .filter((m) =>
-                  ["Send an Email", "Custom Email"].includes(m.type)
+                  ['Send an Email', 'Custom Email'].includes(m.type)
                 );
 
               await DelayJobModel.create({
@@ -630,104 +644,104 @@ export const executeScenarios = async (emailData) => {
                 $push: { completedModules: module.id || module._id },
                 $set: {
                   pendingModules: remainingModules.map((m) => m.id || m._id),
-                  status: "partial",
+                  status: 'partial',
                   lastExecutedAt: new Date(),
                 },
               });
 
-              console.log("✅ Delay Job Scheduled — pausing further modules.");
+              console.log('✅ Delay Job Scheduled — pausing further modules.');
               break;
             }
 
             // 📧 Send Email
-            if (["Send an Email", "Custom Email"].includes(module.type)) {
-              console.log("📨 Send Email Module Triggered");
-              console.log("🔗 Connection ID:", module.connectionId);
+            if (['Send an Email', 'Custom Email'].includes(module.type)) {
+              console.log('📨 Send Email Module Triggered');
+              console.log('🔗 Connection ID:', module.connectionId);
               if (!module.connectionId) {
-                console.log("🚫 No connectionId found — skipping.");
+                console.log('🚫 No connectionId found — skipping.');
                 continue;
               }
 
-              let templateContent = module.template || "Thanks for your email!";
-              let stepType = "initial";
+              let templateContent = module.template || 'Thanks for your email!';
+              let stepType = 'initial';
 
-              console.log("🧠 Shopify email logic active...");
-              const subjectLower = (subject || "").toLowerCase().trim();
+              console.log('🧠 Shopify email logic active...');
+              const subjectLower = (subject || '').toLowerCase().trim();
 
               // Only proceed for Shopify inquiries
               if (
                 !subjectLower.startsWith(
-                  "shopify partner directory: new service inquiry from"
+                  'shopify partner directory: new service inquiry from'
                 )
               ) {
-                console.log("🚫 Not a Shopify inquiry — skipping this email.");
+                console.log('🚫 Not a Shopify inquiry — skipping this email.');
                 continue;
               }
 
               // Identify step (initial/first/second)
-              const lowerTpl = (module.template || "").toLowerCase();
-              if (lowerTpl.includes("first")) stepType = "first";
-              else if (lowerTpl.includes("second")) stepType = "second";
+              const lowerTpl = (module.template || '').toLowerCase();
+              if (lowerTpl.includes('first')) stepType = 'first';
+              else if (lowerTpl.includes('second')) stepType = 'second';
 
               // Match service
-              const textToSearch = (subject + " " + body).toLowerCase();
+              const textToSearch = (subject + ' ' + body).toLowerCase();
               const defaultServices = [
-                "General",
-                "Troubleshooting",
-                "Theme customization",
-                "Store build or redesign",
-                "Store migration",
-                "Website and marketing content",
-                "SEO",
-                "Site performance and speed",
-                "Custom apps and integrations",
-                "Store settings configuration",
-                "Product and collection setup",
-                "Social media marketing",
-                "Product descriptions",
-                "Search engine advertising",
-                "POS setup and migration",
-                "Custom domain setup",
-                "Conversion rate optimization",
-                "Analytics and tracking",
-                "Sales channel setup",
-                "Logo and visual branding",
-                "Business strategy guidance",
-                "Website audit and optimization strategy",
-                "Sales tax guidance",
-                "Product photography",
-                "Email marketing",
-                "3D modelling",
-                "Banner ads",
-                "Video and illustrations",
-                "Content marketing",
-                "Product sourcing guidance",
+                'General',
+                'Troubleshooting',
+                'Theme customization',
+                'Store build or redesign',
+                'Store migration',
+                'Website and marketing content',
+                'SEO',
+                'Site performance and speed',
+                'Custom apps and integrations',
+                'Store settings configuration',
+                'Product and collection setup',
+                'Social media marketing',
+                'Product descriptions',
+                'Search engine advertising',
+                'POS setup and migration',
+                'Custom domain setup',
+                'Conversion rate optimization',
+                'Analytics and tracking',
+                'Sales channel setup',
+                'Logo and visual branding',
+                'Business strategy guidance',
+                'Website audit and optimization strategy',
+                'Sales tax guidance',
+                'Product photography',
+                'Email marketing',
+                '3D modelling',
+                'Banner ads',
+                'Video and illustrations',
+                'Content marketing',
+                'Product sourcing guidance',
               ];
 
               let matchedService = defaultServices.find((s) =>
                 textToSearch.includes(s.toLowerCase())
               );
-              matchedService = matchedService || "General";
+              matchedService = matchedService || 'General';
 
               console.log(`🔍 Matched Service: ${matchedService}`);
               console.log(`🧭 Step Type: ${stepType}`);
 
               // 🔎 Template Lookup
-              console.log("🔎 Searching for template in DB...");
+              console.log('🔎 Searching for template in DB...');
               const tpl =
                 (await TemplateModel.findOne({
                   userId,
-                  platform: "shopify",
-                  service: new RegExp(`^${matchedService}$`, "i"),
+                  platform: 'shopify',
+                  service: new RegExp(`^${matchedService}$`, 'i'),
                   $or: [
                     {
                       name: new RegExp(
-                        stepType === "initial"
-                          ? "(.*Initial Email.*|.*Initial Follow-up.*)"
-                          : stepType === "first"
-                          ? "(.*First Email.*|.*First Follow-up.*)"
-                          : "(.*Second Email.*|.*Second Follow-up.*)",
-                        "i"
+                        stepType === 'initial'
+                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                          : stepType === 'first'
+                            ? '(.*First Email.*|.*First Follow-up.*)'
+                            : '(.*Second Email.*|.*Second Follow-up.*)',
+                        'i'
                       ),
                     },
                   ],
@@ -735,17 +749,17 @@ export const executeScenarios = async (emailData) => {
                 })) ||
                 (await TemplateModel.findOne({
                   userId,
-                  platform: "shopify",
+                  platform: 'shopify',
                   service: /^General$/i,
                   $or: [
                     {
                       name: new RegExp(
-                        stepType === "initial"
-                          ? "(.*Initial Email.*|.*Initial Follow-up.*)"
-                          : stepType === "first"
-                          ? "(.*First Email.*|.*First Follow-up.*)"
-                          : "(.*Second Email.*|.*Second Follow-up.*)",
-                        "i"
+                        stepType === 'initial'
+                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                          : stepType === 'first'
+                            ? '(.*First Email.*|.*First Follow-up.*)'
+                            : '(.*Second Email.*|.*Second Follow-up.*)',
+                        'i'
                       ),
                     },
                   ],
@@ -759,28 +773,40 @@ export const executeScenarios = async (emailData) => {
                 );
                 templateContent = tpl.content;
               } else {
-                console.warn("⚠️ No template found — using fallback.");
+                console.warn('⚠️ No template found — using fallback.');
               }
 
               // 🧩 Fill Variables
               templateContent = fillTemplate(templateContent, extractedFields);
 
               if (!templateContent?.trim()) {
-                console.warn("⚠️ Empty template after fill — using fallback.");
-                templateContent = module.template || "Thanks for your email!";
+                console.warn('⚠️ Empty template after fill — using fallback.');
+                templateContent = module.template || 'Thanks for your email!';
               }
 
-              console.log("📜 Final Template After Fill (first 500 chars):");
+              console.log('📜 Final Template After Fill (first 500 chars):');
               console.log(templateContent.slice(0, 500));
 
               // 🚀 Send email
+              // await sendEmailModule(
+              //   { ...module, template: templateContent },
+              //   from,
+              //   subject,
+              //   emailId
+              // );
               await sendEmailModule(
-                { ...module, template: templateContent },
+                {
+                  ...module,
+                  template: templateContent,
+                  templateId: tpl?._id || null, // ✅ pass template ID
+                  service: matchedService, // ✅ pass detected service
+                  stepType, // ✅ pass which step (initial, first, second)
+                },
                 from,
                 subject,
                 emailId
               );
-              console.log("✅ Email sent successfully.");
+              console.log('✅ Email sent successfully.');
 
               // 💾 Update Automation Status
               const updated = await AutomationStatusModel.findByIdAndUpdate(
@@ -794,46 +820,47 @@ export const executeScenarios = async (emailData) => {
               );
 
               if (updated.pendingModules.length > 0) {
-                console.log("🔁 Modules remaining → status: partial");
+                console.log('🔁 Modules remaining → status: partial');
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-                  $set: { status: "partial" },
+                  $set: { status: 'partial' },
                 });
               } else {
-                console.log("🏁 All modules completed → status: completed");
+                console.log('🏁 All modules completed → status: completed');
                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-                  $set: { status: "completed" },
+                  $set: { status: 'completed' },
                 });
               }
             }
           } catch (err) {
-            console.error("❌ Error executing module:", err);
+            console.error('❌ Error executing module:', err);
             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-              $set: { status: "failed", lastExecutedAt: new Date() },
+              $set: { status: 'failed', lastExecutedAt: new Date() },
             });
           }
         }
 
         // ✅ Final Branch Completion
         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
-        if (finalDoc && finalDoc.pendingModules.length === 0 && finalDoc.status !== "failed") {
+        if (
+          finalDoc &&
+          finalDoc.pendingModules.length === 0 &&
+          finalDoc.status !== 'failed'
+        ) {
           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-            $set: { status: "completed", lastExecutedAt: new Date() },
+            $set: { status: 'completed', lastExecutedAt: new Date() },
           });
-          console.log("✅ Final Branch Status: COMPLETED");
+          console.log('✅ Final Branch Status: COMPLETED');
         }
       }
     }
 
-    console.log("🎉 All Shopify Scenarios Execution Complete!");
-    console.log("=======================================");
+    console.log('🎉 All Shopify Scenarios Execution Complete!');
+    console.log('=======================================');
   } catch (err) {
-    console.error("🔥 Fatal Error in executeScenarios:", err);
-    console.log("=======================================");
+    console.error('🔥 Fatal Error in executeScenarios:', err);
+    console.log('=======================================');
   }
 };
-
-
-
 
 const convertToMs = (value, unit) => {
   if (!value) return 0;
@@ -843,13 +870,19 @@ const convertToMs = (value, unit) => {
   return value;
 };
 
-export const sendEmailModule = async (module, to, originalSubject, parentEmailId) => {
-  const log = (...args) => console.log(`[${new Date().toISOString()}]`, ...args);
+export const sendEmailModule = async (
+  module,
+  to,
+  originalSubject,
+  parentEmailId
+) => {
+  const log = (...args) =>
+    console.log(`[${new Date().toISOString()}]`, ...args);
 
   try {
-    log("=========================================");
-    log("📤 [sendEmailModule] Triggered");
-    log("📦 Module received:", {
+    log('=========================================');
+    log('📤 [sendEmailModule] Triggered');
+    log('📦 Module received:', {
       id: module.id || module._id,
       type: module.type,
       connectionId: module.connectionId,
@@ -858,61 +891,63 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
       templateLength: module.template?.length || 0,
       app: module.app,
     });
-    log("🎯 Recipient:", to);
-    log("💬 Original Subject:", originalSubject);
+    log('🎯 Recipient:', to);
+    log('💬 Original Subject:', originalSubject);
 
     if (!module.connectionId) {
-      log("❌ Missing connectionId — cannot send email!");
+      log('❌ Missing connectionId — cannot send email!');
       return;
     }
 
     const connection = await ConnectionModel.findById(module.connectionId);
     if (!connection) {
-      log("❌ Connection not found:", module.connectionId);
+      log('❌ Connection not found:', module.connectionId);
       return;
     }
 
-    log("🔌 Connection found:", {
+    log('🔌 Connection found:', {
       provider: connection.provider,
       email: connection.email,
     });
 
     // ✅ Prepare Subject
     const finalSubject =
-      module.subject && module.subject.trim() !== ""
+      module.subject && module.subject.trim() !== ''
         ? module.subject
-        : `Re: ${originalSubject || "Shopify Inquiry"}`;
-    const safeSubject = finalSubject.replace(/\r?\n|\r/g, " ").trim();
+        : `Re: ${originalSubject || 'Shopify Inquiry'}`;
+    const safeSubject = finalSubject.replace(/\r?\n|\r/g, ' ').trim();
 
     // ✅ Prepare Body
-    let emailBody = module.template?.trim() || "Thanks for your email!";
+    let emailBody = module.template?.trim() || 'Thanks for your email!';
     if (!emailBody || emailBody.length === 0) {
-      log("⚠️ Email body is empty — using fallback text.");
-      emailBody = "Thanks for your email!";
+      log('⚠️ Email body is empty — using fallback text.');
+      emailBody = 'Thanks for your email!';
     }
 
     // 🧠 Wrap non-HTML text in <div>
-    if (!emailBody.startsWith("<")) {
+    if (!emailBody.startsWith('<')) {
       emailBody = `<div>${emailBody}</div>`;
     }
 
-    log("📧 ================= EMAIL CONTENT START =================");
+    log('📧 ================= EMAIL CONTENT START =================');
     log(emailBody);
-    log("📧 ================= EMAIL CONTENT END ===================");
+    log('📧 ================= EMAIL CONTENT END ===================');
     log(`📏 Email body length: ${emailBody.length} characters`);
-    log("🧩 Email Body Preview (first 300 chars):", emailBody.slice(0, 300));
+    log('🧩 Email Body Preview (first 300 chars):', emailBody.slice(0, 300));
 
-    const cc = (Array.isArray(module.cc) ? module.cc.join(",") : module.cc) || "";
-    const bcc = (Array.isArray(module.bcc) ? module.bcc.join(",") : module.bcc) || "";
+    const cc =
+      (Array.isArray(module.cc) ? module.cc.join(',') : module.cc) || '';
+    const bcc =
+      (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
 
     let sentOk = false;
 
     // =====================================================================
     // ------------------------ 📧 GMAIL PROVIDER ---------------------------
     // =====================================================================
-    if (connection.provider === "gmail") {
+    if (connection.provider === 'gmail') {
       try {
-        log("📨 Sending via Gmail API...");
+        log('📨 Sending via Gmail API...');
 
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
@@ -920,51 +955,55 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           process.env.GOOGLE_REDIRECT_URI
         );
         oauth2Client.setCredentials(connection.tokens);
-        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
         // ✅ Correct MIME Format — DOUBLE CRLF before body!
         const rawMessage =
           `From: ${connection.email}\r\n` +
           `To: ${to}\r\n` +
-          (cc ? `Cc: ${cc}\r\n` : "") +
-          (bcc ? `Bcc: ${bcc}\r\n` : "") +
+          (cc ? `Cc: ${cc}\r\n` : '') +
+          (bcc ? `Bcc: ${bcc}\r\n` : '') +
           `Subject: ${safeSubject}\r\n` +
-          "MIME-Version: 1.0\r\n" +
-          "Content-Type: text/html; charset=UTF-8\r\n" +
-          "\r\n" + // DOUBLE CRLF separates headers from body
-          emailBody + "\r\n";
+          'MIME-Version: 1.0\r\n' +
+          'Content-Type: text/html; charset=UTF-8\r\n' +
+          '\r\n' + // DOUBLE CRLF separates headers from body
+          emailBody +
+          '\r\n';
 
-        log("📄 Gmail MIME Raw Message (first 400 chars):");
+        log('📄 Gmail MIME Raw Message (first 400 chars):');
         log(rawMessage.slice(0, 400));
 
-        const raw = Buffer.from(rawMessage, "utf8")
-          .toString("base64")
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
+        const raw = Buffer.from(rawMessage, 'utf8')
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
 
-        log("⚙️ Gmail payload prepared (base64 length):", raw.length);
+        log('⚙️ Gmail payload prepared (base64 length):', raw.length);
 
         const result = await gmail.users.messages.send({
-          userId: "me",
+          userId: 'me',
           requestBody: { raw },
         });
 
-        log("✅ [GMAIL] Message sent successfully!");
-        log("📨 Gmail Message ID:", result.data.id);
+        log('✅ [GMAIL] Message sent successfully!');
+        log('📨 Gmail Message ID:', result.data.id);
         sentOk = true;
       } catch (err) {
-        log("❌ [GMAIL] Send Error:", err.response?.data || err.message);
+        log('❌ [GMAIL] Send Error:', err.response?.data || err.message);
       }
     }
 
     // =====================================================================
     // ------------------------ 🟣 OUTLOOK PROVIDER -------------------------
     // =====================================================================
-    else if (connection.provider === "outlook") {
+    else if (connection.provider === 'outlook') {
       try {
-        log("🟣 Sending via Outlook API...");
-        log("🧾 Email HTML Content (first 300 chars):", emailBody.slice(0, 300));
+        log('🟣 Sending via Outlook API...');
+        log(
+          '🧾 Email HTML Content (first 300 chars):',
+          emailBody.slice(0, 300)
+        );
 
         const extractEmail = (input) => {
           const match = input.match(/<(.+?)>/);
@@ -973,7 +1012,7 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
 
         const toClean = extractEmail(to);
         const ccClean = cc
-          ? cc.split(",").map((addr) => ({
+          ? cc.split(',').map((addr) => ({
               emailAddress: { address: extractEmail(addr.trim()) },
             }))
           : [];
@@ -981,45 +1020,52 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
         const message = {
           message: {
             subject: safeSubject,
-            body: { contentType: "HTML", content: emailBody },
+            body: { contentType: 'HTML', content: emailBody },
             toRecipients: [{ emailAddress: { address: toClean } }],
             ccRecipients: ccClean,
           },
           saveToSentItems: true,
         };
 
-        log("⚙️ Outlook Payload:", JSON.stringify(message, null, 2));
+        log('⚙️ Outlook Payload:', JSON.stringify(message, null, 2));
 
-        const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${connection.tokens.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(message),
-        });
+        const response = await fetch(
+          'https://graph.microsoft.com/v1.0/me/sendMail',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${connection.tokens.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(message),
+          }
+        );
 
         if (response.ok) {
-          log("✅ [OUTLOOK] Email sent successfully!");
+          log('✅ [OUTLOOK] Email sent successfully!');
           sentOk = true;
         } else {
           const errorText = await response.text();
-          log("❌ [OUTLOOK] API Error:", errorText);
+          log('❌ [OUTLOOK] API Error:', errorText);
         }
       } catch (err) {
-        log("❌ [OUTLOOK] Send Error:", err.message);
+        log('❌ [OUTLOOK] Send Error:', err.message);
       }
     }
 
     // =====================================================================
     // ------------------------ 🟠 SMTP PROVIDER ----------------------------
     // =====================================================================
-    else if (connection.provider === "smtp") {
+    else if (connection.provider === 'smtp') {
       try {
-        log("🟠 Sending via SMTP...");
-        log("🧾 SMTP Email HTML (first 300 chars):", emailBody.slice(0, 300));
+        log('🟠 Sending via SMTP...');
+        log('🧾 SMTP Email HTML (first 300 chars):', emailBody.slice(0, 300));
 
-        if (!connection.smtp?.host || !connection.smtp?.username || !connection.smtp?.password) {
+        if (
+          !connection.smtp?.host ||
+          !connection.smtp?.username ||
+          !connection.smtp?.password
+        ) {
           throw new Error(`[SMTP] Missing credentials for ${connection.email}`);
         }
 
@@ -1035,10 +1081,10 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
         });
 
         await transporter.verify();
-        log("✅ [SMTP] Connection verified.");
+        log('✅ [SMTP] Connection verified.');
 
         const info = await transporter.sendMail({
-          from: `"${connection.name || "SMTP Sender"}" <${connection.email}>`,
+          from: `"${connection.name || 'SMTP Sender'}" <${connection.email}>`,
           to,
           cc,
           bcc,
@@ -1046,34 +1092,33 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
           html: emailBody,
         });
 
-        log("✅ [SMTP] Email sent successfully!");
-        log("📨 Message ID:", info.messageId);
+        log('✅ [SMTP] Email sent successfully!');
+        log('📨 Message ID:', info.messageId);
         sentOk = true;
       } catch (err) {
-        log("❌ [SMTP] Send Error:", err.message);
+        log('❌ [SMTP] Send Error:', err.message);
       }
     } else {
-      log("❌ Unknown provider:", connection.provider);
+      log('❌ Unknown provider:', connection.provider);
     }
 
-    // =====================================================================
-    // ------------------------ 💾 SAVE EMAIL LOG --------------------------
-    // =====================================================================
     if (sentOk) {
-      const plainTextBody = emailBody.replace(/<\/?[^>]+(>|$)/g, "");
-      log("💾 Saving sent email record...");
-      log("🧾 HTML Saved Body (first 200 chars):", emailBody.slice(0, 200));
+      const plainTextBody = emailBody.replace(/<\/?[^>]+(>|$)/g, '');
+      log('💾 Saving sent email record...');
+      log('🧾 HTML Saved Body (first 200 chars):', emailBody.slice(0, 200));
 
       const sentDoc = new EmailModel({
         userId: connection.userId,
         senderAddress: connection.email,
         recipientAddress: to,
-        templateId: tpl?._id || null,  
         subject: safeSubject,
         textBody: plainTextBody,
         htmlBody: emailBody,
-        cc: cc ? cc.split(",").map((a) => a.trim()) : [],
-        bcc: bcc ? bcc.split(",").map((a) => a.trim()) : [],
+        templateId: module.templateId || null,
+        service: module.service || 'Unknown', 
+        stepType: module.stepType || 'initial', 
+        cc: cc ? cc.split(',').map((a) => a.trim()) : [],
+        bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
         date: new Date(),
         isForwarded: true,
         parentEmailId: parentEmailId || null,
@@ -1087,25 +1132,16 @@ export const sendEmailModule = async (module, to, originalSubject, parentEmailId
       });
 
       await sentDoc.save();
-      log("✅ Sent email saved in DB with ID:", sentDoc._id);
+      log('✅ Sent email saved in DB with ID:', sentDoc._id);
     } else {
-      log("⚠️ Email not sent — skipping save.");
+      log('⚠️ Email not sent — skipping save.');
     }
 
-    log("=========================================");
+    log('=========================================');
   } catch (outerErr) {
-    console.error("🔥 [sendEmailModule] Fatal Error:", outerErr);
+    console.error('🔥 [sendEmailModule] Fatal Error:', outerErr);
   }
 };
-
-
-
-
-
-
-
-
-
 
 export const RunTestMode = async (req, res) => {
   try {
@@ -1643,11 +1679,6 @@ export const getLatestVerificationEmail = async (req, res) => {
 //   }
 // };
 
-
-
-
-
-
 export const validateTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1656,13 +1687,13 @@ export const validateTestEmail = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid user ID." });
+        .json({ success: false, message: 'Invalid user ID.' });
     }
 
     if (!toEmail) {
       return res.status(400).json({
         success: false,
-        message: "Missing recipient email address (toEmail).",
+        message: 'Missing recipient email address (toEmail).',
       });
     }
 
@@ -1670,7 +1701,7 @@ export const validateTestEmail = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found." });
+        .json({ success: false, message: 'User not found.' });
     }
 
     const existing = await mailhookModel.findOne({
@@ -1685,7 +1716,7 @@ export const validateTestEmail = async (req, res) => {
       });
     }
 
-    const testSubject = "Zenith Forwarding Validation Test";
+    const testSubject = 'Zenith Forwarding Validation Test';
     const testBody = `Hello,
 
 This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
@@ -1695,7 +1726,7 @@ If you receive this email, your mail forwarding is active and functioning.
 — Zenith Inbox Team`;
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -1715,17 +1746,14 @@ If you receive this email, your mail forwarding is active and functioning.
       sentTo: toEmail,
     });
   } catch (err) {
-    console.error("❌ Error sending validation test email:", err);
+    console.error('❌ Error sending validation test email:', err);
     res.status(500).json({
       success: false,
-      message: "Failed to send test email.",
+      message: 'Failed to send test email.',
       error: err.message,
     });
   }
 };
-
-
-
 
 // export const getValidateEmail = async (req, res) => {
 //   try {
@@ -1893,7 +1921,6 @@ If you receive this email, your mail forwarding is active and functioning.
 //   }
 // };
 
-
 export const getValidateEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1902,10 +1929,10 @@ export const getValidateEmail = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid user ID." });
+        .json({ success: false, message: 'Invalid user ID.' });
     }
 
-    const testSubject = "Zenith Forwarding Validation Test";
+    const testSubject = 'Zenith Forwarding Validation Test';
 
     // 🟡 Get latest test email for verification
     const testRecord = await validationModel
@@ -1916,17 +1943,17 @@ export const getValidateEmail = async (req, res) => {
     if (!testRecord) {
       return res.status(404).json({
         success: false,
-        message: "Test forwarding email not yet received or verified.",
+        message: 'Test forwarding email not yet received or verified.',
       });
     }
 
     // 🟢 Only proceed if the test is verified
     if (testRecord.verified) {
-      const user = await authModel.findById(userId).select("mailhook");
+      const user = await authModel.findById(userId).select('mailhook');
       if (!user) {
         return res
           .status(404)
-          .json({ success: false, message: "User not found" });
+          .json({ success: false, message: 'User not found' });
       }
 
       // 🧠 Check if that email already exists for this user (avoid duplicates)
@@ -1963,11 +1990,11 @@ export const getValidateEmail = async (req, res) => {
         if (!updatedMailhook) {
           return res.status(404).json({
             success: false,
-            message: "Mailhook card not found for the given ID.",
+            message: 'Mailhook card not found for the given ID.',
           });
         }
 
-        console.log("✅ Existing Mailhook card updated:", updatedMailhook._id);
+        console.log('✅ Existing Mailhook card updated:', updatedMailhook._id);
       } else {
         // 🧩 CASE 2: Create new mailhook only if not exists
         if (!existing) {
@@ -1980,7 +2007,7 @@ export const getValidateEmail = async (req, res) => {
           });
 
           updatedMailhook = await newMailhook.save();
-          console.log("🆕 New mailhook created:", updatedMailhook._id);
+          console.log('🆕 New mailhook created:', updatedMailhook._id);
         }
       }
     }
@@ -1989,8 +2016,8 @@ export const getValidateEmail = async (req, res) => {
     return res.json({
       success: true,
       message: testRecord.verified
-        ? "✅ Forwarding test verified and mailhook updated successfully."
-        : "⚙️ Test email found but not yet verified.",
+        ? '✅ Forwarding test verified and mailhook updated successfully.'
+        : '⚙️ Test email found but not yet verified.',
       data: {
         id: testRecord._id,
         subject: testRecord.subject,
@@ -2003,16 +2030,14 @@ export const getValidateEmail = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error checking forwarding validation:", err);
+    console.error('❌ Error checking forwarding validation:', err);
     return res.status(500).json({
       success: false,
-      message: "Server error while checking forwarding validation.",
+      message: 'Server error while checking forwarding validation.',
       error: err.message,
     });
   }
 };
-
-
 
 export const getTestEmailData = async (req, res) => {
   try {
@@ -2192,10 +2217,10 @@ export const sendTestEmail = async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: process.env.SMTP_PORT || 587,
-      secure: false, 
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS, 
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
     });
 
@@ -2214,7 +2239,7 @@ Thank you,
 Zenith Inbox Team`,
     };
 
-    // 🔹 Send the 
+    // 🔹 Send the
     await transporter.sendMail(mailOptions);
 
     return res.json({
@@ -2229,30 +2254,37 @@ Zenith Inbox Team`,
   }
 };
 
-
 export const verifyConnection = async (req, res) => {
   const { connectionId } = req.body;
 
-  console.log("🔍 [verifyConnection] Verifying connection:", connectionId);
+  console.log('🔍 [verifyConnection] Verifying connection:', connectionId);
 
   if (!connectionId) {
-    return res.status(400).json({ success: false, message: "connectionId is required" });
+    return res
+      .status(400)
+      .json({ success: false, message: 'connectionId is required' });
   }
 
   try {
     const connection = await ConnectionModel.findById(connectionId);
     if (!connection) {
-      return res.status(404).json({ success: false, message: "Connection not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Connection not found' });
     }
 
-    console.log("🔌 Provider:", connection.provider, "| Email:", connection.email);
+    console.log(
+      '🔌 Provider:',
+      connection.provider,
+      '| Email:',
+      connection.email
+    );
 
     let verified = false;
 
- 
-    if (connection.provider === "gmail") {
+    if (connection.provider === 'gmail') {
       try {
-        console.log("📨 Verifying Gmail OAuth2...");
+        console.log('📨 Verifying Gmail OAuth2...');
 
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
@@ -2261,21 +2293,18 @@ export const verifyConnection = async (req, res) => {
         );
         oauth2Client.setCredentials(connection.tokens);
 
-        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-        await gmail.users.getProfile({ userId: "me" });
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+        await gmail.users.getProfile({ userId: 'me' });
 
         verified = true;
-        console.log("✅ Gmail verification successful!");
+        console.log('✅ Gmail verification successful!');
       } catch (err) {
-        console.error("❌ Gmail verification failed:", err.message);
+        console.error('❌ Gmail verification failed:', err.message);
       }
-    }
-
-
-    else if (connection.provider === "outlook") {
+    } else if (connection.provider === 'outlook') {
       try {
-        console.log("📨 Verifying Outlook token...");
-        const resp = await fetch("https://graph.microsoft.com/v1.0/me", {
+        console.log('📨 Verifying Outlook token...');
+        const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
           headers: {
             Authorization: `Bearer ${connection.tokens.access_token}`,
           },
@@ -2283,23 +2312,24 @@ export const verifyConnection = async (req, res) => {
 
         if (resp.ok) {
           verified = true;
-          console.log("✅ Outlook verification successful!");
+          console.log('✅ Outlook verification successful!');
         } else {
           const error = await resp.text();
-          console.error("❌ Outlook token invalid:", error);
+          console.error('❌ Outlook token invalid:', error);
         }
       } catch (err) {
-        console.error("❌ Outlook verification failed:", err.message);
+        console.error('❌ Outlook verification failed:', err.message);
       }
-    }
-
- 
-    else if (connection.provider === "smtp") {
+    } else if (connection.provider === 'smtp') {
       try {
-        console.log("📨 Verifying SMTP credentials...");
+        console.log('📨 Verifying SMTP credentials...');
 
-        if (!connection.smtp?.host || !connection.smtp?.username || !connection.smtp?.password) {
-          throw new Error("Missing SMTP credentials");
+        if (
+          !connection.smtp?.host ||
+          !connection.smtp?.username ||
+          !connection.smtp?.password
+        ) {
+          throw new Error('Missing SMTP credentials');
         }
 
         const transporter = nodemailer.createTransport({
@@ -2315,36 +2345,39 @@ export const verifyConnection = async (req, res) => {
 
         await transporter.verify();
         verified = true;
-        console.log("✅ SMTP verification successful!");
+        console.log('✅ SMTP verification successful!');
       } catch (err) {
-        console.error("❌ SMTP verification failed:", err.message);
+        console.error('❌ SMTP verification failed:', err.message);
       }
     } else {
-      console.error("❌ Unknown provider:", connection.provider);
+      console.error('❌ Unknown provider:', connection.provider);
     }
 
- 
     if (verified) {
       connection.verified = true;
       await connection.save();
 
-      console.log("💾 Connection marked as verified in DB:", connection._id);
-      return res.json({ success: true, message: "Connection verified successfully!" });
+      console.log('💾 Connection marked as verified in DB:', connection._id);
+      return res.json({
+        success: true,
+        message: 'Connection verified successfully!',
+      });
     } else {
       connection.verified = false;
       await connection.save();
 
       return res.status(400).json({
         success: false,
-        message: "Verification failed. Invalid or expired credentials.",
+        message: 'Verification failed. Invalid or expired credentials.',
       });
     }
   } catch (error) {
-    console.error("🔥 [verifyConnection] Error:", error);
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    console.error('🔥 [verifyConnection] Error:', error);
+    res
+      .status(500)
+      .json({ success: false, message: 'Server error', error: error.message });
   }
 };
-
 
 export const getConnectionById = async (req, res) => {
   try {
@@ -2353,14 +2386,14 @@ export const getConnectionById = async (req, res) => {
     if (!connection) {
       return res
         .status(404)
-        .json({ success: false, message: "Connection not found" });
+        .json({ success: false, message: 'Connection not found' });
     }
 
     res.status(200).json(connection); // includes "verified"
   } catch (err) {
-    console.error("❌ [getConnectionById] Error:", err);
+    console.error('❌ [getConnectionById] Error:', err);
     res
       .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
+      .json({ success: false, message: 'Server error', error: err.message });
   }
 };
