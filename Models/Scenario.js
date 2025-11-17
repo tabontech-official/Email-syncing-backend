@@ -17,6 +17,10 @@ const ModuleSchema = new mongoose.Schema({
     color: String,
     icon: String,
   },
+   position: {
+    x: { type: Number, default: 200 },
+    y: { type: Number, default: 200 },
+  },
   subject: { type: String, default: "" },  
   to: { type: String, required: false }, 
   cc: { type: [String], default: [] },     
