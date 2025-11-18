@@ -319,19 +319,18 @@ export const signUp = async (req, res) => {
 //   }
 // };
 
-
 export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const user = await authModel.findOne({ email });
     if (!user) {
-      return res.status(404).json({ error: "User does not exist" });
+      return res.status(404).json({ error: 'User does not exist' });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(400).json({ error: "Password does not match" });
+      return res.status(400).json({ error: 'Password does not match' });
     }
 
     // ✅ Record login timestamp
@@ -341,16 +340,15 @@ export const signIn = async (req, res) => {
     const token = createToken({ _id: user._id, role: user.role });
 
     res.status(200).json({
-      message: "Successfully logged in",
+      message: 'Successfully logged in',
       token,
       data: user,
     });
   } catch (error) {
-    console.error("Error during login:", error);
+    console.error('Error during login:', error);
     res.status(500).json({ error: error.message });
   }
 };
-
 
 export const getUserById = async (req, res) => {
   try {
@@ -492,12 +490,12 @@ export const logout = async (req, res) => {
     const { userId } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ error: "User ID is required" });
+      return res.status(400).json({ error: 'User ID is required' });
     }
 
     const user = await authModel.findById(userId);
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     // ✅ Record logout timestamp
@@ -505,19 +503,18 @@ export const logout = async (req, res) => {
     await user.save();
 
     // Optional: if you use cookies for auth
-    res.clearCookie("token", { path: "/" });
+    res.clearCookie('token', { path: '/' });
 
     res.status(200).json({
-      message: "Logout successful",
+      message: 'Logout successful',
       userId,
       lastLogout: user.lastLogout,
     });
   } catch (error) {
-    console.error("Error during logout:", error);
-    res.status(500).json({ error: "An error occurred during logout" });
+    console.error('Error during logout:', error);
+    res.status(500).json({ error: 'An error occurred during logout' });
   }
 };
-
 
 export const completeSetup = async (req, res) => {
   try {
@@ -1222,21 +1219,19 @@ const client = new AuthorizationCode(oauthConfig);
 //   }
 // };
 
-
-
 export const startOutlookOAuth = (req, res) => {
   const { userId, redirect } = req.query;
-  if (!userId) return res.status(400).send("Missing userId");
+  if (!userId) return res.status(400).send('Missing userId');
 
   const authorizationUri = client.authorizeURL({
     redirect_uri: MICROSOFT_REDIRECT_URI,
     scope:
-      "openid profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send",
-    state: JSON.stringify({ userId, redirect }), 
-    prompt: "consent",
+      'openid profile offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send',
+    state: JSON.stringify({ userId, redirect }),
+    prompt: 'consent',
   });
 
-  console.log("🔁 Redirecting to Microsoft OAuth:", authorizationUri);
+  console.log('🔁 Redirecting to Microsoft OAuth:', authorizationUri);
   res.redirect(authorizationUri);
 };
 
@@ -1247,23 +1242,22 @@ export const outlookOAuthCallback = async (req, res) => {
   try {
     const parsed = JSON.parse(state);
     userId = parsed.userId;
-    redirectPath = parsed.redirect || "connection"; 
+    redirectPath = parsed.redirect || 'connection';
   } catch (err) {
-    return res.status(400).send("Invalid state parameter");
+    return res.status(400).send('Invalid state parameter');
   }
 
   try {
     const tokenParams = {
       code,
       redirect_uri: MICROSOFT_REDIRECT_URI,
-      scope:
-        "openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite",
+      scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
     };
 
     const accessToken = await client.getToken(tokenParams);
 
     const userInfoRes = await fetch(
-      "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName",
+      'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
       {
         headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
       }
@@ -1272,10 +1266,10 @@ export const outlookOAuthCallback = async (req, res) => {
 
     const userEmail =
       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
-    const userName = user.displayName || "";
+    const userName = user.displayName || '';
 
     if (!userEmail)
-      return res.status(400).send("No email found from Microsoft account");
+      return res.status(400).send('No email found from Microsoft account');
 
     let connection = await ConnectionModel.findOne({
       userId,
@@ -1285,16 +1279,16 @@ export const outlookOAuthCallback = async (req, res) => {
     if (!connection) {
       connection = new ConnectionModel({
         userId,
-        provider: "outlook",
+        provider: 'outlook',
         email: userEmail,
         name: userName,
         tokens: accessToken.token,
-        status: "active",
+        status: 'active',
         createdAt: new Date(),
       });
     } else {
       connection.tokens = accessToken.token;
-      connection.status = "active";
+      connection.status = 'active';
       connection.lastConnected = new Date();
     }
 
@@ -1307,7 +1301,6 @@ export const outlookOAuthCallback = async (req, res) => {
     res.redirect(`${FRONTEND_URL}/connection?status=error`);
   }
 };
-
 
 export const forgotPassword = async (req, res) => {
   try {
@@ -1567,15 +1560,15 @@ export const verifyLogin = async (req, res) => {
   }
 };
 
-
-
 export const getSummaryForAdmin = async (req, res) => {
   try {
     // 🧠 Get all userIds that have verified mailhooks
-    const verifiedMailhookUsersRaw = await mailhookModel.distinct("userId", {
+    const verifiedMailhookUsersRaw = await mailhookModel.distinct('userId', {
       connectionVerified: true,
     });
-    const verifiedMailhookUsers = verifiedMailhookUsersRaw.map((id) => id.toString());
+    const verifiedMailhookUsers = verifiedMailhookUsersRaw.map((id) =>
+      id.toString()
+    );
 
     // Fetch base metrics
     const [
@@ -1604,10 +1597,10 @@ export const getSummaryForAdmin = async (req, res) => {
       { $match: { userId: { $in: userIds } } },
       {
         $group: {
-          _id: "$userId",
+          _id: '$userId',
           total: { $sum: 1 },
-          active: { $sum: { $cond: ["$active", 1, 0] } },
-          inactive: { $sum: { $cond: ["$active", 0, 1] } },
+          active: { $sum: { $cond: ['$active', 1, 0] } },
+          inactive: { $sum: { $cond: ['$active', 0, 1] } },
         },
       },
     ]);
@@ -1648,27 +1641,21 @@ export const getSummaryForAdmin = async (req, res) => {
       recentUsers,
     });
   } catch (err) {
-    console.error("Error fetching admin summary:", err);
+    console.error('Error fetching admin summary:', err);
     res.status(500).json({ message: err.message });
   }
 };
-
-
-
-
-
-
 
 export const getAllUsers = async (req, res) => {
   try {
     const users = await authModel
       .find({})
       .sort({ createdAt: -1 })
-      .select("fullName email role setup createdAt");
+      .select('fullName email role setup createdAt');
 
     const verifiedMailhooks = await mailhookModel
       .find({ connectionVerified: true })
-      .select("userId")
+      .select('userId')
       .lean();
 
     const verifiedUserIds = new Set(
@@ -1677,22 +1664,20 @@ export const getAllUsers = async (req, res) => {
 
     const formattedUsers = users.map((u) => ({
       ...u.toObject(),
-      verified: verifiedUserIds.has(u._id.toString()), 
+      verified: verifiedUserIds.has(u._id.toString()),
     }));
 
     res.json({ users: formattedUsers });
   } catch (err) {
-    console.error("Error fetching users:", err);
+    console.error('Error fetching users:', err);
     res.status(500).json({ message: err.message });
   }
 };
 
-
-
 export const getAllConnections = async (req, res) => {
   try {
     const connections = await ConnectionModel.find()
-      .populate("userId", "fullName email role")
+      .populate('userId', 'fullName email role')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -1708,7 +1693,9 @@ export const getAllConnections = async (req, res) => {
 
     res.json({ connections: formatted });
   } catch (err) {
-    res.status(500).json({ message: "Error fetching connections", error: err.message });
+    res
+      .status(500)
+      .json({ message: 'Error fetching connections', error: err.message });
   }
 };
 
@@ -1717,18 +1704,16 @@ export const getUserActivity = async (req, res) => {
     const users = await authModel
       .find({})
       .sort({ updatedAt: -1 })
-      .select("fullName email role createdAt updatedAt lastLogin lastLogout")
+      .select('fullName email role createdAt updatedAt lastLogin lastLogout')
       .lean();
 
     const [templates, emails, scenarios] = await Promise.all([
-      TemplateModel.find().select("_id name userId").lean(),
+      TemplateModel.find().select('_id name userId').lean(),
       EmailModel.find()
-        .select("userId templateId createdAt")
+        .select('userId templateId createdAt')
         .sort({ createdAt: -1 })
         .lean(),
-      scenarioModel.find()
-        .select("userId name routerBranches")
-        .lean(),
+      scenarioModel.find().select('userId name routerBranches').lean(),
     ]);
 
     // 🔍 Helper map for quick lookups
@@ -1745,9 +1730,7 @@ export const getUserActivity = async (req, res) => {
 
       const usedTemplateIds = [
         ...new Set(
-          userEmails
-            .map((em) => em.templateId?.toString())
-            .filter((id) => id)
+          userEmails.map((em) => em.templateId?.toString()).filter((id) => id)
         ),
       ];
 
@@ -1768,7 +1751,7 @@ export const getUserActivity = async (req, res) => {
 
         return {
           _id: tid,
-          name: template?.name || "Unknown Template",
+          name: template?.name || 'Unknown Template',
           lastUsed: lastUsedEmail?.createdAt || null,
           triggeredIn: relatedScenarios,
         };
@@ -1784,7 +1767,7 @@ export const getUserActivity = async (req, res) => {
 
     res.json({ activities });
   } catch (err) {
-    console.error("❌ Error fetching user activity:", err);
+    console.error('❌ Error fetching user activity:', err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1795,12 +1778,12 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
     // Fetch data in parallel
     const [users, emails, templates] = await Promise.all([
-      authModel.find({}, "fullName email").lean(),
+      authModel.find({}, 'fullName email').lean(),
       EmailModel.find(
         { isTestEmail: { $ne: true }, isForwarded: true },
-        "userId subject textBody htmlBody templateId service stepType parentEmailId createdAt"
+        'userId subject textBody htmlBody templateId service stepType parentEmailId createdAt'
       ).lean(),
-      TemplateModel.find({}, "userId name service type active platform").lean(),
+      TemplateModel.find({}, 'userId name service type active platform').lean(),
     ]);
 
     // Filter by user if provided
@@ -1813,20 +1796,29 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
       // Filter emails/templates for this user
       let userEmails = emails.filter((e) => String(e.userId) === userIdStr);
-      let userTemplates = templates.filter((t) => String(t.userId) === userIdStr);
+      let userTemplates = templates.filter(
+        (t) => String(t.userId) === userIdStr
+      );
 
       // Apply optional filters
       if (service) {
-        userEmails = userEmails.filter((e) => e.service?.toLowerCase() === service.toLowerCase());
-        userTemplates = userTemplates.filter((t) => t.service?.toLowerCase() === service.toLowerCase());
+        userEmails = userEmails.filter(
+          (e) => e.service?.toLowerCase() === service.toLowerCase()
+        );
+        userTemplates = userTemplates.filter(
+          (t) => t.service?.toLowerCase() === service.toLowerCase()
+        );
       }
       if (type) {
-        userEmails = userEmails.filter((e) => e.stepType?.toLowerCase() === type.toLowerCase());
-        userTemplates = userTemplates.filter((t) => t.type?.toLowerCase() === type.toLowerCase());
+        userEmails = userEmails.filter(
+          (e) => e.stepType?.toLowerCase() === type.toLowerCase()
+        );
+        userTemplates = userTemplates.filter(
+          (t) => t.type?.toLowerCase() === type.toLowerCase()
+        );
       }
 
-      if (userEmails.length === 0)
-        return null; // skip if no matching emails
+      if (userEmails.length === 0) return null; // skip if no matching emails
 
       const templateUsageMap = {};
       const emailTemplateMap = [];
@@ -1840,14 +1832,15 @@ export const getEmailTrackingForAdmin = async (req, res) => {
         const detectedPlatform = detectPlatform(email);
 
         emailTemplateMap.push({
-          subject: email.subject || "(No Subject)",
-          matchedTemplate: detectedTemplate?.name || "—",
-          serviceDetected: email.service || detectedTemplate?.service || "Unknown",
-          stepType: email.stepType || detectedTemplate?.type || "initial",
+          subject: email.subject || '(No Subject)',
+          matchedTemplate: detectedTemplate?.name || '—',
+          serviceDetected:
+            email.service || detectedTemplate?.service || 'Unknown',
+          stepType: email.stepType || detectedTemplate?.type || 'initial',
           detectedPlatform,
           date: email.createdAt,
           parentEmailId: email.parentEmailId || null,
-          htmlBody: email.htmlBody || "",
+          htmlBody: email.htmlBody || '',
         });
 
         if (detectedTemplate) {
@@ -1891,40 +1884,39 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
     res.json({ success: true, data: filteredSummary });
   } catch (error) {
-    console.error("Error in email tracking summary:", error);
+    console.error('Error in email tracking summary:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
 function detectPlatform(email) {
   const text = (
-    (email.subject || "") +
-    " " +
-    (email.textBody || "") +
-    " " +
-    (email.htmlBody || "")
+    (email.subject || '') +
+    ' ' +
+    (email.textBody || '') +
+    ' ' +
+    (email.htmlBody || '')
   ).toLowerCase();
 
-  if (text.includes("shopify")) return "Shopify";
-  if (text.includes("gmail")) return "Gmail";
-  if (text.includes("outlook")) return "Outlook";
-  return "Other";
+  if (text.includes('shopify')) return 'Shopify';
+  if (text.includes('gmail')) return 'Gmail';
+  if (text.includes('outlook')) return 'Outlook';
+  return 'Other';
 }
-
 
 export const getTemplateUsageForAdmin = async (req, res) => {
   try {
     const { userId, service, type } = req.query;
 
     const [users, templates, emails] = await Promise.all([
-      authModel.find({}, "fullName email").lean(),
+      authModel.find({}, 'fullName email').lean(),
       TemplateModel.find(
         {},
-        "userId name service type active platform createdAt updatedAt"
+        'userId name service type active platform createdAt updatedAt'
       ).lean(),
       EmailModel.find(
         { isForwarded: true, templateId: { $ne: null } },
-        "userId templateId createdAt"
+        'userId templateId createdAt'
       ).lean(),
     ]);
 
@@ -1952,7 +1944,9 @@ export const getTemplateUsageForAdmin = async (req, res) => {
 
     const summary = users.map((user) => {
       const userIdStr = String(user._id);
-      const userTemplates = templates.filter((t) => String(t.userId) === userIdStr);
+      const userTemplates = templates.filter(
+        (t) => String(t.userId) === userIdStr
+      );
       const userEmails = emails.filter((e) => String(e.userId) === userIdStr);
 
       const usageMap = {};
@@ -1997,8 +1991,12 @@ export const getTemplateUsageForAdmin = async (req, res) => {
       return {
         user,
         totalTemplates: templatesData.length,
-        totalUsedTemplates: templatesData.filter((t) => t.usageCount > 0).length,
-        totalUsageCount: templatesData.reduce((sum, t) => sum + t.usageCount, 0),
+        totalUsedTemplates: templatesData.filter((t) => t.usageCount > 0)
+          .length,
+        totalUsageCount: templatesData.reduce(
+          (sum, t) => sum + t.usageCount,
+          0
+        ),
         templatesData,
       };
     });
@@ -2025,7 +2023,7 @@ export const getTemplateUsageForAdmin = async (req, res) => {
 
     res.json({ success: true, globalStats, data: filteredSummary });
   } catch (error) {
-    console.error("Error in template usage stats:", error);
+    console.error('Error in template usage stats:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
