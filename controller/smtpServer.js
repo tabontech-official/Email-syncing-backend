@@ -1713,6 +1713,132 @@ export const RunTestMode = async (req, res) => {
   }
 };
 
+
+
+export const RunCustomTestMode = async (req, res) => {
+  try {
+    const { userId, emailType, subject, body } = req.body;
+
+    if (!userId || !emailType || !subject || !body) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields.",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+    if (!user || !user.mailhook) {
+      return res.status(404).json({
+        success: false,
+        message: "Mailhook not found for this user.",
+      });
+    }
+
+    const mailhook = user.mailhook;
+    const partnerName = user.fullName || "Zenith Inbox";
+
+    let testData = await TestEmailDataModel.findOne({ userId });
+
+    if (testData) {
+      Object.assign(testData, {
+        Emailtype: emailType,
+        helpDescription: body,
+        service: "custom",
+        lastUpdated: new Date(),
+      });
+      await testData.save();
+    } else {
+      testData = await TestEmailDataModel.create({
+        userId,
+        businessEmail: "custom@test.com",
+        Emailtype: emailType,
+        helpDescription: body,
+        service: "custom",
+      });
+    }
+
+    const htmlBody = `
+      <div style="font-family: Arial; color:#333">
+        <p><strong>Custom Test Email Triggered</strong></p>
+        <p><strong>Email Type:</strong> ${emailType}</p>
+        <p><strong>Subject:</strong> ${subject}</p>
+        <p><strong>Body:</strong><br>${body}</p>
+
+        <hr style="margin-top:20px;">
+        <p>This email was generated for testing your custom scenario.</p>
+      </div>
+    `;
+
+    const textBody = body;
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const emailId = `custom-test-${Date.now()}`;
+    const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
+
+    await transporter.sendMail({
+      from: fromAddress,
+      to: mailhook,
+      subject,
+      text: textBody,
+      html: htmlBody,
+    });
+
+    const savedEmail = await EmailModel.create({
+      userId,
+      senderFirstName: partnerName,
+      senderAddress: process.env.EMAIL_USER,
+      recipientAddress: mailhook,
+      subject,
+      textBody,
+      htmlBody,
+      isForwarded: false,
+      parentEmailId: emailId,
+      date: new Date(),
+      isTestEmail: true,
+      emailType: "custom",
+    });
+
+    await executeScenarios({
+      userId,
+      from: fromAddress,
+      subject,
+      body: textBody,
+      emailId,
+      parsedEmailObj: {
+        from: {
+          value: [{ name: "Zenith Inbox", address: process.env.EMAIL_USER }],
+        },
+        subject,
+        text: textBody,
+        html: htmlBody,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: "Custom test email sent & scenario executed successfully.",
+      testEmail: savedEmail,
+      testInputData: testData,
+    });
+
+  } catch (err) {
+    console.error("Custom Run Test Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to execute custom test scenario.",
+      error: err.message,
+    });
+  }
+};
+
+
 export const getTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1752,6 +1878,48 @@ export const getTestEmail = async (req, res) => {
     });
   }
 };
+
+export const getLatestServiceEmail = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing userId in request params",
+      });
+    }
+
+    const latestEmail = await TestEmailDataModel.findOne({
+      userId,
+      service: "custom", // FIXED → always custom
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!latestEmail) {
+      return res.status(404).json({
+        success: false,
+        message: "No custom service email found.",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Latest custom email fetched successfully!",
+      email: latestEmail,
+    });
+  } catch (error) {
+    console.error("[getLatestServiceEmail] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching latest custom email.",
+      error: error.message,
+    });
+  }
+};
+
+
 
 export const getEmailsForUsers = async (req, res) => {
   try {
@@ -2092,12 +2260,12 @@ export const validateTestEmail = async (req, res) => {
       forwardingEmail: toEmail.toLowerCase(),
     });
 
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: ` Forwarding is already set up for ${toEmail}. Please use a different email address.`,
-      });
-    }
+    // if (existing) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: ` Forwarding is already set up for ${toEmail}. Please use a different email address.`,
+    //   });
+    // }
 
     const testSubject = 'Zenith Forwarding Validation Test';
     const testBody = `Hello,
@@ -2346,15 +2514,15 @@ export const getValidateEmail = async (req, res) => {
       });
 
       // If found and not the same cardId → block creation or update
-      if (existing && existing._id.toString() !== cardId) {
-        console.log(
-          `⚠️ Duplicate forwarding attempt for ${testRecord.toEmail}, blocked.`
-        );
-        return res.status(400).json({
-          success: false,
-          message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
-        });
-      }
+      // if (existing && existing._id.toString() !== cardId) {
+      //   console.log(
+      //     `⚠️ Duplicate forwarding attempt for ${testRecord.toEmail}, blocked.`
+      //   );
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
+      //   });
+      // }
 
       let updatedMailhook;
 

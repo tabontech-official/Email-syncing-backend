@@ -6,11 +6,13 @@ import {
   getEmailDataforUser,
   getEmails,
   getEmailsForUsers,
+  getLatestServiceEmail,
   getLatestVerificationEmail,
   getTestEmail,
   getTestEmailData,
   getValidateEmail,
   mailHookWebhook,
+  RunCustomTestMode,
   RunTestMode,
   sendTestEmail,
   validateTestEmail,
@@ -46,5 +48,7 @@ emailRouter.delete('/deleteConnection/:id', deleteConnectionById);
 emailRouter.post('/sendTestEmail', sendTestEmail);
 emailRouter.post("/verify", verifyConnection);
 emailRouter.get("/:id", getConnectionById);
+emailRouter.post("/test/custom", RunCustomTestMode);
+emailRouter.get("/email/latest/:userId", getLatestServiceEmail);
 
 export default emailRouter;
