@@ -89,79 +89,37 @@ export const signUp = async (req, res) => {
         }
       );
     });
+
     await TemplateModel.insertMany(templates);
 
-    // --- Default Shopify Scenario ---
-    // const defaultScenario = {
-    //   userId: savedUser._id,
-    //   name: 'Shopify scenario',
-    //   description: '',
-    //   type: 'shopify',
-    //   routerBranches: [
-    //     {
-    //       id: 2,
-    //       hasModule: false,
-    //       condition: null,
-    //       modules: [
-    //         {
-    //           id: '1759389173211',
-    //           app: {
-    //             name: 'Gmail',
-    //             color: 'bg-red-500',
-    //             icon: 'Gmail',
-    //           },
-    //           subject: '',
-    //           cc: [],
-    //           bcc: [],
-    //           type: 'Send an Email',
-    //           description: 'Send an email via Gmail',
-    //           connectionId: '',
-    //           template: 'Initial Email',
-    //           delayValue: 5,
-    //           delayUnit: 'seconds',
-    //           filter: { conditions: [] },
-    //         },
-    //         {
-    //           id: '1759389175969',
-    //           app: {
-    //             name: 'Delay',
-    //             color: 'bg-blue-500',
-    //             icon: 'Delay',
-    //           },
-    //           subject: '',
-    //           cc: [],
-    //           bcc: [],
-    //           type: '',
-    //           description: '',
-    //           connectionId: '',
-    //           template: '',
-    //           delayValue: 5,
-    //           delayUnit: 'seconds',
-    //           filter: { conditions: [] },
-    //         },
-    //         {
-    //           id: '1759389185521',
-    //           app: {
-    //             name: 'Gmail',
-    //             color: 'bg-red-500',
-    //             icon: 'Gmail',
-    //           },
-    //           subject: '',
-    //           cc: [],
-    //           bcc: [],
-    //           type: 'Send an Email',
-    //           description: 'Send an email via Gmail',
-    //           connectionId: '',
-    //           template: 'First Email',
-    //           delayValue: 5,
-    //           delayUnit: 'seconds',
-    //           filter: { conditions: [] },
-    //         },
-    //       ],
-    //       filter: { conditions: [] },
-    //     },
-    //   ],
-    // };
+    // --- Default OTHER Templates ---
+    const otherTemplates = [];
+
+    ['Initial Email', 'First Email', 'Second Email', 'Third Email'].forEach(
+      (emailName, idx) => {
+        otherTemplates.push({
+          userId: savedUser._id,
+          platform: 'other',
+          service: 'General',
+          name: `General - ${emailName}`,
+          type:
+            idx === 0
+              ? 'initial'
+              : idx === 1
+                ? 'first'
+                : idx === 2
+                  ? 'second'
+                  : 'third',
+          conditions: [],
+          content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
+          active: true,
+          locked: true, // keep locked for default
+        });
+      }
+    );
+
+    await TemplateModel.insertMany(otherTemplates);
+
     const defaultScenario = {
       userId: savedUser._id,
       name: 'Shopify Scenario',

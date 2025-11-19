@@ -42,7 +42,34 @@ export const getTemplates = async (req, res) => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    const templates = await TemplateModel.find({ userId });
+    // 👉 Sirf Shopify templates fetch karo
+    const templates = await TemplateModel.find({
+      userId,
+      platform: "shopify",  // <--- added filter
+    });
+
+    res.json(templates);
+  } catch (err) {
+    console.error('❌ Failed to fetch templates:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+
+export const getCustomTemplates = async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    // 👉 Sirf Shopify templates fetch karo
+    const templates = await TemplateModel.find({
+      userId,
+      platform: "other",  // <--- added filter
+    });
+
     res.json(templates);
   } catch (err) {
     console.error('❌ Failed to fetch templates:', err.message);
@@ -193,77 +220,146 @@ export const updateTemplateStatus = async (req, res) => {
 };
 
 export const updateAllTemplateStatus = async (req, res) => {
-  try {
+   try {
     const { userId } = req.body;
 
-    console.log('[updateAllTemplateStatus] Request received:', req.body);
-
     if (!userId) {
-      console.log(' userId missing in request body');
       return res.status(400).json({
         success: false,
-        message: 'userId is required.',
+        message: "userId is required.",
       });
     }
 
-    console.log(`🔍 Fetching templates for userId: ${userId}`);
-    const templates = await TemplateModel.find({ userId });
+    // Get all Shopify templates
+    const templates = await TemplateModel.find({ userId, platform: "shopify" });
 
-    if (!templates || templates.length === 0) {
-      console.log('❌ No templates found for this user.');
+    if (!templates.length) {
       return res.status(404).json({
         success: false,
-        message: 'No templates found for this user.',
+        message: "No Shopify templates found for this user.",
       });
     }
 
-    console.log(`✅ Found ${templates.length} templates for userId: ${userId}`);
-
+    // Identify only non-General templates
     const nonGeneralTemplates = templates.filter(
-      (t) => !t.service || t.service.toLowerCase() !== 'general'
+      (t) => !t.service || t.service.toLowerCase() !== "general"
     );
 
     const hasActive = nonGeneralTemplates.some((t) => t.active === true);
-    const newStatus = !hasActive;
 
-    console.log(
-      `🔁 Setting all non-General templates to ${
-        newStatus ? 'ACTIVE' : 'INACTIVE'
-      }`
-    );
+    const newStatus = !hasActive; // Toggle
 
-    const result = await TemplateModel.updateMany(
+    // Update non-general Shopify templates
+    await TemplateModel.updateMany(
       {
         userId,
-        $or: [{ service: { $ne: 'General' } }, { service: { $exists: false } }],
+        platform: "shopify",
+        $or: [{ service: { $ne: "General" } }, { service: { $exists: false } }],
       },
       { $set: { active: newStatus } }
     );
 
+    // General templates always ON
     await TemplateModel.updateMany(
-      { userId, service: 'General' },
+      { userId, platform: "shopify", service: "General" },
       { $set: { active: true } }
-    );
-
-    console.log(
-      `Updated ${result.modifiedCount} non-General templates; General templates remain active.`
     );
 
     return res.json({
       success: true,
       toggledTo: newStatus,
-      message: `All non-General templates have been ${
-        newStatus ? 'activated' : 'deactivated'
-      }, while General templates remain active.`,
+      message: `All Shopify non-general templates are now ${
+        newStatus ? "active" : "inactive"
+      }. General remains active.`,
     });
   } catch (error) {
-    console.error('❌ updateAllTemplateStatus Error:', error);
+    console.error("Shopify update error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error.',
+      message: "Internal server error.",
     });
   }
 };
+
+
+export const updateOtherTemplateStatus = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required.",
+      });
+    }
+
+    const templates = await TemplateModel.find({ userId, platform: "other" });
+
+    if (!templates.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No OTHER templates found for this user.",
+      });
+    }
+
+    const hasActive = templates.some((t) => t.active === true);
+
+    const newStatus = !hasActive;
+
+    await TemplateModel.updateMany(
+      { userId, platform: "other" },
+      { $set: { active: newStatus } }
+    );
+
+    return res.json({
+      success: true,
+      toggledTo: newStatus,
+      message: `All OTHER templates have been ${
+        newStatus ? "activated" : "deactivated"
+      }.`,
+    });
+  } catch (error) {
+    console.error("Other update error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+};
+
+
+export const getActiveOtherTemplates = async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required.",
+      });
+    }
+
+    const templates = await TemplateModel.find({
+      userId,
+      platform: "other",
+      active: true,
+    });
+
+    return res.json({
+      success: true,
+      count: templates.length,
+      templates,
+    });
+  } catch (error) {
+    console.error("Error fetching active other templates:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+};
+
+
 
 
 export const getAllTemplatesByQuery = async (req, res) => {

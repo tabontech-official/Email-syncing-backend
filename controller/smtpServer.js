@@ -2526,7 +2526,6 @@ export const getValidateEmail = async (req, res) => {
 
       let updatedMailhook;
 
-      // 🧩 CASE 1: Update existing Mailhook if cardId provided
       if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
         updatedMailhook = await mailhookModel.findByIdAndUpdate(
           cardId,
