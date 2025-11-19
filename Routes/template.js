@@ -7,6 +7,7 @@ import {
   getAllTemplatesByQuery,
   getCustomTemplates,
   getTemplates,
+  saveOtherTemplate,
   updateAllTemplateStatus,
   updateOtherTemplateStatus,
   updateTemplate,
@@ -17,6 +18,7 @@ const templateRouter = express.Router();
 templateRouter.post('/create', addTemplate);
 templateRouter.get('/all/', getTemplates);
 templateRouter.get('/all/custom', getCustomTemplates);
+templateRouter.post('/save/other', saveOtherTemplate);
 
 templateRouter.get('/alltemplates/query', getAllTemplatesByQuery);
 
@@ -26,6 +28,6 @@ templateRouter.get('/alltemplates', getAllTemplates);
 templateRouter.patch('/status/:id', updateTemplateStatus);
 templateRouter.patch('/templatestatus/all', updateAllTemplateStatus);
 templateRouter.patch('/templatestatus/all/other', updateOtherTemplateStatus);
-templateRouter.get('/allActiveUserTemplates', getActiveOtherTemplates);
+templateRouter.get('/other/active', getActiveOtherTemplates);
 
 export default templateRouter;

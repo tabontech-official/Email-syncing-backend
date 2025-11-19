@@ -360,6 +360,41 @@ export const getActiveOtherTemplates = async (req, res) => {
 };
 
 
+export const saveOtherTemplate = async (req, res) => {
+  try {
+    const { userId, name, content } = req.body;
+
+    if (!userId || !name || !content) {
+      return res.status(400).json({
+        success: false,
+        message: "userId, name, and content are required"
+      });
+    }
+
+    const newTemplate = await TemplateModel.create({
+      userId,
+      name,
+      content,
+      platform: "other",
+      active: true,
+      service: "General",
+      conditions: []
+    });
+
+    return res.json({
+      success: true,
+      template: newTemplate,
+      message: "Template saved successfully"
+    });
+
+  } catch (error) {
+    console.error("Save template error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
 
 
 export const getAllTemplatesByQuery = async (req, res) => {
