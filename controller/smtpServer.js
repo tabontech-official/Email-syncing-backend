@@ -490,43 +490,106 @@ function extractFieldsFromEmail(emailObj = {}) {
 // export const executeScenarios = async (emailData) => {
 //   try {
 //     console.log('=======================================');
-//     console.log('🚀 [EXECUTE SCENARIOS] Triggered (Shopify Only)');
+//     console.log('🚀 EXECUTE SCENARIOS Triggered (Shopify + Other)');
 //     console.log('📩 Incoming Email Data:', emailData);
 //     console.log('=======================================');
 
 //     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
-//     // 🧩 Extract fields
+//     // 🧩 Extract fields for Shopify
 //     const extractedFields = extractFieldsFromEmail(
 //       parsedEmailObj || { text: body, subject, from }
 //     );
-//     console.log('🧩 Extracted Fields:', extractedFields);
 
-//     // 🧠 Fetch only Shopify scenarios
-//     const scenarios = await scenarioModel
-//       .find({ userId, type: 'shopify' })
-//       .lean();
-//     console.log(
-//       `📚 Found ${scenarios.length} Shopify scenario(s) for user ${userId}`
-//     );
+//     // 🧠 🟢 Fetch ALL scenarios (shopify + other)
+//     const scenarios = await scenarioModel.find({ userId }).lean();
+//     console.log(`📚 Found ${scenarios.length} total scenario(s)`);
 
 //     if (!scenarios.length) {
-//       console.log('⚠️ No Shopify scenarios found — stopping execution.');
+//       console.log('⚠️ No scenarios found — stopping execution.');
 //       return;
 //     }
 
-//     // 🔁 Loop through Shopify scenarios
+//     // 🔁 Loop through ALL scenarios
 //     for (const scenario of scenarios) {
 //       console.log('=======================================');
-//       console.log(
-//         `🎯 Executing Shopify Scenario: ${scenario.name} (${scenario._id})`
-//       );
-//       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
+//       console.log(`🎯 Executing Scenario: ${scenario.name} (${scenario.type})`);
 //       console.log('=======================================');
 
 //       if (!scenario.routerBranches?.length) continue;
 
-//       // 🔁 Loop through each branch
+//       // 🟦 IF SCENARIO IS "OTHER" → RUN SIMPLE LOGIC
+//       if (scenario.type === "other") {
+//         console.log("⚙️ Running OTHER scenario logic...");
+
+//         for (const branch of scenario.routerBranches) {
+//           console.log(`🌿 OTHER Branch ID: ${branch.id}`);
+//           console.log(`🔎 Conditions: ${branch.filter?.conditions?.length}`);
+
+//           const matches = branch.filter?.conditions?.length
+//             ? branch.filter.conditions.every((cond) => {
+//                 let fieldValue = "";
+
+//                 switch (cond.field?.toLowerCase()) {
+//                   case 'subject':
+//                     fieldValue = (subject || '').toLowerCase();
+//                     break;
+//                   case 'body':
+//                     fieldValue = (body || '').toLowerCase();
+//                     break;
+//                   case 'from':
+//                     fieldValue = (from || '').toLowerCase();
+//                     break;
+//                   default:
+//                     return false;
+//                 }
+
+//                 const condValue = (cond.value || '').toLowerCase();
+
+//                 if (cond.operator === "Contains")
+//                   return fieldValue.includes(condValue);
+
+//                 if (["Equal to", "Equals"].includes(cond.operator))
+//                   return fieldValue === condValue;
+
+//                 return false;
+//               })
+//             : true;
+
+//           if (!matches) {
+//             console.log('❌ OTHER: Branch conditions did NOT match — skipping.');
+//             continue;
+//           }
+
+//           console.log('✅ OTHER: Branch conditions matched — executing modules');
+
+//           for (const module of branch.modules) {
+//             console.log(`⚙️ OTHER: Executing module → ${module.type}`);
+
+//             if (module.type === "Delay") {
+//               console.log("⏳ OTHER Delay detected — currently skipping");
+//               continue;
+//             }
+
+//             if (module.type === "Send Email") {
+//               console.log("📧 OTHER: Sending Email...");
+//               await sendEmailModule(module, from, subject, emailId);
+//             }
+//           }
+//         }
+
+//         // 🟢 DO NOT run Shopify logic for this scenario
+//         continue;
+//       }
+
+//       // 🟥 ELSE → RUN EXISTING SHOPIFY LOGIC (UNCHANGED)
+//       console.log("🛍 Running Shopify Scenario Logic...");
+
+//       // ---- YOUR FULL SHOPIFY LOGIC STARTS HERE ----
+//       // (Everything below is original code unchanged)
+
+//       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
+
 //       for (const branch of scenario.routerBranches) {
 //         console.log('---------------------------------------');
 //         console.log(`🌿 Branch ID: ${branch.id || branch._id}`);
@@ -534,7 +597,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 //           `🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`
 //         );
 
-//         // 🧮 Condition check
 //         const matches = branch.filter?.conditions?.length
 //           ? branch.filter.conditions.every((cond) => {
 //               const fieldValue =
@@ -574,7 +636,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 
 //         console.log(`📦 Modules found: ${branch.modules.length}`);
 
-//         // 💾 Create automation status record
 //         let statusDoc = await AutomationStatusModel.create({
 //           userId,
 //           emailId,
@@ -586,7 +647,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 //         });
 //         console.log('🗂️ Created AutomationStatus:', statusDoc._id);
 
-//         // 🔁 Execute modules one by one
 //         for (let i = 0; i < branch.modules.length; i++) {
 //           const module = branch.modules[i];
 //           console.log(`---------------------------------------`);
@@ -595,7 +655,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 //           );
 
 //           try {
-//             // 🧠 Normalize type for Shopify
 //             const rawType = (
 //               module.type ||
 //               module.app?.name ||
@@ -612,18 +671,10 @@ function extractFieldsFromEmail(emailObj = {}) {
 //               module.type = 'Delay';
 //             }
 
-//             console.log(`🧠 Normalized Type → ${module.type}`);
-
-//             // 🕒 Handle Delay
 //             if (module.type === 'Delay') {
-//               console.log('⏳ Delay Module Detected');
-//               if (!module.delayValue || !module.delayUnit) {
-//                 console.warn('⚠️ Missing delayValue/unit — skipping delay.');
-//                 continue;
-//               }
+//               if (!module.delayValue || !module.delayUnit) continue;
 
 //               const delayMs = convertToMs(module.delayValue, module.delayUnit);
-//               console.log(`🕒 Scheduling delay for ${delayMs} ms`);
 
 //               const remainingModules = branch.modules
 //                 .slice(i + 1)
@@ -649,42 +700,32 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                 },
 //               });
 
-//               console.log('✅ Delay Job Scheduled — pausing further modules.');
 //               break;
 //             }
 
-//             // 📧 Send Email
 //             if (['Send an Email', 'Custom Email'].includes(module.type)) {
-//               console.log('📨 Send Email Module Triggered');
-//               console.log('🔗 Connection ID:', module.connectionId);
-//               if (!module.connectionId) {
-//                 console.log('🚫 No connectionId found — skipping.');
-//                 continue;
-//               }
+//               if (!module.connectionId) continue;
 
-//               let templateContent = module.template || 'Thanks for your email!';
+//               let templateContent =
+//                 module.template || 'Thanks for your email!';
 //               let stepType = 'initial';
 
-//               console.log('🧠 Shopify email logic active...');
 //               const subjectLower = (subject || '').toLowerCase().trim();
 
-//               // Only proceed for Shopify inquiries
 //               if (
 //                 !subjectLower.startsWith(
 //                   'shopify partner directory: new service inquiry from'
 //                 )
 //               ) {
-//                 console.log('🚫 Not a Shopify inquiry — skipping this email.');
 //                 continue;
 //               }
 
-//               // Identify step (initial/first/second)
 //               const lowerTpl = (module.template || '').toLowerCase();
 //               if (lowerTpl.includes('first')) stepType = 'first';
 //               else if (lowerTpl.includes('second')) stepType = 'second';
 
-//               // Match service
 //               const textToSearch = (subject + ' ' + body).toLowerCase();
+
 //               const defaultServices = [
 //                 'General',
 //                 'Troubleshooting',
@@ -723,11 +764,6 @@ function extractFieldsFromEmail(emailObj = {}) {
 //               );
 //               matchedService = matchedService || 'General';
 
-//               console.log(`🔍 Matched Service: ${matchedService}`);
-//               console.log(`🧭 Step Type: ${stepType}`);
-
-//               // 🔎 Template Lookup
-//               console.log('🔎 Searching for template in DB...');
 //               const tpl =
 //                 (await TemplateModel.findOne({
 //                   userId,
@@ -766,49 +802,23 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                   active: true,
 //                 }));
 
-//               if (tpl) {
-//                 console.log(`✅ Using Template: "${tpl.name}"`);
-//                 console.log(
-//                   `🧩 Template Content (first 500 chars):\n${tpl.content?.slice(0, 500)}`
-//                 );
-//                 templateContent = tpl.content;
-//               } else {
-//                 console.warn('⚠️ No template found — using fallback.');
-//               }
+//               if (tpl) templateContent = tpl.content;
 
-//               // 🧩 Fill Variables
 //               templateContent = fillTemplate(templateContent, extractedFields);
 
-//               if (!templateContent?.trim()) {
-//                 console.warn('⚠️ Empty template after fill — using fallback.');
-//                 templateContent = module.template || 'Thanks for your email!';
-//               }
-
-//               console.log('📜 Final Template After Fill (first 500 chars):');
-//               console.log(templateContent.slice(0, 500));
-
-//               // 🚀 Send email
-//               // await sendEmailModule(
-//               //   { ...module, template: templateContent },
-//               //   from,
-//               //   subject,
-//               //   emailId
-//               // );
 //               await sendEmailModule(
 //                 {
 //                   ...module,
 //                   template: templateContent,
-//                   templateId: tpl?._id || null, // ✅ pass template ID
-//                   service: matchedService, // ✅ pass detected service
-//                   stepType, // ✅ pass which step (initial, first, second)
+//                   templateId: tpl?._id || null,
+//                   service: matchedService,
+//                   stepType,
 //                 },
 //                 from,
 //                 subject,
 //                 emailId
 //               );
-//               console.log('✅ Email sent successfully.');
 
-//               // 💾 Update Automation Status
 //               const updated = await AutomationStatusModel.findByIdAndUpdate(
 //                 statusDoc._id,
 //                 {
@@ -819,27 +829,23 @@ function extractFieldsFromEmail(emailObj = {}) {
 //                 { new: true }
 //               );
 
-//               if (updated.pendingModules.length > 0) {
-//                 console.log('🔁 Modules remaining → status: partial');
-//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                   $set: { status: 'partial' },
-//                 });
-//               } else {
-//                 console.log('🏁 All modules completed → status: completed');
+//               if (updated.pendingModules.length === 0) {
 //                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //                   $set: { status: 'completed' },
+//                 });
+//               } else {
+//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+//                   $set: { status: 'partial' },
 //                 });
 //               }
 //             }
 //           } catch (err) {
-//             console.error('❌ Error executing module:', err);
 //             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //               $set: { status: 'failed', lastExecutedAt: new Date() },
 //             });
 //           }
 //         }
 
-//         // ✅ Final Branch Completion
 //         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
 //         if (
 //           finalDoc &&
@@ -849,16 +855,16 @@ function extractFieldsFromEmail(emailObj = {}) {
 //           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
 //             $set: { status: 'completed', lastExecutedAt: new Date() },
 //           });
-//           console.log('✅ Final Branch Status: COMPLETED');
 //         }
 //       }
+
+//       console.log('=======================================');
 //     }
 
-//     console.log('🎉 All Shopify Scenarios Execution Complete!');
+//     console.log('🎉 All Scenarios Execution Complete!');
 //     console.log('=======================================');
 //   } catch (err) {
 //     console.error('🔥 Fatal Error in executeScenarios:', err);
-//     console.log('=======================================');
 //   }
 // };
 
@@ -894,8 +900,8 @@ export const executeScenarios = async (emailData) => {
       if (!scenario.routerBranches?.length) continue;
 
       // 🟦 IF SCENARIO IS "OTHER" → RUN SIMPLE LOGIC
-      if (scenario.type === "other") {
-        console.log("⚙️ Running OTHER scenario logic...");
+      if (scenario.type === 'other') {
+        console.log('⚙️ Running OTHER scenario logic...');
 
         for (const branch of scenario.routerBranches) {
           console.log(`🌿 OTHER Branch ID: ${branch.id}`);
@@ -903,7 +909,7 @@ export const executeScenarios = async (emailData) => {
 
           const matches = branch.filter?.conditions?.length
             ? branch.filter.conditions.every((cond) => {
-                let fieldValue = "";
+                let fieldValue = '';
 
                 switch (cond.field?.toLowerCase()) {
                   case 'subject':
@@ -921,10 +927,10 @@ export const executeScenarios = async (emailData) => {
 
                 const condValue = (cond.value || '').toLowerCase();
 
-                if (cond.operator === "Contains")
+                if (cond.operator === 'Contains')
                   return fieldValue.includes(condValue);
 
-                if (["Equal to", "Equals"].includes(cond.operator))
+                if (['Equal to', 'Equals'].includes(cond.operator))
                   return fieldValue === condValue;
 
                 return false;
@@ -932,23 +938,74 @@ export const executeScenarios = async (emailData) => {
             : true;
 
           if (!matches) {
-            console.log('❌ OTHER: Branch conditions did NOT match — skipping.');
+            console.log(
+              '❌ OTHER: Branch conditions did NOT match — skipping.'
+            );
             continue;
           }
 
-          console.log('✅ OTHER: Branch conditions matched — executing modules');
+          console.log(
+            '✅ OTHER: Branch conditions matched — executing modules'
+          );
 
           for (const module of branch.modules) {
             console.log(`⚙️ OTHER: Executing module → ${module.type}`);
 
-            if (module.type === "Delay") {
-              console.log("⏳ OTHER Delay detected — currently skipping");
+            if (module.type === 'Delay') {
+              console.log('⏳ OTHER Delay detected — currently skipping');
               continue;
             }
 
-            if (module.type === "Send Email") {
-              console.log("📧 OTHER: Sending Email...");
-              await sendEmailModule(module, from, subject, emailId);
+            if (module.type === 'Send Email') {
+              console.log('📧 OTHER: Sending Email...');
+
+              let finalTemplateContent = '';
+
+              if (
+                module.template &&
+                typeof module.template === 'string' &&
+                module.template.length === 24
+              ) {
+                console.log(
+                  ' OTHER: TemplateID detected → fetching content from DB...'
+                );
+
+                const tpl = await TemplateModel.findById(module.template);
+                if (tpl) {
+                  finalTemplateContent = tpl.content;
+                  console.log(
+                    ' OTHER: Loaded Template Content from DB:',
+                    tpl._id
+                  );
+                } else {
+                  console.log(
+                    ' OTHER: Template ID not found → fallback to empty'
+                  );
+                  finalTemplateContent = '';
+                }
+              } else if (
+                module.template &&
+                typeof module.template === 'string'
+              ) {
+                console.log('📝 OTHER: Using direct template HTML');
+                finalTemplateContent = module.template;
+              }
+
+              // CASE 3: Nothing present, fallback
+              else {
+                finalTemplateContent = '';
+              }
+
+              // Send email with final template
+              await sendEmailModule(
+                {
+                  ...module,
+                  template: finalTemplateContent, // 🔥 FINAL HTML CONTENT HERE
+                },
+                from,
+                subject,
+                emailId
+              );
             }
           }
         }
@@ -958,7 +1015,7 @@ export const executeScenarios = async (emailData) => {
       }
 
       // 🟥 ELSE → RUN EXISTING SHOPIFY LOGIC (UNCHANGED)
-      console.log("🛍 Running Shopify Scenario Logic...");
+      console.log('🛍 Running Shopify Scenario Logic...');
 
       // ---- YOUR FULL SHOPIFY LOGIC STARTS HERE ----
       // (Everything below is original code unchanged)
@@ -1081,8 +1138,7 @@ export const executeScenarios = async (emailData) => {
             if (['Send an Email', 'Custom Email'].includes(module.type)) {
               if (!module.connectionId) continue;
 
-              let templateContent =
-                module.template || 'Thanks for your email!';
+              let templateContent = module.template || 'Thanks for your email!';
               let stepType = 'initial';
 
               const subjectLower = (subject || '').toLowerCase().trim();
@@ -1242,8 +1298,6 @@ export const executeScenarios = async (emailData) => {
     console.error('🔥 Fatal Error in executeScenarios:', err);
   }
 };
-
-
 
 const convertToMs = (value, unit) => {
   if (!value) return 0;
@@ -1498,8 +1552,8 @@ export const sendEmailModule = async (
         textBody: plainTextBody,
         htmlBody: emailBody,
         templateId: module.templateId || null,
-        service: module.service || 'Unknown', 
-        stepType: module.stepType || 'initial', 
+        service: module.service || 'Unknown',
+        stepType: module.stepType || 'initial',
         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
         bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
         date: new Date(),
@@ -1713,8 +1767,6 @@ export const RunTestMode = async (req, res) => {
   }
 };
 
-
-
 export const RunCustomTestMode = async (req, res) => {
   try {
     const { userId, emailType, subject, body } = req.body;
@@ -1722,7 +1774,7 @@ export const RunCustomTestMode = async (req, res) => {
     if (!userId || !emailType || !subject || !body) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields.",
+        message: 'Missing required fields.',
       });
     }
 
@@ -1730,12 +1782,12 @@ export const RunCustomTestMode = async (req, res) => {
     if (!user || !user.mailhook) {
       return res.status(404).json({
         success: false,
-        message: "Mailhook not found for this user.",
+        message: 'Mailhook not found for this user.',
       });
     }
 
     const mailhook = user.mailhook;
-    const partnerName = user.fullName || "Zenith Inbox";
+    const partnerName = user.fullName || 'Zenith Inbox';
 
     let testData = await TestEmailDataModel.findOne({ userId });
 
@@ -1743,17 +1795,17 @@ export const RunCustomTestMode = async (req, res) => {
       Object.assign(testData, {
         Emailtype: emailType,
         helpDescription: body,
-        service: "custom",
+        service: 'custom',
         lastUpdated: new Date(),
       });
       await testData.save();
     } else {
       testData = await TestEmailDataModel.create({
         userId,
-        businessEmail: "custom@test.com",
+        businessEmail: 'custom@test.com',
         Emailtype: emailType,
         helpDescription: body,
-        service: "custom",
+        service: 'custom',
       });
     }
 
@@ -1772,7 +1824,7 @@ export const RunCustomTestMode = async (req, res) => {
     const textBody = body;
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -1802,7 +1854,7 @@ export const RunCustomTestMode = async (req, res) => {
       parentEmailId: emailId,
       date: new Date(),
       isTestEmail: true,
-      emailType: "custom",
+      emailType: 'custom',
     });
 
     await executeScenarios({
@@ -1813,7 +1865,7 @@ export const RunCustomTestMode = async (req, res) => {
       emailId,
       parsedEmailObj: {
         from: {
-          value: [{ name: "Zenith Inbox", address: process.env.EMAIL_USER }],
+          value: [{ name: 'Zenith Inbox', address: process.env.EMAIL_USER }],
         },
         subject,
         text: textBody,
@@ -1823,21 +1875,19 @@ export const RunCustomTestMode = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Custom test email sent & scenario executed successfully.",
+      message: 'Custom test email sent & scenario executed successfully.',
       testEmail: savedEmail,
       testInputData: testData,
     });
-
   } catch (err) {
-    console.error("Custom Run Test Error:", err);
+    console.error('Custom Run Test Error:', err);
     res.status(500).json({
       success: false,
-      message: "Failed to execute custom test scenario.",
+      message: 'Failed to execute custom test scenario.',
       error: err.message,
     });
   }
 };
-
 
 export const getTestEmail = async (req, res) => {
   try {
@@ -1886,13 +1936,13 @@ export const getLatestServiceEmail = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "Missing userId in request params",
+        message: 'Missing userId in request params',
       });
     }
 
     const latestEmail = await TestEmailDataModel.findOne({
       userId,
-      service: "custom", // FIXED → always custom
+      service: 'custom', // FIXED → always custom
     })
       .sort({ createdAt: -1 })
       .lean();
@@ -1900,26 +1950,24 @@ export const getLatestServiceEmail = async (req, res) => {
     if (!latestEmail) {
       return res.status(404).json({
         success: false,
-        message: "No custom service email found.",
+        message: 'No custom service email found.',
       });
     }
 
     res.json({
       success: true,
-      message: "Latest custom email fetched successfully!",
+      message: 'Latest custom email fetched successfully!',
       email: latestEmail,
     });
   } catch (error) {
-    console.error("[getLatestServiceEmail] Error:", error);
+    console.error('[getLatestServiceEmail] Error:', error);
     res.status(500).json({
       success: false,
-      message: "Server error while fetching latest custom email.",
+      message: 'Server error while fetching latest custom email.',
       error: error.message,
     });
   }
 };
-
-
 
 export const getEmailsForUsers = async (req, res) => {
   try {
