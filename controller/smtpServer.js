@@ -893,7 +893,7 @@ export const executeScenarios = async (emailData) => {
 
     for (const scenario of scenarios) {
       console.log('=======================================');
-      console.log(`🎯 Executing Scenario: ${scenario.name} (${scenario.type})`);
+      console.log(`Executing Scenario: ${scenario.name} (${scenario.type})`);
       console.log('=======================================');
 
       if (!scenario.routerBranches?.length) continue;
