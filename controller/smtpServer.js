@@ -891,7 +891,6 @@ export const executeScenarios = async (emailData) => {
       return;
     }
 
-    // 🔁 Loop through ALL scenarios
     for (const scenario of scenarios) {
       console.log('=======================================');
       console.log(`🎯 Executing Scenario: ${scenario.name} (${scenario.type})`);
@@ -899,13 +898,12 @@ export const executeScenarios = async (emailData) => {
 
       if (!scenario.routerBranches?.length) continue;
 
-      // 🟦 IF SCENARIO IS "OTHER" → RUN SIMPLE LOGIC
       if (scenario.type === 'other') {
-        console.log('⚙️ Running OTHER scenario logic...');
+        console.log(' Running OTHER scenario logic...');
 
         for (const branch of scenario.routerBranches) {
-          console.log(`🌿 OTHER Branch ID: ${branch.id}`);
-          console.log(`🔎 Conditions: ${branch.filter?.conditions?.length}`);
+          console.log(`OTHER Branch ID: ${branch.id}`);
+          console.log(`Conditions: ${branch.filter?.conditions?.length}`);
 
           const matches = branch.filter?.conditions?.length
             ? branch.filter.conditions.every((cond) => {
@@ -939,13 +937,13 @@ export const executeScenarios = async (emailData) => {
 
           if (!matches) {
             console.log(
-              '❌ OTHER: Branch conditions did NOT match — skipping.'
+              'OTHER: Branch conditions did NOT match — skipping.'
             );
             continue;
           }
 
           console.log(
-            '✅ OTHER: Branch conditions matched — executing modules'
+            'OTHER: Branch conditions matched — executing modules'
           );
 
           for (const module of branch.modules) {
