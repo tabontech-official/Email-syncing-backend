@@ -678,29 +678,27 @@ export const getOrganizationByUserId = async (req, res) => {
 export const getGuideStatus = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    const user = await authModel.findById(userId).select('guideStatus');
+    const user = await authModel.findById(userId);
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: "User not found" });
     }
 
-    // First time safety
-    if (!user.guideStatus) {
-      return res.status(200).json({
-        sidebar: { completed: false, step: 1 },
-        navbar: { completed: false, step: 0 },
-      });
-    }
+    const sidebar = user.guideStatus?.sidebar?.completed
+      ? { completed: true, step: user.guideStatus.sidebar.step }
+      : { completed: false, step: user.guideStatus?.sidebar?.step ?? 1 };
 
-    res.status(200).json({
-      sidebar: user.guideStatus.sidebar,
-      navbar: user.guideStatus.navbar,
-    });
+    const navbar = user.guideStatus?.navbar?.completed
+      ? { completed: true, step: 0 }
+      : { completed: false, step: user.guideStatus?.navbar?.step ?? 1 };
+
+    res.status(200).json({ sidebar, navbar });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 export const updateGuideStatus = async (req, res) => {
   try {
