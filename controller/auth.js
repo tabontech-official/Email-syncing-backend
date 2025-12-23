@@ -290,6 +290,12 @@ export const signIn = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ error: 'Password does not match' });
     }
+    if (!user.guideStatus?.sidebar) {
+      user.guideStatus = {
+        sidebar: { completed: false, step: 1 },
+        navbar: { completed: false, step: 0 },
+      };
+    }
 
     // ✅ Record login timestamp
     user.lastLogin = new Date();
@@ -666,6 +672,84 @@ export const getOrganizationByUserId = async (req, res) => {
       message: 'Failed to fetch organization.',
       error: error.message,
     });
+  }
+};
+
+export const getGuideStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await authModel.findById(userId).select('guideStatus');
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // First time safety
+    if (!user.guideStatus) {
+      return res.status(200).json({
+        sidebar: { completed: false, step: 1 },
+        navbar: { completed: false, step: 0 },
+      });
+    }
+
+    res.status(200).json({
+      sidebar: user.guideStatus.sidebar,
+      navbar: user.guideStatus.navbar,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const updateGuideStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { type, step, completed } = req.body;
+
+    if (!['sidebar', 'navbar'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid guide type' });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // 🔒 Already completed → do nothing
+    if (user.guideStatus?.[type]?.completed) {
+      return res.status(200).json({
+        message: 'Guide already completed',
+        guide: user.guideStatus[type],
+      });
+    }
+
+    // Init if missing
+    if (!user.guideStatus) {
+      user.guideStatus = {
+        sidebar: { completed: false, step: 1 },
+        navbar: { completed: false, step: 0 },
+      };
+    }
+
+    if (completed === true) {
+      user.guideStatus[type] = {
+        completed: true,
+        step: 0,
+      };
+    } else if (typeof step === 'number') {
+      user.guideStatus[type].step = step;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Guide updated',
+      guide: user.guideStatus[type],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 

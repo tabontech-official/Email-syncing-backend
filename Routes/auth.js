@@ -8,6 +8,7 @@ import {
   getAllUsers,
   getConnections,
   getEmailTrackingForAdmin,
+  getGuideStatus,
   getOrganizationByUserId,
   getSetupProgress,
   getSummaryForAdmin,
@@ -24,6 +25,7 @@ import {
   signUp,
   skipAllSteps,
   startOutlookOAuth,
+  updateGuideStatus,
   updateUserAndOrganization,
   verifyLogin,
   verifyUser,
@@ -56,6 +58,8 @@ authRouter.post("/set-password", setPassword)
 authRouter.post("/request-login", requestLogin)
 authRouter.post("/verify-login/:token", verifyLogin);  // Step 1
 
+authRouter.get('/guide/:userId', getGuideStatus);
+authRouter.post('/guide/:userId', updateGuideStatus)
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);
 authRouter.get('/getConnection/:userId', getConnections);
