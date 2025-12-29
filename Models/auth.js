@@ -69,6 +69,20 @@ const authSchema = new mongoose.Schema(
         step: Number,
       },
     },
+    stripeCustomerId: {
+      type: String,
+    },
+
+    subscription: {
+      id: { type: String },
+      status: { type: String },
+      plan: {
+        type: String,
+        enum: ['free', 'pro'],
+        default: 'free',
+      },
+      currentPeriodEnd: { type: Date },
+    },
 
     TimeZone: {
       type: String,

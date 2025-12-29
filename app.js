@@ -24,6 +24,7 @@ import scenarioRouter from './Routes/Scenario.js';
 import { startDelayWorker } from './controller/delayWorker.js';
 import mailhookRouter from './Routes/mailhook.js';
 import { mailhookModel } from './Models/MailhookSchema.js';
+import stripeRouter from './Routes/stripe.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -40,6 +41,8 @@ app.use(cors());
 app.use('/uploads', express.static('uploads'));
 app.use(express.json({limit:"5000000mb"}));
 app.use('/auth', authRouter);
+app.use('/stripe', stripeRouter);
+
 app.use('/product', productRouter);
 app.use('/order', orderRouter);
 app.use('/promo', promoRouter);
