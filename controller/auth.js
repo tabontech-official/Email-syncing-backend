@@ -16,6 +16,7 @@ import { scenarioModel } from '../Models/Scenario.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
+import { welComeEmail } from '../middleware/sendEmail.js';
 
 export const defaultServices = [
   'General',
@@ -49,6 +50,67 @@ export const defaultServices = [
   'Content marketing',
   'Product sourcing guidance',
 ];
+
+const welcomeEmailTemplate = (user) => `
+  <div style="font-family: Inter, Arial, sans-serif; background:#f9fafb; padding:40px">
+    <div style="max-width:600px;margin:auto;background:#ffffff;border-radius:12px;padding:32px;border:1px solid #e5e7eb">
+      
+      <h2 style="color:#111827;font-size:24px;margin-bottom:16px">
+        Welcome to Replex Engine 🚀
+      </h2>
+
+      <p style="color:#374151;font-size:15px">
+        Hi <strong>${user.name || "there"}</strong>,
+      </p>
+
+      <p style="color:#374151;font-size:15px">
+        Your Replex Engine account has been successfully created.  
+        You’re just a few steps away from automating your inbox.
+      </p>
+
+      <p style="color:#374151;font-size:15px;margin-top:18px">
+        Your unique <strong>Mailhook</strong> is:
+      </p>
+
+      <div style="
+        background:#f3f4f6;
+        padding:14px;
+        border-radius:8px;
+        font-family:monospace;
+        font-size:14px;
+        color:#111827;
+        border:1px dashed #d1d5db;
+      ">
+        ${user.mailhook}
+      </div>
+
+      <p style="margin-top:20px;color:#374151;font-size:15px">
+        Use this address to forward your emails and start building powerful
+        automation workflows.
+      </p>
+
+      <a href="https://app.replexengine.com"
+        style="
+          display:inline-block;
+          margin-top:22px;
+          background:#4F46E5;
+          color:#ffffff;
+          padding:12px 22px;
+          border-radius:8px;
+          text-decoration:none;
+          font-size:14px;
+          font-weight:600;
+        ">
+        Go to Replex Engine Dashboard
+      </a>
+
+      <p style="margin-top:32px;font-size:13px;color:#6b7280">
+        — Team Replex Engine
+      </p>
+    </div>
+  </div>
+`;
+
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
@@ -234,6 +296,12 @@ export const signUp = async (req, res) => {
     };
 
     await scenarioModel.create(defaultScenario);
+// AFTER scenario is created
+await welComeEmail({
+  to: savedUser.email,
+  subject: "Welcome to Replex Engine 🚀",
+  html: welcomeEmailTemplate(savedUser),
+});
 
     // --- Token Create ---
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
