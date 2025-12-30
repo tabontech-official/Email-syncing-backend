@@ -6,13 +6,13 @@ export const welComeEmail = async ({ to, subject, html }) => {
     port: 587,
     secure: false,
     auth: {
-      user: process.env.SMTP_USER, // e.g. noreply@brandfer.com
-      pass: process.env.SMTP_PASS,
+      user: process.env.EMAIL_USER, // e.g. noreply@brandfer.com
+      pass: process.env.EMAIL_PASS,
     },
   });
 
   return transporter.sendMail({
-    from: `"Brandfer" <${process.env.SMTP_USER}>`,
+    from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
     to,
     subject,
     html,

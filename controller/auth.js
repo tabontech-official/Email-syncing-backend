@@ -89,7 +89,7 @@ const welcomeEmailTemplate = (user) => `
         automation workflows.
       </p>
 
-      <a href="https://app.replexengine.com"
+      <a href="https://replexengine.com"
         style="
           display:inline-block;
           margin-top:22px;
@@ -296,14 +296,12 @@ export const signUp = async (req, res) => {
     };
 
     await scenarioModel.create(defaultScenario);
-// AFTER scenario is created
 await welComeEmail({
   to: savedUser.email,
   subject: "Welcome to Replex Engine 🚀",
   html: welcomeEmailTemplate(savedUser),
 });
 
-    // --- Token Create ---
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
