@@ -31,6 +31,10 @@ Connect();
 
 startDelayWorker()
 financeScheduler.start();
+app.use(
+  "/stripe/webhook",
+  express.raw({ type: "application/json" })
+);
 app.use('/stripe', stripeRouter);
 
 app.use(bodyParser.json());
