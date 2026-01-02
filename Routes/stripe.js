@@ -8,10 +8,10 @@ stripeRouter.post(
   "/create-checkout-session/:userId",
   createCheckoutSession
 );
-stripeRouter.post(
-  "/webhook",
-  stripeWebhook
-);
+// stripeRouter.post(
+//   "/webhook",
+//   stripeWebhook
+// );
 
 
 
