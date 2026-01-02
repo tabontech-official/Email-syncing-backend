@@ -90,6 +90,10 @@ const authSchema = new mongoose.Schema(
     },
     lastLogin: { type: Date, default: null },
     lastLogout: { type: Date, default: null },
+    Ai: {
+      type: Boolean,
+      default: false,
+    },
   },
 
   { timestamps: true }

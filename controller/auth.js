@@ -2133,3 +2133,47 @@ export const getTemplateUsageForAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+export const updateAiStatus = async (req, res) => {
+  try {
+    const { userId, enabled } = req.body;
+
+    if (!userId || typeof enabled !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "userId and enabled(boolean) are required",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (user.subscription?.plan !== "pro") {
+      return res.status(403).json({
+        success: false,
+        message: "AI is available only on Pro plan",
+      });
+    }
+
+    user.Ai = enabled;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: `AI ${enabled ? "enabled" : "disabled"} successfully`,
+      Ai: user.Ai,
+    });
+  } catch (error) {
+    console.error("❌ updateAiStatus error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
