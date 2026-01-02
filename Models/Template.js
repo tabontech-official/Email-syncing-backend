@@ -23,7 +23,7 @@ const templateSchema = new mongoose.Schema(
           enum: ['equals', 'contains', 'not_equals', 'starts_with'],
           default: 'contains',
         },
-        value: { type: String, required: true },
+        value: { type: String },
       },
     ],
     content: { type: String, required: true },

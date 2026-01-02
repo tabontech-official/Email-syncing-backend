@@ -1,6 +1,7 @@
 import { TemplateModel } from '../Models/Template.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-
+import { authModel } from '../Models/auth.js';
+import { OrganizationModel } from '../Models/Organization.js';
 export const addTemplate = async (req, res) => {
   try {
     const { userId, platform, service, conditions, content } = req.body;
@@ -469,6 +470,152 @@ export async function generateTemplateWithGemini(prompt) {
   return text.trim();
 }
 
+// export const generateTemplateWithAI = async (req, res) => {
+//   try {
+//     const { userId, templateId } = req.body;
+
+//     if (!userId || !templateId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "userId and templateId are required",
+//       });
+//     }
+
+//     // 🔐 Fetch template safely
+//     const template = await TemplateModel.findOne({ _id: templateId, userId });
+//     if (!template) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Template not found for this user",
+//       });
+//     }
+
+//     // 🔒 AI lock
+//     if (template.aiInProgress) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "AI generation already in progress",
+//       });
+//     }
+
+//     template.aiInProgress = true;
+//     await template.save();
+
+//     const service = template.service || "General";
+//     const platform = template.platform || "shopify";
+//     const name = template.name || "Initial Email";
+
+//     const lowerName = name.toLowerCase();
+//     const sequenceType = lowerName.includes("initial")
+//       ? "Initial Email"
+//       : lowerName.includes("first")
+//       ? "First Follow-Up"
+//       : lowerName.includes("second")
+//       ? "Second Follow-Up"
+//       : name;
+
+//     const placeholders = [
+//       "{{FullName}}",
+//       "{{BusinessEmail}}",
+//       "{{StoreName}}",
+//       "{{StoreURL}}",
+//       "{{Country}}",
+//       "{{Service}}",
+//       "{{Budget}}",
+//       "{{ProblemGoal}}",
+//       "{{OrganizationName}}",
+//     ];
+
+//     const conditionsText =
+//       template.conditions?.length > 0
+//         ? template.conditions
+//             .map(
+//               (c) =>
+//                 `- Field: ${c.field}, Operator: ${c.operator}, Value: ${c.value}`
+//             )
+//             .join("\n")
+//         : "None";
+
+//     // 🔥 FINAL PROMPT
+//     const prompt = `
+// You are an expert Shopify service sales email copywriter.
+
+// Context:
+// Platform: ${platform}
+// Service: ${service}
+// Email Type: ${sequenceType}
+
+// Service Guidance:
+// - If service is "Troubleshooting": focus on fixing bugs, errors, broken features.
+// - If service is "SEO": focus on traffic, rankings, and conversions.
+// - If service is "Theme customization" or "Store build or redesign": focus on UX, branding, design quality.
+// - If service is "Email marketing": focus on retention, revenue, automation.
+// - If service is "General": keep it broad and helpful.
+// - Otherwise: act as a specialist for the given service.
+
+// Email Rules:
+// - Write a ${sequenceType} email.
+// - Tone: professional, friendly, confident, conversion-focused.
+// - Length: 120–180 words.
+// - Output ONLY clean HTML (no markdown, no explanations).
+// - Include a clear CTA.
+// - Do NOT use [Your Name] or [Company Name].
+
+// Placeholders:
+// Use these EXACT placeholders:
+// ${placeholders.join(", ")}
+
+// Mandatory:
+// - Use {{FullName}}, {{StoreName}}, {{ProblemGoal}} at least once.
+// - Always end the email with:
+//   Best regards,<br/>
+//   <strong>{{OrganizationName}}</strong>
+// - If this is a follow-up email, politely reference the previous email.
+// - Do NOT mention AI.
+
+// Conditions:
+// ${conditionsText}
+
+// Return HTML suitable for ReactQuill editor.
+// `;
+
+//     const aiHtml = await generateTemplateWithGemini(prompt);
+
+//     if (!aiHtml) {
+//       template.aiInProgress = false;
+//       await template.save();
+
+//       return res.status(500).json({
+//         success: false,
+//         message: "AI returned empty content",
+//       });
+//     }
+
+//     // ✅ Save result
+//     template.content = aiHtml
+//       .replace(/```html|```/g, "")
+//       .trim();
+//     template.aiGenerated = true;
+//     template.aiGeneratedAt = new Date();
+//     template.aiInProgress = false;
+
+//     await template.save();
+
+//     return res.json({
+//       success: true,
+//       message: "✅ AI template generated & saved",
+//       template,
+//     });
+//   } catch (error) {
+//     console.error("❌ generateTemplateWithAI error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 export const generateTemplateWithAI = async (req, res) => {
   try {
     const { userId, templateId } = req.body;
@@ -476,40 +623,71 @@ export const generateTemplateWithAI = async (req, res) => {
     if (!userId || !templateId) {
       return res.status(400).json({
         success: false,
-        message: 'userId and templateId are required',
+        message: "userId and templateId are required",
       });
     }
+
+    const user = await authModel.findById(userId).lean();
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+  const organization = await OrganizationModel.findOne({ userId }).lean();
+
+if (!organization) {
+  return res.status(404).json({
+    success: false,
+    message: "Organization not found for this user",
+  });
+}
+
+const organizationName = organization.organizationName;
+    console.log("USER DOC FROM DB:", organizationName);
 
     const template = await TemplateModel.findOne({ _id: templateId, userId });
     if (!template) {
       return res.status(404).json({
         success: false,
-        message: 'Template not found for this user',
+        message: "Template not found for this user",
       });
     }
 
-    const service = template.service || 'General';
-    const platform = template.platform || 'shopify';
-    const name = template.name || 'Initial Email';
+    if (template.aiInProgress) {
+      return res.status(409).json({
+        success: false,
+        message: "AI generation already in progress",
+      });
+    }
+
+    template.aiInProgress = true;
+    await template.save();
+
+    const service = template.service || "General";
+    const platform = template.platform || "shopify";
+    const name = template.name || "Initial Email";
 
     const lowerName = name.toLowerCase();
-    const sequenceType = lowerName.includes('initial')
-      ? 'Initial Email'
-      : lowerName.includes('first')
-        ? 'First Follow-Up'
-        : lowerName.includes('second')
-          ? 'Second Follow-Up'
-          : name;
+    const sequenceType = lowerName.includes("initial")
+      ? "Initial Email"
+      : lowerName.includes("first")
+      ? "First Follow-Up"
+      : lowerName.includes("second")
+      ? "Second Follow-Up"
+      : name;
 
     const placeholders = [
-      '{{FullName}}',
-      '{{BusinessEmail}}',
-      '{{StoreName}}',
-      '{{StoreURL}}',
-      '{{Country}}',
-      '{{Service}}',
-      '{{Budget}}',
-      '{{ProblemGoal}}',
+      "{{FullName}}",
+      "{{BusinessEmail}}",
+      "{{StoreName}}",
+      "{{StoreURL}}",
+      "{{Country}}",
+      "{{Service}}",
+      "{{Budget}}",
+      "{{ProblemGoal}}",
+      "{{OrganizationName}}",
     ];
 
     const conditionsText =
@@ -519,8 +697,8 @@ export const generateTemplateWithAI = async (req, res) => {
               (c) =>
                 `- Field: ${c.field}, Operator: ${c.operator}, Value: ${c.value}`
             )
-            .join('\n')
-        : 'None';
+            .join("\n")
+        : "None";
 
     const prompt = `
 You are an expert Shopify service sales email copywriter.
@@ -530,31 +708,27 @@ Platform: ${platform}
 Service: ${service}
 Email Type: ${sequenceType}
 
-Service Guidance:
-- If service is "Troubleshooting": focus on fixing issues, bugs, store problems.
-- If service is "SEO": focus on traffic, rankings, conversions.
-- If service is "Theme customization" or "Store build or redesign": focus on design, UX, branding.
-- If service is "Email marketing": focus on retention, campaigns, revenue.
-- If service is "General": keep it broad and helpful.
-- Otherwise: act as a specialist for the given service.
-
 Email Rules:
 - Write a ${sequenceType} email.
 - Tone: professional, friendly, confident, conversion-focused.
 - Length: 120–180 words.
-- Output ONLY clean HTML (no markdown, no explanations).
-- Include a clear CTA (reply, book a call, or discuss next steps).
+- Output ONLY clean HTML.
+- Include a clear CTA.
+- Do NOT use [Your Name] or [Company Name].
 
 Placeholders:
-Use these EXACT placeholders (do not rename):
-${placeholders.join(', ')}
+Use these EXACT placeholders:
+${placeholders.join(", ")}
 
 Mandatory:
 - Use {{FullName}}, {{StoreName}}, {{ProblemGoal}} at least once.
-- If this is a Follow-Up email, politely reference the previous email.
+- Always end the email with:
+  Best regards,<br/>
+  <strong>{{OrganizationName}}</strong>
+- If follow-up, reference previous email.
 - Do NOT mention AI.
 
-Conditions (if any):
+Conditions:
 ${conditionsText}
 
 Return HTML suitable for ReactQuill editor.
@@ -563,29 +737,37 @@ Return HTML suitable for ReactQuill editor.
     const aiHtml = await generateTemplateWithGemini(prompt);
 
     if (!aiHtml) {
+      template.aiInProgress = false;
+      await template.save();
+
       return res.status(500).json({
         success: false,
-        message: 'AI returned empty content',
+        message: "AI returned empty content",
       });
     }
 
-    // ✅ save in DB
-    template.content = aiHtml;
+    const finalHtml = aiHtml
+      .replace(/```html|```/g, "")
+      .replace(/{{OrganizationName}}/g, organizationName)
+      .trim();
+
+    template.content = finalHtml;
     template.aiGenerated = true;
     template.aiGeneratedAt = new Date();
+    template.aiInProgress = false;
 
     await template.save();
 
     return res.json({
       success: true,
-      message: '✅ AI generated template saved successfully',
+      message: " AI template generated & saved",
       template,
     });
   } catch (error) {
-    console.error('❌ generateTemplateWithAI error:', error);
+    console.error("❌ generateTemplateWithAI error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: "Server error",
       error: error.message,
     });
   }
