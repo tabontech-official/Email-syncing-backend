@@ -31,6 +31,8 @@ Connect();
 
 startDelayWorker()
 financeScheduler.start();
+app.use('/stripe', stripeRouter);
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(morgan('combined'));
@@ -41,7 +43,6 @@ app.use(cors());
 app.use('/uploads', express.static('uploads'));
 app.use(express.json({limit:"5000000mb"}));
 app.use('/auth', authRouter);
-app.use('/stripe', stripeRouter);
 
 app.use('/product', productRouter);
 app.use('/order', orderRouter);
