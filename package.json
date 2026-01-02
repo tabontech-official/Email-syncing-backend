@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@google-cloud/pubsub": "^5.2.0",
-    "@google/generative-ai": "^0.17.1",
+    "@google/generative-ai": "^0.17.2",
     "atob": "^2.1.2",
     "aws-sdk": "^2.1679.0",
     "axios": "^1.7.7",

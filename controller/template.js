@@ -1,4 +1,5 @@
 import { TemplateModel } from '../Models/Template.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const addTemplate = async (req, res) => {
   try {
@@ -45,7 +46,7 @@ export const getTemplates = async (req, res) => {
     // 👉 Sirf Shopify templates fetch karo
     const templates = await TemplateModel.find({
       userId,
-      platform: "shopify",  // <--- added filter
+      platform: 'shopify', // <--- added filter
     });
 
     res.json(templates);
@@ -54,7 +55,6 @@ export const getTemplates = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
-
 
 export const getCustomTemplates = async (req, res) => {
   try {
@@ -67,7 +67,7 @@ export const getCustomTemplates = async (req, res) => {
     // 👉 Sirf Shopify templates fetch karo
     const templates = await TemplateModel.find({
       userId,
-      platform: "other",  // <--- added filter
+      platform: 'other', // <--- added filter
     });
 
     res.json(templates);
@@ -220,29 +220,29 @@ export const updateTemplateStatus = async (req, res) => {
 };
 
 export const updateAllTemplateStatus = async (req, res) => {
-   try {
+  try {
     const { userId } = req.body;
 
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId is required.",
+        message: 'userId is required.',
       });
     }
 
     // Get all Shopify templates
-    const templates = await TemplateModel.find({ userId, platform: "shopify" });
+    const templates = await TemplateModel.find({ userId, platform: 'shopify' });
 
     if (!templates.length) {
       return res.status(404).json({
         success: false,
-        message: "No Shopify templates found for this user.",
+        message: 'No Shopify templates found for this user.',
       });
     }
 
     // Identify only non-General templates
     const nonGeneralTemplates = templates.filter(
-      (t) => !t.service || t.service.toLowerCase() !== "general"
+      (t) => !t.service || t.service.toLowerCase() !== 'general'
     );
 
     const hasActive = nonGeneralTemplates.some((t) => t.active === true);
@@ -253,15 +253,15 @@ export const updateAllTemplateStatus = async (req, res) => {
     await TemplateModel.updateMany(
       {
         userId,
-        platform: "shopify",
-        $or: [{ service: { $ne: "General" } }, { service: { $exists: false } }],
+        platform: 'shopify',
+        $or: [{ service: { $ne: 'General' } }, { service: { $exists: false } }],
       },
       { $set: { active: newStatus } }
     );
 
     // General templates always ON
     await TemplateModel.updateMany(
-      { userId, platform: "shopify", service: "General" },
+      { userId, platform: 'shopify', service: 'General' },
       { $set: { active: true } }
     );
 
@@ -269,18 +269,17 @@ export const updateAllTemplateStatus = async (req, res) => {
       success: true,
       toggledTo: newStatus,
       message: `All Shopify non-general templates are now ${
-        newStatus ? "active" : "inactive"
+        newStatus ? 'active' : 'inactive'
       }. General remains active.`,
     });
   } catch (error) {
-    console.error("Shopify update error:", error);
+    console.error('Shopify update error:', error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error.",
+      message: 'Internal server error.',
     });
   }
 };
-
 
 export const updateOtherTemplateStatus = async (req, res) => {
   try {
@@ -289,16 +288,16 @@ export const updateOtherTemplateStatus = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId is required.",
+        message: 'userId is required.',
       });
     }
 
-    const templates = await TemplateModel.find({ userId, platform: "other" });
+    const templates = await TemplateModel.find({ userId, platform: 'other' });
 
     if (!templates.length) {
       return res.status(404).json({
         success: false,
-        message: "No OTHER templates found for this user.",
+        message: 'No OTHER templates found for this user.',
       });
     }
 
@@ -307,7 +306,7 @@ export const updateOtherTemplateStatus = async (req, res) => {
     const newStatus = !hasActive;
 
     await TemplateModel.updateMany(
-      { userId, platform: "other" },
+      { userId, platform: 'other' },
       { $set: { active: newStatus } }
     );
 
@@ -315,18 +314,17 @@ export const updateOtherTemplateStatus = async (req, res) => {
       success: true,
       toggledTo: newStatus,
       message: `All OTHER templates have been ${
-        newStatus ? "activated" : "deactivated"
+        newStatus ? 'activated' : 'deactivated'
       }.`,
     });
   } catch (error) {
-    console.error("Other update error:", error);
+    console.error('Other update error:', error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error.",
+      message: 'Internal server error.',
     });
   }
 };
-
 
 export const getActiveOtherTemplates = async (req, res) => {
   try {
@@ -335,13 +333,13 @@ export const getActiveOtherTemplates = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId is required.",
+        message: 'userId is required.',
       });
     }
 
     const templates = await TemplateModel.find({
       userId,
-      platform: "other",
+      platform: 'other',
       active: true,
     });
 
@@ -351,14 +349,13 @@ export const getActiveOtherTemplates = async (req, res) => {
       templates,
     });
   } catch (error) {
-    console.error("Error fetching active other templates:", error);
+    console.error('Error fetching active other templates:', error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error.",
+      message: 'Internal server error.',
     });
   }
 };
-
 
 export const saveOtherTemplate = async (req, res) => {
   try {
@@ -367,7 +364,7 @@ export const saveOtherTemplate = async (req, res) => {
     if (!userId || !name || !content) {
       return res.status(400).json({
         success: false,
-        message: "userId, name, and content are required"
+        message: 'userId, name, and content are required',
       });
     }
 
@@ -375,27 +372,25 @@ export const saveOtherTemplate = async (req, res) => {
       userId,
       name,
       content,
-      platform: "other",
+      platform: 'other',
       active: true,
-      service: "General",
-      conditions: []
+      service: 'General',
+      conditions: [],
     });
 
     return res.json({
       success: true,
       template: newTemplate,
-      message: "Template saved successfully"
+      message: 'Template saved successfully',
     });
-
   } catch (error) {
-    console.error("Save template error:", error);
+    console.error('Save template error:', error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: 'Internal server error',
     });
   }
 };
-
 
 export const getAllTemplatesByQuery = async (req, res) => {
   try {
@@ -404,7 +399,7 @@ export const getAllTemplatesByQuery = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "User ID is required",
+        message: 'User ID is required',
       });
     }
 
@@ -412,14 +407,14 @@ export const getAllTemplatesByQuery = async (req, res) => {
     const query = { userId };
 
     // ✅ Service-based filter (case-insensitive exact match)
-    if (service && service.trim() !== "") {
-      query.service = { $regex: new RegExp(`^${service.trim()}$`, "i") };
+    if (service && service.trim() !== '') {
+      query.service = { $regex: new RegExp(`^${service.trim()}$`, 'i') };
       // ↑ example: service="Troubleshooting" → only "Troubleshooting" match karega (case-insensitive)
     }
 
     // ✅ Platform optional filter
-    if (platform && platform.trim() !== "") {
-      query.platform = { $regex: new RegExp(platform.trim(), "i") };
+    if (platform && platform.trim() !== '') {
+      query.platform = { $regex: new RegExp(platform.trim(), 'i') };
     }
 
     // 🔹 Fetch templates
@@ -428,7 +423,7 @@ export const getAllTemplatesByQuery = async (req, res) => {
     // 🔹 Apply priority sorting only for email-type services
     let finalTemplates = templates;
     if (service) {
-      const priority = ["Initial Email", "First Email", "Second Email"];
+      const priority = ['Initial Email', 'First Email', 'Second Email'];
       finalTemplates = templates
         .filter((t) =>
           priority.some((p) => t.name?.toLowerCase().includes(p.toLowerCase()))
@@ -446,17 +441,152 @@ export const getAllTemplatesByQuery = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "✅ Templates fetched successfully",
+      message: '✅ Templates fetched successfully',
       count: finalTemplates.length,
       data: finalTemplates,
     });
   } catch (err) {
-    console.error("❌ Error fetching templates:", err);
+    console.error('❌ Error fetching templates:', err);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch templates",
+      message: 'Failed to fetch templates',
       error: err.message,
     });
   }
 };
 
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) throw new Error('GEMINI_API_KEY is missing in env');
+
+const genAI = new GoogleGenerativeAI(apiKey);
+
+export async function generateTemplateWithGemini(prompt) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+  const result = await model.generateContent(prompt);
+  const text = result?.response?.text?.() || '';
+
+  return text.trim();
+}
+
+export const generateTemplateWithAI = async (req, res) => {
+  try {
+    const { userId, templateId } = req.body;
+
+    if (!userId || !templateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and templateId are required',
+      });
+    }
+
+    const template = await TemplateModel.findOne({ _id: templateId, userId });
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        message: 'Template not found for this user',
+      });
+    }
+
+    const service = template.service || 'General';
+    const platform = template.platform || 'shopify';
+    const name = template.name || 'Initial Email';
+
+    const lowerName = name.toLowerCase();
+    const sequenceType = lowerName.includes('initial')
+      ? 'Initial Email'
+      : lowerName.includes('first')
+        ? 'First Follow-Up'
+        : lowerName.includes('second')
+          ? 'Second Follow-Up'
+          : name;
+
+    const placeholders = [
+      '{{FullName}}',
+      '{{BusinessEmail}}',
+      '{{StoreName}}',
+      '{{StoreURL}}',
+      '{{Country}}',
+      '{{Service}}',
+      '{{Budget}}',
+      '{{ProblemGoal}}',
+    ];
+
+    const conditionsText =
+      template.conditions?.length > 0
+        ? template.conditions
+            .map(
+              (c) =>
+                `- Field: ${c.field}, Operator: ${c.operator}, Value: ${c.value}`
+            )
+            .join('\n')
+        : 'None';
+
+    const prompt = `
+You are an expert Shopify service sales email copywriter.
+
+Context:
+Platform: ${platform}
+Service: ${service}
+Email Type: ${sequenceType}
+
+Service Guidance:
+- If service is "Troubleshooting": focus on fixing issues, bugs, store problems.
+- If service is "SEO": focus on traffic, rankings, conversions.
+- If service is "Theme customization" or "Store build or redesign": focus on design, UX, branding.
+- If service is "Email marketing": focus on retention, campaigns, revenue.
+- If service is "General": keep it broad and helpful.
+- Otherwise: act as a specialist for the given service.
+
+Email Rules:
+- Write a ${sequenceType} email.
+- Tone: professional, friendly, confident, conversion-focused.
+- Length: 120–180 words.
+- Output ONLY clean HTML (no markdown, no explanations).
+- Include a clear CTA (reply, book a call, or discuss next steps).
+
+Placeholders:
+Use these EXACT placeholders (do not rename):
+${placeholders.join(', ')}
+
+Mandatory:
+- Use {{FullName}}, {{StoreName}}, {{ProblemGoal}} at least once.
+- If this is a Follow-Up email, politely reference the previous email.
+- Do NOT mention AI.
+
+Conditions (if any):
+${conditionsText}
+
+Return HTML suitable for ReactQuill editor.
+`;
+
+    const aiHtml = await generateTemplateWithGemini(prompt);
+
+    if (!aiHtml) {
+      return res.status(500).json({
+        success: false,
+        message: 'AI returned empty content',
+      });
+    }
+
+    // ✅ save in DB
+    template.content = aiHtml;
+    template.aiGenerated = true;
+    template.aiGeneratedAt = new Date();
+
+    await template.save();
+
+    return res.json({
+      success: true,
+      message: '✅ AI generated template saved successfully',
+      template,
+    });
+  } catch (error) {
+    console.error('❌ generateTemplateWithAI error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};

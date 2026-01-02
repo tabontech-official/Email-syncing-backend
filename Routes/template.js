@@ -2,6 +2,7 @@ import express from 'express';
 import {
   addTemplate,
   deleteTemplate,
+  generateTemplateWithAI,
   getActiveOtherTemplates,
   getAllTemplates,
   getAllTemplatesByQuery,
@@ -29,5 +30,6 @@ templateRouter.patch('/status/:id', updateTemplateStatus);
 templateRouter.patch('/templatestatus/all', updateAllTemplateStatus);
 templateRouter.patch('/templatestatus/all/other', updateOtherTemplateStatus);
 templateRouter.get('/other/active', getActiveOtherTemplates);
+templateRouter.post("/ai/generate", generateTemplateWithAI);
 
 export default templateRouter;
