@@ -9,7 +9,7 @@ stripeRouter.post(
   createCheckoutSession
 );
 stripeRouter.post(
-  "/stripe/webhook",
+  "/webhook",
   stripeWebhook
 );
 
