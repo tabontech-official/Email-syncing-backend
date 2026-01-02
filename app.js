@@ -30,6 +30,10 @@ setupSwagger(app);
 Connect();
 
 startDelayWorker()
+app.use(cors());
+app.use(morgan('combined'));
+app.use(helmet());
+app.use(compression());
 financeScheduler.start();
 app.use(
   "/stripe/webhook",
@@ -39,10 +43,8 @@ app.use('/stripe', stripeRouter);
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(morgan('combined'));
-app.use(helmet());
-app.use(compression());
-app.use(cors());
+
+
 
 app.use('/uploads', express.static('uploads'));
 app.use(express.json({limit:"5000000mb"}));
