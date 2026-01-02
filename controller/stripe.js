@@ -6,7 +6,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export const createCheckoutSession = async (req, res) => {
   try {
-    const { userId } = req.params; // 🔁 FIXED
+    const { userId } = req.params;
     const user = await authModel.findById(userId);
 
     if (!user) {
@@ -39,7 +39,7 @@ export const createCheckoutSession = async (req, res) => {
           quantity: 1,
         },
       ],
-      success_url: `${process.env.CLIENT_URL}/success`,
+      success_url: `${process.env.CLIENT_URL}/organization`,
       cancel_url: `${process.env.CLIENT_URL}/pricing`,
       metadata: {
         userId: user._id.toString(),
