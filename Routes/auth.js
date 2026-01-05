@@ -57,7 +57,7 @@ authRouter.post("/skip-all/:userId", skipAllSteps);
 authRouter.post("/forgot-password", forgotPassword);
 authRouter.post("/set-password", setPassword)
 authRouter.post("/request-login", requestLogin)
-authRouter.post("/verify-login/:token", verifyLogin);  // Step 1
+authRouter.post("/verify-login/:token", verifyLogin);  
 authRouter.patch("/user/ai", updateAiStatus);
 
 authRouter.get('/guide/:userId', getGuideStatus);

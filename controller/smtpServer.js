@@ -15,6 +15,32 @@ import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
 import { validationModel } from '../Models/ValidationEmail.js';
 import { mailhookModel } from '../Models/MailhookSchema.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+export const generateGeminiReply = async ({ from, subject, body }) => {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+  const prompt = `
+You are a professional business email assistant.
+
+Write a polite, helpful, and clear email reply.
+
+Incoming Email:
+From: ${from}
+Subject: ${subject}
+Message:
+${body}
+
+Reply only with the email body. No explanations.
+`;
+
+  const result = await model.generateContent(prompt);
+  const response = result.response.text();
+
+  return response;
+};
+
 function checkCondition(condition, email) {
   const fieldValue = (email[condition.field] || '').toLowerCase();
   const targetValue = (condition.value || '').toLowerCase();
@@ -487,387 +513,6 @@ function extractFieldsFromEmail(emailObj = {}) {
   return fields;
 }
 
-// export const executeScenarios = async (emailData) => {
-//   try {
-//     console.log('=======================================');
-//     console.log('🚀 EXECUTE SCENARIOS Triggered (Shopify + Other)');
-//     console.log('📩 Incoming Email Data:', emailData);
-//     console.log('=======================================');
-
-//     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
-
-//     // 🧩 Extract fields for Shopify
-//     const extractedFields = extractFieldsFromEmail(
-//       parsedEmailObj || { text: body, subject, from }
-//     );
-
-//     // 🧠 🟢 Fetch ALL scenarios (shopify + other)
-//     const scenarios = await scenarioModel.find({ userId }).lean();
-//     console.log(`📚 Found ${scenarios.length} total scenario(s)`);
-
-//     if (!scenarios.length) {
-//       console.log('⚠️ No scenarios found — stopping execution.');
-//       return;
-//     }
-
-//     // 🔁 Loop through ALL scenarios
-//     for (const scenario of scenarios) {
-//       console.log('=======================================');
-//       console.log(`🎯 Executing Scenario: ${scenario.name} (${scenario.type})`);
-//       console.log('=======================================');
-
-//       if (!scenario.routerBranches?.length) continue;
-
-//       // 🟦 IF SCENARIO IS "OTHER" → RUN SIMPLE LOGIC
-//       if (scenario.type === "other") {
-//         console.log("⚙️ Running OTHER scenario logic...");
-
-//         for (const branch of scenario.routerBranches) {
-//           console.log(`🌿 OTHER Branch ID: ${branch.id}`);
-//           console.log(`🔎 Conditions: ${branch.filter?.conditions?.length}`);
-
-//           const matches = branch.filter?.conditions?.length
-//             ? branch.filter.conditions.every((cond) => {
-//                 let fieldValue = "";
-
-//                 switch (cond.field?.toLowerCase()) {
-//                   case 'subject':
-//                     fieldValue = (subject || '').toLowerCase();
-//                     break;
-//                   case 'body':
-//                     fieldValue = (body || '').toLowerCase();
-//                     break;
-//                   case 'from':
-//                     fieldValue = (from || '').toLowerCase();
-//                     break;
-//                   default:
-//                     return false;
-//                 }
-
-//                 const condValue = (cond.value || '').toLowerCase();
-
-//                 if (cond.operator === "Contains")
-//                   return fieldValue.includes(condValue);
-
-//                 if (["Equal to", "Equals"].includes(cond.operator))
-//                   return fieldValue === condValue;
-
-//                 return false;
-//               })
-//             : true;
-
-//           if (!matches) {
-//             console.log('❌ OTHER: Branch conditions did NOT match — skipping.');
-//             continue;
-//           }
-
-//           console.log('✅ OTHER: Branch conditions matched — executing modules');
-
-//           for (const module of branch.modules) {
-//             console.log(`⚙️ OTHER: Executing module → ${module.type}`);
-
-//             if (module.type === "Delay") {
-//               console.log("⏳ OTHER Delay detected — currently skipping");
-//               continue;
-//             }
-
-//             if (module.type === "Send Email") {
-//               console.log("📧 OTHER: Sending Email...");
-//               await sendEmailModule(module, from, subject, emailId);
-//             }
-//           }
-//         }
-
-//         // 🟢 DO NOT run Shopify logic for this scenario
-//         continue;
-//       }
-
-//       // 🟥 ELSE → RUN EXISTING SHOPIFY LOGIC (UNCHANGED)
-//       console.log("🛍 Running Shopify Scenario Logic...");
-
-//       // ---- YOUR FULL SHOPIFY LOGIC STARTS HERE ----
-//       // (Everything below is original code unchanged)
-
-//       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
-
-//       for (const branch of scenario.routerBranches) {
-//         console.log('---------------------------------------');
-//         console.log(`🌿 Branch ID: ${branch.id || branch._id}`);
-//         console.log(
-//           `🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`
-//         );
-
-//         const matches = branch.filter?.conditions?.length
-//           ? branch.filter.conditions.every((cond) => {
-//               const fieldValue =
-//                 cond.field?.toLowerCase() === 'body'
-//                   ? (body || '').toLowerCase()
-//                   : cond.field?.toLowerCase() === 'subject'
-//                     ? (subject || '').toLowerCase()
-//                     : '';
-//               const condValue = (cond.value || '').toLowerCase();
-
-//               console.log(
-//                 `   ➤ Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
-//               );
-
-//               switch (cond.operator?.toLowerCase()) {
-//                 case 'contains':
-//                   return fieldValue.includes(condValue);
-//                 case 'equals':
-//                 case 'equal to':
-//                   return fieldValue === condValue;
-//                 default:
-//                   return false;
-//               }
-//             })
-//           : true;
-
-//         if (!matches) {
-//           console.log('❌ Branch conditions did NOT match — skipping.');
-//           continue;
-//         }
-
-//         console.log('✅ Branch conditions matched — proceeding...');
-//         if (!branch.modules?.length) {
-//           console.log('⚠️ No modules found in this branch, skipping...');
-//           continue;
-//         }
-
-//         console.log(`📦 Modules found: ${branch.modules.length}`);
-
-//         let statusDoc = await AutomationStatusModel.create({
-//           userId,
-//           emailId,
-//           scenarioId: scenario._id,
-//           branchId: branch.id || branch._id,
-//           status: 'pending',
-//           completedModules: [],
-//           pendingModules: branch.modules.map((m) => m.id || m._id),
-//         });
-//         console.log('🗂️ Created AutomationStatus:', statusDoc._id);
-
-//         for (let i = 0; i < branch.modules.length; i++) {
-//           const module = branch.modules[i];
-//           console.log(`---------------------------------------`);
-//           console.log(
-//             `⚙️ Executing Module: ${module.app?.name || module.type} (Index ${i})`
-//           );
-
-//           try {
-//             const rawType = (
-//               module.type ||
-//               module.app?.name ||
-//               ''
-//             ).toLowerCase();
-//             if (
-//               rawType.includes('gmail') ||
-//               rawType.includes('email') ||
-//               rawType.includes('follow') ||
-//               rawType.includes('initial')
-//             ) {
-//               module.type = 'Send an Email';
-//             } else if (rawType.includes('delay')) {
-//               module.type = 'Delay';
-//             }
-
-//             if (module.type === 'Delay') {
-//               if (!module.delayValue || !module.delayUnit) continue;
-
-//               const delayMs = convertToMs(module.delayValue, module.delayUnit);
-
-//               const remainingModules = branch.modules
-//                 .slice(i + 1)
-//                 .filter((m) =>
-//                   ['Send an Email', 'Custom Email'].includes(m.type)
-//                 );
-
-//               await DelayJobModel.create({
-//                 userId,
-//                 emailData,
-//                 emailId,
-//                 scenarioId: scenario._id,
-//                 modulesLeft: remainingModules,
-//                 scheduledAt: new Date(Date.now() + delayMs),
-//               });
-
-//               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                 $push: { completedModules: module.id || module._id },
-//                 $set: {
-//                   pendingModules: remainingModules.map((m) => m.id || m._id),
-//                   status: 'partial',
-//                   lastExecutedAt: new Date(),
-//                 },
-//               });
-
-//               break;
-//             }
-
-//             if (['Send an Email', 'Custom Email'].includes(module.type)) {
-//               if (!module.connectionId) continue;
-
-//               let templateContent =
-//                 module.template || 'Thanks for your email!';
-//               let stepType = 'initial';
-
-//               const subjectLower = (subject || '').toLowerCase().trim();
-
-//               if (
-//                 !subjectLower.startsWith(
-//                   'shopify partner directory: new service inquiry from'
-//                 )
-//               ) {
-//                 continue;
-//               }
-
-//               const lowerTpl = (module.template || '').toLowerCase();
-//               if (lowerTpl.includes('first')) stepType = 'first';
-//               else if (lowerTpl.includes('second')) stepType = 'second';
-
-//               const textToSearch = (subject + ' ' + body).toLowerCase();
-
-//               const defaultServices = [
-//                 'General',
-//                 'Troubleshooting',
-//                 'Theme customization',
-//                 'Store build or redesign',
-//                 'Store migration',
-//                 'Website and marketing content',
-//                 'SEO',
-//                 'Site performance and speed',
-//                 'Custom apps and integrations',
-//                 'Store settings configuration',
-//                 'Product and collection setup',
-//                 'Social media marketing',
-//                 'Product descriptions',
-//                 'Search engine advertising',
-//                 'POS setup and migration',
-//                 'Custom domain setup',
-//                 'Conversion rate optimization',
-//                 'Analytics and tracking',
-//                 'Sales channel setup',
-//                 'Logo and visual branding',
-//                 'Business strategy guidance',
-//                 'Website audit and optimization strategy',
-//                 'Sales tax guidance',
-//                 'Product photography',
-//                 'Email marketing',
-//                 '3D modelling',
-//                 'Banner ads',
-//                 'Video and illustrations',
-//                 'Content marketing',
-//                 'Product sourcing guidance',
-//               ];
-
-//               let matchedService = defaultServices.find((s) =>
-//                 textToSearch.includes(s.toLowerCase())
-//               );
-//               matchedService = matchedService || 'General';
-
-//               const tpl =
-//                 (await TemplateModel.findOne({
-//                   userId,
-//                   platform: 'shopify',
-//                   service: new RegExp(`^${matchedService}$`, 'i'),
-//                   $or: [
-//                     {
-//                       name: new RegExp(
-//                         stepType === 'initial'
-//                           ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-//                           : stepType === 'first'
-//                             ? '(.*First Email.*|.*First Follow-up.*)'
-//                             : '(.*Second Email.*|.*Second Follow-up.*)',
-//                         'i'
-//                       ),
-//                     },
-//                   ],
-//                   active: true,
-//                 })) ||
-//                 (await TemplateModel.findOne({
-//                   userId,
-//                   platform: 'shopify',
-//                   service: /^General$/i,
-//                   $or: [
-//                     {
-//                       name: new RegExp(
-//                         stepType === 'initial'
-//                           ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-//                           : stepType === 'first'
-//                             ? '(.*First Email.*|.*First Follow-up.*)'
-//                             : '(.*Second Email.*|.*Second Follow-up.*)',
-//                         'i'
-//                       ),
-//                     },
-//                   ],
-//                   active: true,
-//                 }));
-
-//               if (tpl) templateContent = tpl.content;
-
-//               templateContent = fillTemplate(templateContent, extractedFields);
-
-//               await sendEmailModule(
-//                 {
-//                   ...module,
-//                   template: templateContent,
-//                   templateId: tpl?._id || null,
-//                   service: matchedService,
-//                   stepType,
-//                 },
-//                 from,
-//                 subject,
-//                 emailId
-//               );
-
-//               const updated = await AutomationStatusModel.findByIdAndUpdate(
-//                 statusDoc._id,
-//                 {
-//                   $push: { completedModules: module.id || module._id },
-//                   $pull: { pendingModules: module.id || module._id },
-//                   $set: { lastExecutedAt: new Date() },
-//                 },
-//                 { new: true }
-//               );
-
-//               if (updated.pendingModules.length === 0) {
-//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                   $set: { status: 'completed' },
-//                 });
-//               } else {
-//                 await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//                   $set: { status: 'partial' },
-//                 });
-//               }
-//             }
-//           } catch (err) {
-//             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//               $set: { status: 'failed', lastExecutedAt: new Date() },
-//             });
-//           }
-//         }
-
-//         const finalDoc = await AutomationStatusModel.findById(statusDoc._id);
-//         if (
-//           finalDoc &&
-//           finalDoc.pendingModules.length === 0 &&
-//           finalDoc.status !== 'failed'
-//         ) {
-//           await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
-//             $set: { status: 'completed', lastExecutedAt: new Date() },
-//           });
-//         }
-//       }
-
-//       console.log('=======================================');
-//     }
-
-//     console.log('🎉 All Scenarios Execution Complete!');
-//     console.log('=======================================');
-//   } catch (err) {
-//     console.error('🔥 Fatal Error in executeScenarios:', err);
-//   }
-// };
-
 export const executeScenarios = async (emailData) => {
   try {
     console.log('=======================================');
@@ -936,15 +581,11 @@ export const executeScenarios = async (emailData) => {
             : true;
 
           if (!matches) {
-            console.log(
-              'OTHER: Branch conditions did NOT match — skipping.'
-            );
+            console.log('OTHER: Branch conditions did NOT match — skipping.');
             continue;
           }
 
-          console.log(
-            'OTHER: Branch conditions matched — executing modules'
-          );
+          console.log('OTHER: Branch conditions matched — executing modules');
 
           for (const module of branch.modules) {
             console.log(`⚙️ OTHER: Executing module → ${module.type}`);
@@ -1344,7 +985,22 @@ export const sendEmailModule = async (
       provider: connection.provider,
       email: connection.email,
     });
+    const user = await authModel.findById(connection.userId).lean();
 
+    const isPro = user?.subscription?.plan === 'pro';
+    const isAIActive = user?.Ai === true;
+
+    if (isPro && isAIActive) {
+      log('🤖 PRO PLAN + AI ENABLED → Gemini generating email');
+
+      const aiReply = await generateGeminiReply({
+        from: to,
+        subject: originalSubject,
+        body: module.template || '',
+      });
+
+      module.template = aiReply; // 🔥 TEMPLATE REPLACED BY AI
+    }
     // ✅ Prepare Subject
     const finalSubject =
       module.subject && module.subject.trim() !== ''
@@ -2213,69 +1869,6 @@ export const getLatestVerificationEmail = async (req, res) => {
   }
 };
 
-// export const validateTestEmail = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-//     const { toEmail } = req.body;
-
-//     if (!mongoose.Types.ObjectId.isValid(userId)) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: 'Invalid user ID.' });
-//     }
-
-//     if (!toEmail) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Missing recipient email address (toEmail).',
-//       });
-//     }
-
-//     const user = await authModel.findById(userId);
-//     if (!user) {
-//       return res
-//         .status(404)
-//         .json({ success: false, message: 'User not found.' });
-//     }
-
-//     const testSubject = 'Zenith Forwarding Validation Test';
-//     const testBody = `Hello,
-
-// This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
-
-// If you receive this email, your mail forwarding is active and functioning.
-
-// — Zenith Inbox Team`;
-
-//     const transporter = nodemailer.createTransport({
-//       service: 'gmail',
-//       auth: {
-//         user: process.env.EMAIL_USER,
-//         pass: process.env.EMAIL_PASS,
-//       },
-//     });
-
-//     await transporter.sendMail({
-//       from: `"Zenith System" <${process.env.EMAIL_USER}>`,
-//       to: toEmail,
-//       subject: testSubject,
-//       text: testBody,
-//     });
-
-//     return res.json({
-//       success: true,
-//       message: `✅ Test email sent to ${toEmail}. Once it reaches your mailhook, it will be recorded automatically.`,
-//       sentTo: toEmail,
-//     });
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: 'Failed to send test email.',
-//       error: err.message,
-//     });
-//   }
-// };
-
 export const validateTestEmail = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -2351,172 +1944,6 @@ If you receive this email, your mail forwarding is active and functioning.
     });
   }
 };
-
-// export const getValidateEmail = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-
-//     if (!mongoose.Types.ObjectId.isValid(userId)) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: 'Invalid user ID.' });
-//     }
-
-//     const testSubject = 'Zenith Forwarding Validation Test';
-
-//     const testRecord = await validationModel
-//       .findOne({ userId, subject: testSubject })
-//       .sort({ createdAt: -1 })
-//       .lean();
-
-//     if (!testRecord) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Test forwarding email not yet received or verified.',
-//       });
-//     }
-
-//     return res.json({
-//       success: true,
-//       message: testRecord.verified
-//         ? '✅ Forwarding test verified successfully.'
-//         : '⚙️ Test email found but not yet verified.',
-//       data: {
-//         id: testRecord._id,
-//         subject: testRecord.subject,
-//         toEmail: testRecord.toEmail,
-//         sentAt: testRecord.sentAt,
-//         verified: testRecord.verified,
-//         verifiedAt: testRecord.verifiedAt,
-//         status: testRecord.status,
-//         notes: testRecord.notes,
-//       },
-//     });
-//   } catch (err) {
-//     console.error('❌ Error checking forwarding validation:', err);
-//     return res.status(500).json({
-//       success: false,
-//       message: 'Server error while checking forwarding validation.',
-//       error: err.message,
-//     });
-//   }
-// };
-
-// export const getValidateEmail = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-//     const { cardId } = req.query;
-
-//     if (!mongoose.Types.ObjectId.isValid(userId)) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: "Invalid user ID." });
-//     }
-
-//     const testSubject = "Zenith Forwarding Validation Test";
-
-//     // 🟡 Find latest test record for this user
-//     const testRecord = await validationModel
-//       .findOne({ userId, subject: testSubject })
-//       .sort({ createdAt: -1 })
-//       .lean();
-
-//     if (!testRecord) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Test forwarding email not yet received or verified.",
-//       });
-//     }
-
-//     // 🟢 Proceed only if test verified
-//     if (testRecord.verified) {
-//       const user = await authModel.findById(userId).select("mailhook");
-
-//       if (!user) {
-//         return res
-//           .status(404)
-//           .json({ success: false, message: "User not found" });
-//       }
-
-//       // 🧩 Check for duplicate forwarding email
-//       const existing = await mailhookModel.findOne({
-//         userId,
-//         forwardingEmail: testRecord.toEmail,
-//       });
-
-//       if (existing) {
-//         console.log(
-//           `⚠️ Forwarding already exists for ${testRecord.toEmail}, skipping update/create.`
-//         );
-//         return res.status(400).json({
-//           success: false,
-//           message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
-//         });
-//       }
-
-//       let updatedMailhook;
-
-//       // 🧠 CASE 1: Update existing Mailhook card by ID
-//       if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
-//         updatedMailhook = await mailhookModel.findByIdAndUpdate(
-//           cardId,
-//           {
-//             forwardingEmail: testRecord.toEmail,
-//             connectionVerified: true,
-//             validationId: testRecord._id, // 🟢 save validation record ID
-//           },
-//           { new: true }
-//         );
-
-//         if (!updatedMailhook) {
-//           return res.status(404).json({
-//             success: false,
-//             message: "Mailhook card not found for the given ID.",
-//           });
-//         }
-
-//         console.log("✅ Mailhook card updated:", updatedMailhook._id);
-//       } else {
-//         // 🧠 CASE 2: Create new Mailhook if not exists
-//         const newMailhook = new mailhookModel({
-//           userId,
-//           mailhook: user.mailhook,
-//           forwardingEmail: testRecord.toEmail,
-//           connectionVerified: true,
-//           validationId: testRecord._id, // 🟢 also save validation record ID
-//         });
-
-//         updatedMailhook = await newMailhook.save();
-//         console.log("🆕 New mailhook created:", updatedMailhook._id);
-//       }
-//     }
-
-//     // ✅ Final Response
-//     return res.json({
-//       success: true,
-//       message: testRecord.verified
-//         ? "✅ Forwarding test verified and mailhook updated successfully."
-//         : "⚙️ Test email found but not yet verified.",
-//       data: {
-//         id: testRecord._id,
-//         subject: testRecord.subject,
-//         toEmail: testRecord.toEmail,
-//         sentAt: testRecord.sentAt,
-//         verified: testRecord.verified,
-//         verifiedAt: testRecord.verifiedAt,
-//         status: testRecord.status,
-//         notes: testRecord.notes,
-//       },
-//     });
-//   } catch (err) {
-//     console.error("❌ Error checking forwarding validation:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error while checking forwarding validation.",
-//       error: err.message,
-//     });
-//   }
-// };
 
 export const getValidateEmail = async (req, res) => {
   try {
