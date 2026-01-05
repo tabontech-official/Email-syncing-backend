@@ -31,6 +31,7 @@ import {
   verifyLogin,
   verifyUser,
 } from '../controller/auth.js';
+import { cpUpload } from '../middleware/cloudinary.js';
 
 const authRouter = express.Router();
 
@@ -50,32 +51,34 @@ authRouter.get('/google', googleAuth);
 authRouter.get('/google/callback', googleAuthCallback);
 authRouter.put('/setup/:id', completeSetup);
 authRouter.get('/setup/:id', getSetupProgress);
-authRouter.get("/outlook", startOutlookOAuth);
-authRouter.get("/outlook/callback", outlookOAuthCallback);
-authRouter.put("/updateUserAndOrganization/:id", updateUserAndOrganization);
-authRouter.post("/skip-all/:userId", skipAllSteps);
-authRouter.post("/forgot-password", forgotPassword);
-authRouter.post("/set-password", setPassword)
-authRouter.post("/request-login", requestLogin)
-authRouter.post("/verify-login/:token", verifyLogin);  
-authRouter.patch("/user/ai", updateAiStatus);
+authRouter.get('/outlook', startOutlookOAuth);
+authRouter.get('/outlook/callback', outlookOAuthCallback);
+authRouter.put(
+  '/updateUserAndOrganization/:id',
+  cpUpload,
+  updateUserAndOrganization
+);
+authRouter.post('/skip-all/:userId', skipAllSteps);
+authRouter.post('/forgot-password', forgotPassword);
+authRouter.post('/set-password', setPassword);
+authRouter.post('/request-login', requestLogin);
+authRouter.post('/verify-login/:token', verifyLogin); // Step 1
+authRouter.patch('/user/ai', updateAiStatus);
 
 authRouter.get('/guide/:userId', getGuideStatus);
-authRouter.post('/guide/:userId', updateGuideStatus)
+authRouter.post('/guide/:userId', updateGuideStatus);
 // authRouter.get('/sync-emails', getEmail);
 // authRouter.post('/pubsub', EmailWebhook);
 authRouter.get('/getConnection/:userId', getConnections);
 // authRouter.post('/addPlatform', savePlatformForUser);
 
-
 // Admin Routes ///
-authRouter.get("/template-usage",getTemplateUsageForAdmin)
+authRouter.get('/template-usage', getTemplateUsageForAdmin);
 
-authRouter.get("/summary",getSummaryForAdmin)
-authRouter.get("/users", getAllUsers);
-authRouter.get("/connections", getAllConnections);
-authRouter.get("/user-activity", getUserActivity);
-authRouter.get("/email-tracking", getEmailTrackingForAdmin);
-
+authRouter.get('/summary', getSummaryForAdmin);
+authRouter.get('/users', getAllUsers);
+authRouter.get('/connections', getAllConnections);
+authRouter.get('/user-activity', getUserActivity);
+authRouter.get('/email-tracking', getEmailTrackingForAdmin);
 
 export default authRouter;

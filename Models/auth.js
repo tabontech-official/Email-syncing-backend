@@ -72,6 +72,10 @@ const authSchema = new mongoose.Schema(
     stripeCustomerId: {
       type: String,
     },
+    profileImage: {
+      type: String,
+      default: '',
+    },
 
     subscription: {
       id: { type: String },

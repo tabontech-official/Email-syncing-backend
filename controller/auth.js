@@ -60,7 +60,7 @@ const welcomeEmailTemplate = (user) => `
       </h2>
 
       <p style="color:#374151;font-size:15px">
-        Hi <strong>${user.name || "there"}</strong>,
+        Hi <strong>${user.name || 'there'}</strong>,
       </p>
 
       <p style="color:#374151;font-size:15px">
@@ -110,7 +110,6 @@ const welcomeEmailTemplate = (user) => `
     </div>
   </div>
 `;
-
 
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
@@ -296,11 +295,11 @@ export const signUp = async (req, res) => {
     };
 
     await scenarioModel.create(defaultScenario);
-await welComeEmail({
-  to: savedUser.email,
-  subject: "Welcome to Replex Engine 🚀",
-  html: welcomeEmailTemplate(savedUser),
-});
+    await welComeEmail({
+      to: savedUser.email,
+      subject: 'Welcome to Replex Engine 🚀',
+      html: welcomeEmailTemplate(savedUser),
+    });
 
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
@@ -313,35 +312,6 @@ await welComeEmail({
     return res.status(400).json({ error: error.message });
   }
 };
-
-// export const signIn = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     const emailExist = await authModel.findOne({
-//       email: email,
-//     });
-
-//     if (!emailExist) {
-//       throw new Error('User does not exist with this email');
-//     }
-
-//     const isMatch = await emailExist.comparePassword(password);
-//     if (!isMatch) {
-//       throw new Error('Password does not match');
-//     }
-
-//     const token = createToken({ _id: emailExist._id, role: emailExist.role });
-
-//     res.send({
-//       message: 'Successfully logged in',
-//       token,
-//       data: emailExist,
-//     });
-//   } catch (error) {
-//     return res.status(400).json({ error: error.message });
-//   }
-// };
 
 export const signIn = async (req, res) => {
   try {
@@ -380,15 +350,61 @@ export const signIn = async (req, res) => {
   }
 };
 
+// export const getUserById = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const user = await authModel.findById(id);
+//     if (!user) {
+//       return res.status(404).json({ error: 'User not found' });
+//     }
+
+//     const latestEmail = await EmailModel.findOne({
+//       userId: id,
+//       verificationUrl: { $ne: null },
+//     })
+//       .sort({ createdAt: -1 })
+//       .lean();
+
+//     const organization = await OrganizationModel.findOne({ userId: id }).lean();
+
+//     res.status(200).json({
+//       message: 'User fetched successfully',
+//       data: {
+//         ...user.toObject(),
+//         verificationUrl: latestEmail?.verificationUrl || null,
+//         verificationCode: latestEmail?.verificationCode || null,
+//         organization: organization
+//           ? {
+//               organizationName: organization.organizationName,
+//               Region: organization.Region,
+//               country: organization.country,
+//               TimeZone: organization.TimeZone,
+//               PartnerLink: organization.PartnerLink,
+//               createdAt: organization.createdAt,
+//               updatedAt: organization.updatedAt,
+//               _id: organization._id,
+//             }
+//           : null,
+//       },
+//     });
+//   } catch (error) {
+//     console.error('Error fetching user:', error);
+//     res.status(500).json({ error: 'Internal Server Error' });
+//   }
+// };
+
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const user = await authModel.findById(id);
+    // ---------------- USER ----------------
+    const user = await authModel.findById(id).lean();
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: "User not found" });
     }
 
+    // ---------------- LATEST VERIFICATION EMAIL ----------------
     const latestEmail = await EmailModel.findOne({
       userId: id,
       verificationUrl: { $ne: null },
@@ -396,100 +412,144 @@ export const getUserById = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // ---------------- ORGANIZATION (FULL DATA) ----------------
     const organization = await OrganizationModel.findOne({ userId: id }).lean();
 
     res.status(200).json({
-      message: 'User fetched successfully',
+      message: "User fetched successfully",
       data: {
-        ...user.toObject(),
+        ...user, // 🔥 full user (including profileImage, Ai, subscription, etc.)
+
         verificationUrl: latestEmail?.verificationUrl || null,
         verificationCode: latestEmail?.verificationCode || null,
-        organization: organization
-          ? {
-              organizationName: organization.organizationName,
-              Region: organization.Region,
-              country: organization.country,
-              TimeZone: organization.TimeZone,
-              PartnerLink: organization.PartnerLink,
-              createdAt: organization.createdAt,
-              updatedAt: organization.updatedAt,
-              _id: organization._id,
-            }
-          : null,
+
+        organization: organization || null, // 🔥 FULL organization
       },
     });
   } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error("❌ Error fetching user:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 
 export const updateUserAndOrganization = async (req, res) => {
   try {
     const { id } = req.params;
+
     const {
+      // ---------- USER ----------
       fullName,
       email,
       role,
       TimeZone,
+
+      // ---------- ORGANIZATION ----------
       organizationName,
       Region,
       country,
       PartnerLink,
+      website,
+      address,
+      phone,
+      whatsapp,
+      hourlyRate,
+      experienceYears,
+      services,
     } = req.body;
 
+    // ---------------- USER ----------------
     const user = await authModel.findById(id);
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: 'User not found' });
+        .json({ success: false, message: "User not found" });
     }
 
-    if (fullName) user.fullName = fullName;
-    if (email) user.email = email;
-    if (role) user.role = role;
-    if (TimeZone) user.TimeZone = TimeZone;
+    if (fullName !== undefined) user.fullName = fullName;
+    if (email !== undefined) user.email = email;
+    if (role !== undefined) user.role = role;
+    if (TimeZone !== undefined) user.TimeZone = TimeZone;
+
+    // 🔥 PROFILE IMAGE (Cloudinary via cpUpload)
+    let imageUpdated = false;
+
+    if (req.files?.image?.length) {
+      user.profileImage = req.files.image[0].path; // Cloudinary URL
+      imageUpdated = true;
+    } else if (req.files?.images?.length) {
+      user.profileImage = req.files.images[0].path;
+      imageUpdated = true;
+    }
 
     await user.save();
 
+    // ---------------- ORGANIZATION ----------------
     let organization = await OrganizationModel.findOne({ userId: id });
 
     if (organization) {
-      if (organizationName) organization.organizationName = organizationName;
-      if (Region) organization.Region = Region;
-      if (country) organization.country = country;
-      if (TimeZone) organization.TimeZone = TimeZone;
-      if (PartnerLink) organization.PartnerLink = PartnerLink;
+      if (organizationName !== undefined)
+        organization.organizationName = organizationName;
+      if (Region !== undefined) organization.Region = Region;
+      if (country !== undefined) organization.country = country;
+      if (TimeZone !== undefined) organization.TimeZone = TimeZone;
+      if (PartnerLink !== undefined) organization.PartnerLink = PartnerLink;
+
+      // 🔥 NEWLY ADDED FIELDS
+      if (website !== undefined) organization.website = website;
+      if (address !== undefined) organization.address = address;
+      if (phone !== undefined) organization.phone = phone;
+      if (whatsapp !== undefined) organization.whatsapp = whatsapp;
+
+      if (hourlyRate !== undefined)
+        organization.hourlyRate = Number(hourlyRate);
+      if (experienceYears !== undefined)
+        organization.experienceYears = Number(experienceYears);
+      if (services !== undefined) organization.services = services;
 
       await organization.save();
     } else {
       organization = await OrganizationModel.create({
         userId: id,
         organizationName:
-          organizationName || user.organizationName || 'My Organization',
-        Region: Region || 'US',
-        country: country || 'USA',
-        TimeZone: TimeZone || 'UTC',
-        PartnerLink: PartnerLink || '',
+          organizationName || user.organizationName || "My Organization",
+        Region: Region || "US",
+        country: country || "USA",
+        TimeZone: TimeZone || "UTC",
+        PartnerLink: PartnerLink || "",
+
+        // 🔥 NEW FIELDS
+        website: website || "",
+        address: address || "",
+        phone: phone || "",
+        whatsapp: whatsapp || "",
+
+        hourlyRate: Number(hourlyRate) || 0,
+        experienceYears: Number(experienceYears) || 0,
+        services: services || "",
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'User and Organization updated successfully',
+      message: imageUpdated
+        ? "Profile & image updated successfully"
+        : "User and Organization updated successfully",
+      imageUpdated,
       data: {
         user,
         organization,
       },
     });
   } catch (error) {
-    console.error('❌ Error updating user and organization:', error);
+    console.error("❌ Error updating user and organization:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal Server Error',
+      message: "Internal Server Error",
     });
   }
 };
+
 
 export const verifyUser = async (req, res) => {
   try {
@@ -747,7 +807,7 @@ export const getGuideStatus = async (req, res) => {
     const user = await authModel.findById(userId);
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const sidebar = user.guideStatus?.sidebar?.completed
@@ -763,8 +823,6 @@ export const getGuideStatus = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
 
 export const updateGuideStatus = async (req, res) => {
   try {
@@ -2134,15 +2192,14 @@ export const getTemplateUsageForAdmin = async (req, res) => {
   }
 };
 
-
 export const updateAiStatus = async (req, res) => {
   try {
     const { userId, enabled } = req.body;
 
-    if (!userId || typeof enabled !== "boolean") {
+    if (!userId || typeof enabled !== 'boolean') {
       return res.status(400).json({
         success: false,
-        message: "userId and enabled(boolean) are required",
+        message: 'userId and enabled(boolean) are required',
       });
     }
 
@@ -2150,14 +2207,14 @@ export const updateAiStatus = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
-    if (user.subscription?.plan !== "pro") {
+    if (user.subscription?.plan !== 'pro') {
       return res.status(403).json({
         success: false,
-        message: "AI is available only on Pro plan",
+        message: 'AI is available only on Pro plan',
       });
     }
 
@@ -2166,14 +2223,14 @@ export const updateAiStatus = async (req, res) => {
 
     return res.json({
       success: true,
-      message: `AI ${enabled ? "enabled" : "disabled"} successfully`,
+      message: `AI ${enabled ? 'enabled' : 'disabled'} successfully`,
       Ai: user.Ai,
     });
   } catch (error) {
-    console.error("❌ updateAiStatus error:", error);
+    console.error('❌ updateAiStatus error:', error);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: 'Server error',
     });
   }
 };

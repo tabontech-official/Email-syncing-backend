@@ -19,7 +19,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const generateGeminiReply = async ({ from, subject, body }) => {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
   const prompt = `
 You are a professional business email assistant.
@@ -27,8 +27,8 @@ You are a professional business email assistant.
 Write a polite, helpful, and clear email reply.
 
 Incoming Email:
-From: ${from}
-Subject: ${subject}
+F
+Subjectrom: ${from}: ${subject}
 Message:
 ${body}
 
@@ -1946,60 +1946,90 @@ If you receive this email, your mail forwarding is active and functioning.
 };
 
 export const getValidateEmail = async (req, res) => {
+  console.log('================= VALIDATE EMAIL API START =================');
+
   try {
     const { userId } = req.params;
     const { cardId } = req.query;
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Invalid user ID.' });
+    console.log('➡️ Incoming Params:', { userId });
+    console.log('➡️ Incoming Query:', { cardId });
+
+    // --------------------------------------------------
+    // 1️⃣ Validate userId
+    // --------------------------------------------------
+    const isValidUserId = mongoose.Types.ObjectId.isValid(userId);
+    console.log('🧪 userId valid:', isValidUserId);
+
+    if (!isValidUserId) {
+      console.log('❌ Invalid userId provided');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID.',
+      });
     }
 
+    // --------------------------------------------------
+    // 2️⃣ Find validation test record
+    // --------------------------------------------------
     const testSubject = 'Zenith Forwarding Validation Test';
+    console.log('🔍 Searching validation record with subject:', testSubject);
 
-    // 🟡 Get latest test email for verification
     const testRecord = await validationModel
       .findOne({ userId, subject: testSubject })
       .sort({ createdAt: -1 })
       .lean();
 
+    console.log('📨 Validation record result:', testRecord);
+
     if (!testRecord) {
+      console.log('⚠️ No validation email found yet');
       return res.status(404).json({
         success: false,
         message: 'Test forwarding email not yet received or verified.',
       });
     }
 
-    // 🟢 Only proceed if the test is verified
+    // --------------------------------------------------
+    // 3️⃣ Check verification status
+    // --------------------------------------------------
+    console.log('✅ Validation verified status:', testRecord.verified);
+
     if (testRecord.verified) {
+      console.log('🟢 Validation PASSED, continuing...');
+
+      // --------------------------------------------------
+      // 4️⃣ Fetch user
+      // --------------------------------------------------
       const user = await authModel.findById(userId).select('mailhook');
+      console.log('👤 User fetched:', user);
+
       if (!user) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'User not found' });
+        console.log('❌ User not found in DB');
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+        });
       }
 
-      // 🧠 Check if that email already exists for this user (avoid duplicates)
+      // --------------------------------------------------
+      // 5️⃣ Check existing mailhook
+      // --------------------------------------------------
       const existing = await mailhookModel.findOne({
         userId,
         forwardingEmail: testRecord.toEmail,
       });
 
-      // If found and not the same cardId → block creation or update
-      // if (existing && existing._id.toString() !== cardId) {
-      //   console.log(
-      //     `⚠️ Duplicate forwarding attempt for ${testRecord.toEmail}, blocked.`
-      //   );
-      //   return res.status(400).json({
-      //     success: false,
-      //     message: `⚠️ Forwarding is already set up for ${testRecord.toEmail}. Please use a different email address.`,
-      //   });
-      // }
+      console.log('📎 Existing mailhook record:', existing);
 
       let updatedMailhook;
 
+      // --------------------------------------------------
+      // 6️⃣ Update existing card (if cardId present)
+      // --------------------------------------------------
       if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
+        console.log('✏️ Updating existing mailhook card:', cardId);
+
         updatedMailhook = await mailhookModel.findByIdAndUpdate(
           cardId,
           {
@@ -2010,16 +2040,23 @@ export const getValidateEmail = async (req, res) => {
           { new: true }
         );
 
+        console.log('✏️ Update result:', updatedMailhook);
+
         if (!updatedMailhook) {
+          console.log('❌ Mailhook card not found for update');
           return res.status(404).json({
             success: false,
             message: 'Mailhook card not found for the given ID.',
           });
         }
+      }
 
-        console.log('✅ Existing Mailhook card updated:', updatedMailhook._id);
-      } else {
-        // 🧩 CASE 2: Create new mailhook only if not exists
+      // --------------------------------------------------
+      // 7️⃣ Create new mailhook (if no cardId)
+      // --------------------------------------------------
+      else {
+        console.log('➕ Creating new mailhook card');
+
         if (!existing) {
           const newMailhook = new mailhookModel({
             userId,
@@ -2030,12 +2067,20 @@ export const getValidateEmail = async (req, res) => {
           });
 
           updatedMailhook = await newMailhook.save();
-          console.log('🆕 New mailhook created:', updatedMailhook._id);
+          console.log('🆕 New mailhook created:', updatedMailhook);
+        } else {
+          console.log('⚠️ Mailhook already exists, skipping creation');
         }
       }
+    } else {
+      console.log('⏳ Validation email found BUT not verified yet');
     }
 
-    // ✅ Final Response
+    // --------------------------------------------------
+    // 8️⃣ Final Response
+    // --------------------------------------------------
+    console.log('📤 Sending final API response');
+
     return res.json({
       success: true,
       message: testRecord.verified
@@ -2053,14 +2098,18 @@ export const getValidateEmail = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('❌ Error checking forwarding validation:', err);
+    console.error('🔥 VALIDATE EMAIL API ERROR:', err);
+
     return res.status(500).json({
       success: false,
       message: 'Server error while checking forwarding validation.',
       error: err.message,
     });
+  } finally {
+    console.log('================= VALIDATE EMAIL API END =================\n');
   }
 };
+
 
 export const getTestEmailData = async (req, res) => {
   try {

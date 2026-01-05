@@ -28,9 +28,9 @@ emailRouter.post(
   (req, res, next) => {
     const type = req.headers["content-type"] || "";
     if (type.includes("multipart/form-data")) {
-      return upload.any()(req, res, next);     // only use multer for multipart
+      return upload.any()(req, res, next);    
     }
-    return express.text({ type: "*/*", limit: "50mb" })(req, res, next); // otherwise use raw text
+    return express.text({ type: "*/*", limit: "50mb" })(req, res, next); 
   },
   mailHookWebhook
 );
