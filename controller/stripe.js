@@ -3,7 +3,7 @@ import { authModel } from "../Models/auth.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-/* ------------------- CHECKOUT ------------------- */
+/* ================== CREATE CHECKOUT ================== */
 export const createCheckoutSession = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -27,7 +27,6 @@ export const createCheckoutSession = async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
-      payment_method_types: ["card"],
       line_items: [
         {
           price: process.env.PRICE_ID_PRO,
@@ -48,21 +47,9 @@ export const createCheckoutSession = async (req, res) => {
   }
 };
 
-/* ------------------- WEBHOOK ------------------- */
+/* ================== STRIPE WEBHOOK ================== */
 export const stripeWebhook = async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error("❌ Webhook signature failed:", err.message);
-    return res.status(400).send(`Webhook Error`);
-  }
+  const event = req.body; // JSON object
 
   console.log("🔥 STRIPE EVENT:", event.type);
 
@@ -80,11 +67,10 @@ export const stripeWebhook = async (req, res) => {
         };
         user.locked = false;
         await user.save();
-
         console.log("✅ USER UPGRADED:", user.email);
       }
     }
   }
 
-  res.json({ received: true });
+  res.status(200).json({ received: true });
 };

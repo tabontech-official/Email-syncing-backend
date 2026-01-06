@@ -31,8 +31,14 @@ Connect();
 
 startDelayWorker()
 financeScheduler.start();
+// ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
+app.use(
+  "/stripe/webhook",
+  express.raw({ type: "application/json" })
+);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
 app.use(morgan('combined'));
 app.use(helmet());
 app.use(compression());
