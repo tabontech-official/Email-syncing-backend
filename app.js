@@ -25,6 +25,7 @@ import { startDelayWorker } from './controller/delayWorker.js';
 import mailhookRouter from './Routes/mailhook.js';
 import { mailhookModel } from './Models/MailhookSchema.js';
 import stripeRouter from './Routes/stripe.js';
+import { stripeWebhook } from './controller/stripe.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -32,9 +33,10 @@ Connect();
 startDelayWorker()
 financeScheduler.start();
 // ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
-app.use(
+app.post(
   "/stripe/webhook",
-  express.raw({ type: "application/json" })
+  express.raw({ type: "application/json" }),
+  stripeWebhook
 );
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));

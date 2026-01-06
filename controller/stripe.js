@@ -1,5 +1,5 @@
-import Stripe from "stripe";
-import { authModel } from "../Models/auth.js";
+import Stripe from 'stripe';
+import { authModel } from '../Models/auth.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -9,7 +9,7 @@ export const createCheckoutSession = async (req, res) => {
     const { userId } = req.params;
 
     const user = await authModel.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     let customerId = user.stripeCustomerId;
 
@@ -25,7 +25,7 @@ export const createCheckoutSession = async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: 'subscription',
       customer: customerId,
       line_items: [
         {
@@ -42,18 +42,17 @@ export const createCheckoutSession = async (req, res) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error('Checkout error:', err);
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ================== STRIPE WEBHOOK ================== */
 export const stripeWebhook = async (req, res) => {
-  const event = req.body; // JSON object
+  const event = req.body;
 
-  console.log("🔥 STRIPE EVENT:", event.type);
+  console.log('🔥 STRIPE EVENT:', event.type);
 
-  if (event.type === "checkout.session.completed") {
+  if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const userId = session.metadata?.userId;
 
@@ -62,12 +61,12 @@ export const stripeWebhook = async (req, res) => {
       if (user) {
         user.subscription = {
           id: session.subscription,
-          status: "active",
-          plan: "pro",
+          status: 'active',
+          plan: 'pro',
         };
         user.locked = false;
         await user.save();
-        console.log("✅ USER UPGRADED:", user.email);
+        console.log('✅ USER UPGRADED:', user.email);
       }
     }
   }
