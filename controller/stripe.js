@@ -45,7 +45,7 @@ export const createCheckoutSession = async (req, res) => {
     console.error('Checkout error:', err);
     res.status(500).json({ message: err.message });
   }
-};
+}
 
 export const stripeWebhook = async (req, res) => {
   const event = req.body;
