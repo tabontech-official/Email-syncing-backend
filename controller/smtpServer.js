@@ -18,28 +18,89 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-export const generateGeminiReply = async ({ from, subject, body }) => {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+// export const generateGeminiReply = async ({ from, subject, body }) => {
+//   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+//   const prompt = `
+// You are a professional business email assistant.
+
+// Write a polite, helpful, and clear email reply.
+
+// Incoming Email:
+// F
+// Subjectrom: ${from}: ${subject}
+// Message:
+// ${body}
+
+// Reply only with the email body. No explanations.
+// `;
+
+//   const result = await model.generateContent(prompt);
+//   const response = result.response.text();
+
+//   return response;
+// };
+
+export const generateGeminiReply = async ({
+  from,
+  subject,
+  body,
+  user,
+}) => {
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+  });
 
   const prompt = `
-You are a professional business email assistant.
+You are a senior business email consultant for a Shopify agency.
 
-Write a polite, helpful, and clear email reply.
+You are replying on behalf of:
+Name: ${user.fullName}
+Company: ${user.organizationName}
+Email: ${user.email}
+Country: ${user.country || 'USA'}
+
+Agency Context:
+- Certified Shopify Experts & Partners
+- Services: Shopify design, development, migration, SEO, marketing
+- Clients worldwide
+- High-ticket, professional clientele
+- Communication must sound 100% human-written and professional
+- No emojis, no AI indicators
+
+Business Rules:
+- Never mention prices unless the client shares a budget
+- If budget is mentioned, slightly stretch it by adding value
+- If no budget, ask for budget range and suggest a call
+- Always be polite, clear, and consultative
+- Medium-length response (not short, not verbose)
 
 Incoming Email:
-F
-Subjectrom: ${from}: ${subject}
+From: ${from}
+Subject: ${subject}
+
 Message:
 ${body}
 
-Reply only with the email body. No explanations.
+Write a complete professional email reply.
+
+End the email with a proper signature using this format:
+
+Best regards,
+${user.fullName}
+Founder | ${user.organizationName}
+
+
+IMPORTANT:
+- Reply ONLY with the email body
+- Do NOT explain anything
+- Do NOT include markdown
 `;
 
   const result = await model.generateContent(prompt);
-  const response = result.response.text();
-
-  return response;
+  return result.response.text().trim();
 };
+
 
 function checkCondition(condition, email) {
   const fieldValue = (email[condition.field] || '').toLowerCase();
