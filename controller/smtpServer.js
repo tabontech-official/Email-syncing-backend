@@ -58,7 +58,7 @@ You are replying on behalf of:
 Name: ${user.fullName}
 Company: ${user.organizationName}
 Email: ${user.email}
-Country: ${user.country || 'USA'}
+Country: ${user.country }
 
 Agency Context:
 - Certified Shopify Experts & Partners

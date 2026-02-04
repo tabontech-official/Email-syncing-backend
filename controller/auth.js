@@ -128,7 +128,7 @@ export const signUp = async (req, res) => {
     const newUser = new authModel(req.body);
     const savedUser = await newUser.save();
 
-    savedUser.mailhook = `${savedUser._id}@mail.brandfer.com`;
+    savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
     await savedUser.save();
 
     // --- Default Templates ---
