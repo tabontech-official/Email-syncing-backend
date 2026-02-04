@@ -371,8 +371,8 @@ export const mailHookWebhook = async (req, res) => {
     console.log('🎯 Final mailhookAddress:', mailhookAddress);
 
     // Check mailhook domain
-    if (!mailhookAddress.endsWith('@mail.brandfer.com')) {
-      console.log('⛔ Ignored — not a @mail.brandfer.com address.');
+    if (!mailhookAddress.endsWith('@mail.replexengine.com')) {
+      console.log('⛔ Ignored — not a @mail.replexengine.com address.');
       console.log('🚫 mailhookAddress:', mailhookAddress);
       console.log('==============================');
       return res.status(200).send('Ignored — not a mailhook email.');
@@ -408,7 +408,7 @@ export const mailHookWebhook = async (req, res) => {
       headerLower.includes('x-forwarded-for') ||
       headerLower.includes('x-forwarded-to') ||
       headerLower.includes('forwarding-noreply@google.com') ||
-      headerLower.includes('@mail.brandfer.com') ||
+      headerLower.includes('@mail.replexengine.com') ||
       headerLower.includes('mail forwarding') ||
       parsed.subject?.toLowerCase().startsWith('fwd:') ||
       parsed.text?.toLowerCase().includes('forwarded message');
