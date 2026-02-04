@@ -301,220 +301,386 @@ function parseKeyValuePairs(text = '') {
   return fields;
 }
 
+// export const mailHookWebhook = async (req, res) => {
+//   try {
+//     console.log('==============================');
+//     console.log('📩 Incoming MailHook Webhook Triggered');
+//     console.log('Headers:', req.headers);
+//     console.log('Body keys:', Object.keys(req.body));
+//     console.log('Envelope:', req.body.envelope);
+//     console.log('Raw "to":', req.body.to);
+//     console.log('Raw "from":', req.body.from);
+//     console.log('Raw "subject":', req.body.subject);
+//     console.log('==============================');
+
+//     const rawEmail = req.body.email || null;
+//     let parsed = {};
+
+//     if (rawEmail) {
+//       console.log('📦 Raw email found — parsing with simpleParser...');
+//       parsed = await simpleParser(rawEmail);
+//     } else {
+//       console.log('⚙️ No raw email — using manual fallback parser...');
+//       parsed = {
+//         from: { value: [{ address: req.body.from, name: req.body.from }] },
+//         to: { value: [{ address: req.body.to, name: req.body.to }] },
+//         subject: req.body.subject,
+//         text: req.body.text,
+//         html: req.body.html,
+//         headers: req.body.headers || '',
+//       };
+//     }
+
+//     // 📜 Parsed summary
+//     console.log('📄 Parsed Email Summary:');
+//     console.log('  FROM:', parsed.from?.value?.[0]);
+//     console.log('  TO:', parsed.to?.value?.[0]);
+//     console.log('  SUBJECT:', parsed.subject);
+//     console.log('  TEXT LENGTH:', parsed.text?.length || 0);
+//     console.log('  HTML LENGTH:', parsed.html?.length || 0);
+//     console.log('----------------------------------------');
+
+//     const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
+//     let mailhookAddress =
+//       req.body.envelope?.to ||
+//       (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
+//       parsed.to?.value?.[0]?.address ||
+//       '';
+
+//     const headersRaw = req.body.headers || '';
+//     console.log('📫 Initial mailhookAddress candidate:', mailhookAddress);
+//     console.log('📋 Raw headers text:', headersRaw?.slice(0, 400), '...');
+
+//     // 🔍 Detect forwarding headers
+//     const forwardedMatch =
+//       headersRaw.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
+//       headersRaw.match(/x-forwarded-for:\s*[^\s]+\s+([^\s>]+)/i) ||
+//       headersRaw.match(/delivered-to:\s*([^\s>]+)/i) ||
+//       headersRaw.match(/original-to:\s*([^\s>]+)/i);
+
+//     if (forwardedMatch && forwardedMatch[1]) {
+//       console.log('📬 Forwarding header found =>', forwardedMatch[1]);
+//       mailhookAddress = forwardedMatch[1];
+//     }
+
+//     if (mailhookAddress.includes('<')) {
+//       mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
+//     }
+
+//     mailhookAddress = mailhookAddress.trim().toLowerCase();
+//     console.log('🎯 Final mailhookAddress:', mailhookAddress);
+
+//     // Check mailhook domain
+//     if (!mailhookAddress.endsWith('@mail.replexengine.com')) {
+//       console.log('⛔ Ignored — not a @mail.replexengine.com address.');
+//       console.log('🚫 mailhookAddress:', mailhookAddress);
+//       console.log('==============================');
+//       return res.status(200).send('Ignored — not a mailhook email.');
+//     }
+
+//     // Find user
+//     const user = await authModel.findOne({ mailhook: mailhookAddress });
+//     if (!user) {
+//       console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
+//       console.log('==============================');
+//       return res.status(200).send('No matching user found for mailhook.');
+//     }
+
+//     console.log('👤 Matched user:', user.email || user._id?.toString());
+
+//     // Forward detection
+//     let isForwarded = false;
+//     let headerString = '';
+
+//     if (parsed.headers && typeof parsed.headers.keys === 'function') {
+//       for (const [key, val] of parsed.headers.entries()) {
+//         headerString += `${key}: ${val}\n`;
+//       }
+//     } else if (typeof parsed.headers === 'string') {
+//       headerString = parsed.headers;
+//     } else if (headersRaw) {
+//       headerString = headersRaw;
+//     }
+
+//     const headerLower = headerString.toLowerCase();
+
+//     isForwarded =
+//       headerLower.includes('x-forwarded-for') ||
+//       headerLower.includes('x-forwarded-to') ||
+//       headerLower.includes('forwarding-noreply@google.com') ||
+//       headerLower.includes('@mail.replexengine.com') ||
+//       headerLower.includes('mail forwarding') ||
+//       parsed.subject?.toLowerCase().startsWith('fwd:') ||
+//       parsed.text?.toLowerCase().includes('forwarded message');
+
+//     console.log('📡 isForwarded?', isForwarded);
+//     console.log('Header sample:', headerString.slice(0, 400), '...');
+
+//     if (!isForwarded) {
+//       console.log('⏭️ Ignored — not a forwarded email.');
+//       console.log('==============================');
+//       return res.status(200).send('Ignored — not a forwarded email.');
+//     }
+
+//     // Validation forwarding test
+//     if (parsed.subject?.includes('Zenith Forwarding Validation Test')) {
+//       console.log('✅ Forwarding validation email detected...');
+//       let originalEmail = senderAddress;
+//       const xForwardedFor = headerLower.match(/x-forwarded-for:\s*([^\s]+)/i);
+//       if (xForwardedFor && xForwardedFor[1].includes('@')) {
+//         originalEmail = xForwardedFor[1].toLowerCase();
+//       }
+
+//       console.log('💡 Original email:', originalEmail);
+
+//       const existing = await validationModel.findOne({ userId: user._id });
+//       if (existing) {
+//         Object.assign(existing, {
+//           toEmail: originalEmail,
+//           subject: parsed.subject,
+//           body: parsed.text || parsed.html,
+//           sentAt: new Date(),
+//           verified: true,
+//           verifiedAt: new Date(),
+//           status: 'verified',
+//           notes: 'Forwarding verified successfully (via mailhook).',
+//         });
+//         await existing.save();
+//         console.log('🔄 Updated existing validation record');
+//       } else {
+//         await validationModel.create({
+//           userId: user._id,
+//           toEmail: originalEmail,
+//           subject: parsed.subject,
+//           body: parsed.text || parsed.html,
+//           sentAt: new Date(),
+//           verified: true,
+//           verifiedAt: new Date(),
+//           status: 'verified',
+//           notes: 'Forwarding verified successfully (via mailhook).',
+//         });
+//         console.log('✅ Created new validation record');
+//       }
+
+//       console.log('==============================');
+//       return res.status(200).send('✅ Forwarding verified successfully.');
+//     }
+
+//     // Forwarded normal email
+//     console.log('📨 Forwarded normal email detected — saving to DB...');
+//     const senderName = parsed.from?.value?.[0]?.name || '';
+//     const { firstName: senderFirstName, lastName: senderLastName } =
+//       splitName(senderName);
+//     const { firstName: recipientFirstName, lastName: recipientLastName } =
+//       splitName(mailhookAddress);
+
+//     const cc = parsed.cc?.value?.map((c) => c.address) || [];
+//     const bcc = parsed.bcc?.value?.map((b) => b.address) || [];
+//     const date = parsed.date || new Date();
+//     const messageId = parsed.messageId || '';
+//     const inReplyTo = parsed.inReplyTo || '';
+//     const references = parsed.references || [];
+//     const attachments =
+//       parsed.attachments?.map((a) => ({
+//         filename: a.filename,
+//         contentType: a.contentType,
+//         size: a.size,
+//       })) || [];
+
+//     console.log('📎 Attachments:', attachments.length);
+
+//     const extraFields = parseKeyValuePairs(parsed.text || '');
+//     const emailDoc = new EmailModel({
+//       userId: user._id,
+//       senderFirstName,
+//       senderLastName,
+//       senderAddress,
+//       recipientFirstName,
+//       recipientLastName,
+//       recipientAddress: mailhookAddress,
+//       subject: parsed.subject,
+//       textBody: parsed.text,
+//       htmlBody: parsed.html,
+//       cc,
+//       bcc,
+//       date,
+//       messageId,
+//       inReplyTo,
+//       references,
+//       attachments,
+//       extraFields,
+//       notes: 'Forwarded email captured (debug mode).',
+//     });
+
+//     await emailDoc.save();
+//     console.log('💾 Email saved with ID:', emailDoc._id);
+
+//     await executeScenarios({
+//       userId: user._id,
+//       from: senderAddress,
+//       subject: parsed.subject,
+//       body: parsed.text || parsed.html || '',
+//       emailId: emailDoc._id.toString(),
+//       parsedEmailObj: parsed,
+//     });
+
+//     console.log('✅ Scenarios executed.');
+//     console.log('==============================');
+//     return res.status(200).send('📥 Forwarded email saved and processed.');
+//   } catch (err) {
+//     console.error('❌ Error processing mailhook:', err);
+//     console.log('==============================');
+//     res.status(500).send('Error processing email');
+//   }
+// };
+
+
 export const mailHookWebhook = async (req, res) => {
   try {
     console.log('==============================');
     console.log('📩 Incoming MailHook Webhook Triggered');
-    console.log('Headers:', req.headers);
-    console.log('Body keys:', Object.keys(req.body));
     console.log('Envelope:', req.body.envelope);
-    console.log('Raw "to":', req.body.to);
-    console.log('Raw "from":', req.body.from);
-    console.log('Raw "subject":', req.body.subject);
+    console.log('Raw to:', req.body.to);
+    console.log('Raw from:', req.body.from);
+    console.log('Subject:', req.body.subject);
     console.log('==============================');
 
-    const rawEmail = req.body.email || null;
+    /* ---------------- PARSE EMAIL ---------------- */
     let parsed = {};
-
-    if (rawEmail) {
-      console.log('📦 Raw email found — parsing with simpleParser...');
-      parsed = await simpleParser(rawEmail);
+    if (req.body.email) {
+      parsed = await simpleParser(req.body.email);
     } else {
-      console.log('⚙️ No raw email — using manual fallback parser...');
       parsed = {
         from: { value: [{ address: req.body.from, name: req.body.from }] },
         to: { value: [{ address: req.body.to, name: req.body.to }] },
         subject: req.body.subject,
-        text: req.body.text,
-        html: req.body.html,
+        text: req.body.text || '',
+        html: req.body.html || '',
         headers: req.body.headers || '',
       };
     }
 
-    // 📜 Parsed summary
-    console.log('📄 Parsed Email Summary:');
-    console.log('  FROM:', parsed.from?.value?.[0]);
-    console.log('  TO:', parsed.to?.value?.[0]);
-    console.log('  SUBJECT:', parsed.subject);
-    console.log('  TEXT LENGTH:', parsed.text?.length || 0);
-    console.log('  HTML LENGTH:', parsed.html?.length || 0);
-    console.log('----------------------------------------');
+    const senderAddress =
+      parsed.from?.value?.[0]?.address?.toLowerCase() || '';
+// 🔥 FIX: normalize envelope (string → object)
+let envelope = req.body.envelope;
 
-    const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
-    let mailhookAddress =
-      req.body.envelope?.to ||
-      (Array.isArray(req.body.to) ? req.body.to[0] : req.body.to) ||
-      parsed.to?.value?.[0]?.address ||
-      '';
+if (typeof envelope === 'string') {
+  try {
+    envelope = JSON.parse(envelope);
+  } catch (e) {
+    console.warn('⚠️ Failed to parse envelope JSON');
+    envelope = null;
+  }
+}
 
-    const headersRaw = req.body.headers || '';
-    console.log('📫 Initial mailhookAddress candidate:', mailhookAddress);
-    console.log('📋 Raw headers text:', headersRaw?.slice(0, 400), '...');
+    /* ---------------- RESOLVE MAILHOOK ADDRESS (🔥 FIXED) ---------------- */
+   let mailhookAddress = '';
 
-    // 🔍 Detect forwarding headers
-    const forwardedMatch =
-      headersRaw.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
-      headersRaw.match(/x-forwarded-for:\s*[^\s]+\s+([^\s>]+)/i) ||
-      headersRaw.match(/delivered-to:\s*([^\s>]+)/i) ||
-      headersRaw.match(/original-to:\s*([^\s>]+)/i);
+// 1️⃣ ENVELOPE (KING)
+if (envelope?.to) {
+  mailhookAddress = Array.isArray(envelope.to)
+    ? envelope.to[0]
+    : envelope.to;
+}
 
-    if (forwardedMatch && forwardedMatch[1]) {
-      console.log('📬 Forwarding header found =>', forwardedMatch[1]);
-      mailhookAddress = forwardedMatch[1];
-    }
+// 2️⃣ HEADERS fallback
+if (!mailhookAddress && req.body.headers) {
+  const match =
+    req.body.headers.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
+    req.body.headers.match(/delivered-to:\s*([^\s>]+)/i) ||
+    req.body.headers.match(/original-to:\s*([^\s>]+)/i);
 
-    if (mailhookAddress.includes('<')) {
-      mailhookAddress = mailhookAddress.split('<')[1].replace('>', '').trim();
-    }
+  if (match?.[1]) mailhookAddress = match[1];
+}
 
-    mailhookAddress = mailhookAddress.trim().toLowerCase();
-    console.log('🎯 Final mailhookAddress:', mailhookAddress);
+// 3️⃣ LAST fallback
+if (!mailhookAddress) {
+  mailhookAddress = parsed.to?.value?.[0]?.address || '';
+}
 
-    // Check mailhook domain
+mailhookAddress = mailhookAddress
+  .replace(/[<>]/g, '')
+  .trim()
+  .toLowerCase();
+
+console.log('🎯 FINAL MAILHOOK ADDRESS:', mailhookAddress);
+
+
+    /* ---------------- VALIDATE MAILHOOK ---------------- */
     if (!mailhookAddress.endsWith('@mail.replexengine.com')) {
-      console.log('⛔ Ignored — not a @mail.replexengine.com address.');
-      console.log('🚫 mailhookAddress:', mailhookAddress);
-      console.log('==============================');
-      return res.status(200).send('Ignored — not a mailhook email.');
+      console.log('⛔ Ignored — not mailhook email');
+      return res.status(200).send('Ignored');
     }
 
-    // Find user
     const user = await authModel.findOne({ mailhook: mailhookAddress });
     if (!user) {
-      console.warn('⚠️ No matching user found for mailhook:', mailhookAddress);
-      console.log('==============================');
-      return res.status(200).send('No matching user found for mailhook.');
+      console.log('⚠️ No user found for mailhook');
+      return res.status(200).send('No user');
     }
 
-    console.log('👤 Matched user:', user.email || user._id?.toString());
+    console.log('👤 Matched user:', user.email);
 
-    // Forward detection
-    let isForwarded = false;
-    let headerString = '';
+    /* ---------------- FORWARD DETECTION ---------------- */
+    const headerText =
+      typeof parsed.headers === 'string'
+        ? parsed.headers.toLowerCase()
+        : '';
 
-    if (parsed.headers && typeof parsed.headers.keys === 'function') {
-      for (const [key, val] of parsed.headers.entries()) {
-        headerString += `${key}: ${val}\n`;
-      }
-    } else if (typeof parsed.headers === 'string') {
-      headerString = parsed.headers;
-    } else if (headersRaw) {
-      headerString = headersRaw;
-    }
-
-    const headerLower = headerString.toLowerCase();
-
-    isForwarded =
-      headerLower.includes('x-forwarded-for') ||
-      headerLower.includes('x-forwarded-to') ||
-      headerLower.includes('forwarding-noreply@google.com') ||
-      headerLower.includes('@mail.replexengine.com') ||
-      headerLower.includes('mail forwarding') ||
+    const isForwarded =
+      headerText.includes('forwarded') ||
       parsed.subject?.toLowerCase().startsWith('fwd:') ||
-      parsed.text?.toLowerCase().includes('forwarded message');
-
-    console.log('📡 isForwarded?', isForwarded);
-    console.log('Header sample:', headerString.slice(0, 400), '...');
+      parsed.text?.toLowerCase().includes('forwarded message') ||
+      !!req.body.envelope;
 
     if (!isForwarded) {
-      console.log('⏭️ Ignored — not a forwarded email.');
-      console.log('==============================');
-      return res.status(200).send('Ignored — not a forwarded email.');
+      console.log('⏭️ Not forwarded — ignored');
+      return res.status(200).send('Ignored');
     }
 
-    // Validation forwarding test
+    /* ---------------- VALIDATION EMAIL ---------------- */
     if (parsed.subject?.includes('Zenith Forwarding Validation Test')) {
-      console.log('✅ Forwarding validation email detected...');
-      let originalEmail = senderAddress;
-      const xForwardedFor = headerLower.match(/x-forwarded-for:\s*([^\s]+)/i);
-      if (xForwardedFor && xForwardedFor[1].includes('@')) {
-        originalEmail = xForwardedFor[1].toLowerCase();
-      }
+      console.log('✅ Forwarding validation detected');
 
-      console.log('💡 Original email:', originalEmail);
-
-      const existing = await validationModel.findOne({ userId: user._id });
-      if (existing) {
-        Object.assign(existing, {
-          toEmail: originalEmail,
-          subject: parsed.subject,
-          body: parsed.text || parsed.html,
-          sentAt: new Date(),
-          verified: true,
-          verifiedAt: new Date(),
-          status: 'verified',
-          notes: 'Forwarding verified successfully (via mailhook).',
-        });
-        await existing.save();
-        console.log('🔄 Updated existing validation record');
-      } else {
-        await validationModel.create({
+      await validationModel.findOneAndUpdate(
+        { userId: user._id },
+        {
           userId: user._id,
-          toEmail: originalEmail,
+          toEmail: senderAddress,
           subject: parsed.subject,
-          body: parsed.text || parsed.html,
-          sentAt: new Date(),
+          body: parsed.text || '',
           verified: true,
           verifiedAt: new Date(),
           status: 'verified',
-          notes: 'Forwarding verified successfully (via mailhook).',
-        });
-        console.log('✅ Created new validation record');
-      }
+        },
+        { upsert: true }
+      );
 
-      console.log('==============================');
-      return res.status(200).send('✅ Forwarding verified successfully.');
+      return res.status(200).send('✅ Forwarding verified');
     }
 
-    // Forwarded normal email
-    console.log('📨 Forwarded normal email detected — saving to DB...');
-    const senderName = parsed.from?.value?.[0]?.name || '';
-    const { firstName: senderFirstName, lastName: senderLastName } =
-      splitName(senderName);
-    const { firstName: recipientFirstName, lastName: recipientLastName } =
-      splitName(mailhookAddress);
-
-    const cc = parsed.cc?.value?.map((c) => c.address) || [];
-    const bcc = parsed.bcc?.value?.map((b) => b.address) || [];
-    const date = parsed.date || new Date();
-    const messageId = parsed.messageId || '';
-    const inReplyTo = parsed.inReplyTo || '';
-    const references = parsed.references || [];
-    const attachments =
-      parsed.attachments?.map((a) => ({
-        filename: a.filename,
-        contentType: a.contentType,
-        size: a.size,
-      })) || [];
-
-    console.log('📎 Attachments:', attachments.length);
-
-    const extraFields = parseKeyValuePairs(parsed.text || '');
-    const emailDoc = new EmailModel({
+    /* ---------------- SAVE EMAIL ---------------- */
+    const emailDoc = await EmailModel.create({
       userId: user._id,
-      senderFirstName,
-      senderLastName,
       senderAddress,
-      recipientFirstName,
-      recipientLastName,
       recipientAddress: mailhookAddress,
       subject: parsed.subject,
       textBody: parsed.text,
       htmlBody: parsed.html,
-      cc,
-      bcc,
-      date,
-      messageId,
-      inReplyTo,
-      references,
-      attachments,
-      extraFields,
-      notes: 'Forwarded email captured (debug mode).',
+      date: parsed.date || new Date(),
+      messageId: parsed.messageId || '',
+      attachments:
+        parsed.attachments?.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          size: a.size,
+        })) || [],
+      notes: 'Forwarded email captured',
     });
 
-    await emailDoc.save();
-    console.log('💾 Email saved with ID:', emailDoc._id);
+    console.log('💾 Email saved:', emailDoc._id);
 
+    /* ---------------- EXECUTE SCENARIOS ---------------- */
     await executeScenarios({
       userId: user._id,
       from: senderAddress,
@@ -524,15 +690,15 @@ export const mailHookWebhook = async (req, res) => {
       parsedEmailObj: parsed,
     });
 
-    console.log('✅ Scenarios executed.');
-    console.log('==============================');
-    return res.status(200).send('📥 Forwarded email saved and processed.');
+    console.log('✅ Scenarios executed');
+    return res.status(200).send('📥 Email processed');
   } catch (err) {
-    console.error('❌ Error processing mailhook:', err);
-    console.log('==============================');
-    res.status(500).send('Error processing email');
+    console.error('❌ Mailhook Error:', err);
+    return res.status(500).send('Server error');
   }
 };
+
+
 
 function fillTemplate(template, fields) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
