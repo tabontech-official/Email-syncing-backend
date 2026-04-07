@@ -1,8 +1,10 @@
 import express from 'express';
 import {
   addSmtpConnection,
+  bulkDeleteUsers,
   completeSetup,
   createOrganization,
+  deleteUser,
   forgotPassword,
   getAllConnections,
   getAllUsers,
@@ -80,5 +82,6 @@ authRouter.get('/users', getAllUsers);
 authRouter.get('/connections', getAllConnections);
 authRouter.get('/user-activity', getUserActivity);
 authRouter.get('/email-tracking', getEmailTrackingForAdmin);
-
+authRouter.delete("/user/:id", deleteUser);
+authRouter.post("/users/bulk-delete", bulkDeleteUsers);
 export default authRouter;

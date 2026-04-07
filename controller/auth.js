@@ -118,16 +118,242 @@ const createToken = (payLoad) => {
   return token;
 };
 
+// export const signUp = async (req, res) => {
+//   try {
+//     const { fullName, email, password, country, website } = req.body;
+
+//     const userExist = await authModel.findOne({ email: req.body.email });
+//     if (userExist) {
+//       throw new Error('User already exists with this email');
+//     }
+
+//     const newUser = new authModel(req.body);
+//     const savedUser = await newUser.save();
+
+//     savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
+//     await savedUser.save();
+
+//     // --- Default Templates ---
+//     const templates = [];
+//     defaultServices.forEach((service) => {
+//       ['Initial Email', 'First Email', 'Second Email'].forEach(
+//         (emailName, idx) => {
+//           templates.push({
+//             userId: savedUser._id,
+//             platform: 'shopify',
+//             service,
+//             name: `${service} - ${emailName}`,
+//             type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
+//             conditions: [],
+//             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
+//             active: true,
+//             locked: service === 'General',
+//           });
+//         }
+//       );
+//     });
+
+//     await TemplateModel.insertMany(templates);
+
+//     // --- Default OTHER Templates ---
+//     const otherTemplates = [];
+
+//     ['Initial Email', 'First Email', 'Second Email', 'Third Email'].forEach(
+//       (emailName, idx) => {
+//         otherTemplates.push({
+//           userId: savedUser._id,
+//           platform: 'other',
+//           service: 'General',
+//           name: `General - ${emailName}`,
+//           type:
+//             idx === 0
+//               ? 'initial'
+//               : idx === 1
+//                 ? 'first'
+//                 : idx === 2
+//                   ? 'second'
+//                   : 'third',
+//           conditions: [],
+//           content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
+//           active: true,
+//           locked: true, // keep locked for default
+//         });
+//       }
+//     );
+
+//     await TemplateModel.insertMany(otherTemplates);
+
+//     const defaultScenario = {
+//       userId: savedUser._id,
+//       name: 'Shopify Scenario',
+//       description: '',
+//       type: 'shopify',
+//       scenarioActive: false,
+//       routerBranches: [
+//         {
+//           id: Date.now(),
+//           hasModule: false,
+//           condition: null,
+//           modules: [
+//             {
+//               id: `${Date.now()}_1`,
+//               app: {
+//                 name: 'Initial Email',
+//                 color: 'bg-red-500',
+//                 icon: 'Gmail',
+//               },
+//               subject: '',
+//               cc: [],
+//               bcc: [],
+//               type: 'Send an Email',
+//               description: 'Send email via Gmail',
+//               connectionId: '',
+//               template: 'Initial Email',
+//               delayValue: 5,
+//               delayUnit: 'seconds',
+//               emailType: 'Gmail',
+//               filter: { conditions: [] },
+//             },
+//             {
+//               id: `${Date.now()}_2`,
+//               app: {
+//                 name: 'Delay',
+//                 color: 'bg-blue-500',
+//                 icon: 'Delay',
+//               },
+//               subject: '',
+//               cc: [],
+//               bcc: [],
+//               type: 'Delay',
+//               description: 'Wait 5 seconds',
+//               connectionId: '',
+//               template: '',
+//               delayValue: 5,
+//               delayUnit: 'seconds',
+//               emailType: 'Delay',
+//               filter: { conditions: [] },
+//             },
+//             {
+//               id: `${Date.now()}_3`,
+//               app: {
+//                 name: 'First Follow-up',
+//                 color: 'bg-red-500',
+//                 icon: 'Gmail',
+//               },
+//               subject: '',
+//               cc: [],
+//               bcc: [],
+//               type: 'Send an Email',
+//               description: 'Send email via Gmail',
+//               connectionId: '',
+//               template: 'First Follow-up',
+//               delayValue: 5,
+//               delayUnit: 'seconds',
+//               emailType: 'Gmail',
+//               filter: { conditions: [] },
+//             },
+//             {
+//               id: `${Date.now()}_4`,
+//               app: {
+//                 name: 'Delay',
+//                 color: 'bg-blue-500',
+//                 icon: 'Delay',
+//               },
+//               subject: '',
+//               cc: [],
+//               bcc: [],
+//               type: 'Delay',
+//               description: 'Wait 5 seconds',
+//               connectionId: '',
+//               template: '',
+//               delayValue: 5,
+//               delayUnit: 'seconds',
+//               emailType: 'Delay',
+//               filter: { conditions: [] },
+//             },
+//             {
+//               id: `${Date.now()}_5`,
+//               app: {
+//                 name: 'Second Follow-up',
+//                 color: 'bg-red-500',
+//                 icon: 'Gmail',
+//               },
+//               subject: '',
+//               cc: [],
+//               bcc: [],
+//               type: 'Send an Email',
+//               description: 'Send email via Gmail',
+//               connectionId: '',
+//               template: 'Second Follow-up',
+//               delayValue: 5,
+//               delayUnit: 'seconds',
+//               emailType: 'Gmail',
+//               filter: { conditions: [] },
+//             },
+//           ],
+//           filter: { conditions: [] },
+//         },
+//       ],
+//     };
+
+//     await scenarioModel.create(defaultScenario);
+//     await welComeEmail({
+//       to: savedUser.email,
+//       subject: 'Welcome to Replex Engine 🚀',
+//       html: welcomeEmailTemplate(savedUser),
+//     });
+
+//     const token = createToken({ _id: savedUser._id, role: savedUser.role });
+
+//     res.send({
+//       message: 'Successfully registered',
+//       token,
+//       data: savedUser,
+//     });
+//   } catch (error) {
+//     return res.status(400).json({ error: error.message });
+//   }
+// };
+
 export const signUp = async (req, res) => {
   try {
-    const userExist = await authModel.findOne({ email: req.body.email });
+    const { fullName, email, password, country, website } = req.body;
+
+    const userExist = await authModel.findOne({ email });
     if (userExist) {
       throw new Error('User already exists with this email');
     }
 
-    const newUser = new authModel(req.body);
-    const savedUser = await newUser.save();
+    // ✅ Controlled + mapped data
+    const newUser = new authModel({
+      fullName,
+      email,
+      password,
+      country,
+      PartnerLink: website || '', // 🔥 mapping fix
+    });
 
+    const savedUser = await newUser.save();
+    await OrganizationModel.create({
+      userId: savedUser._id,
+
+      // basic info
+      organizationName: fullName || 'My Organization',
+      website: website || '',
+      address: '',
+
+      // location
+      country: country || 'Unknown',
+      Region: 'Unknown',
+
+      // contact
+      PartnerLink: website || '',
+      phone: '',
+      whatsapp: '',
+
+      // defaults
+      TimeZone: 'UTC',
+    });
     savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
     await savedUser.save();
 
@@ -174,7 +400,7 @@ export const signUp = async (req, res) => {
           conditions: [],
           content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
           active: true,
-          locked: true, // keep locked for default
+          locked: true,
         });
       }
     );
@@ -200,12 +426,7 @@ export const signUp = async (req, res) => {
                 color: 'bg-red-500',
                 icon: 'Gmail',
               },
-              subject: '',
-              cc: [],
-              bcc: [],
               type: 'Send an Email',
-              description: 'Send email via Gmail',
-              connectionId: '',
               template: 'Initial Email',
               delayValue: 5,
               delayUnit: 'seconds',
@@ -214,18 +435,8 @@ export const signUp = async (req, res) => {
             },
             {
               id: `${Date.now()}_2`,
-              app: {
-                name: 'Delay',
-                color: 'bg-blue-500',
-                icon: 'Delay',
-              },
-              subject: '',
-              cc: [],
-              bcc: [],
+              app: { name: 'Delay', color: 'bg-blue-500', icon: 'Delay' },
               type: 'Delay',
-              description: 'Wait 5 seconds',
-              connectionId: '',
-              template: '',
               delayValue: 5,
               delayUnit: 'seconds',
               emailType: 'Delay',
@@ -238,12 +449,7 @@ export const signUp = async (req, res) => {
                 color: 'bg-red-500',
                 icon: 'Gmail',
               },
-              subject: '',
-              cc: [],
-              bcc: [],
               type: 'Send an Email',
-              description: 'Send email via Gmail',
-              connectionId: '',
               template: 'First Follow-up',
               delayValue: 5,
               delayUnit: 'seconds',
@@ -252,18 +458,8 @@ export const signUp = async (req, res) => {
             },
             {
               id: `${Date.now()}_4`,
-              app: {
-                name: 'Delay',
-                color: 'bg-blue-500',
-                icon: 'Delay',
-              },
-              subject: '',
-              cc: [],
-              bcc: [],
+              app: { name: 'Delay', color: 'bg-blue-500', icon: 'Delay' },
               type: 'Delay',
-              description: 'Wait 5 seconds',
-              connectionId: '',
-              template: '',
               delayValue: 5,
               delayUnit: 'seconds',
               emailType: 'Delay',
@@ -276,12 +472,7 @@ export const signUp = async (req, res) => {
                 color: 'bg-red-500',
                 icon: 'Gmail',
               },
-              subject: '',
-              cc: [],
-              bcc: [],
               type: 'Send an Email',
-              description: 'Send email via Gmail',
-              connectionId: '',
               template: 'Second Follow-up',
               delayValue: 5,
               delayUnit: 'seconds',
@@ -295,9 +486,10 @@ export const signUp = async (req, res) => {
     };
 
     await scenarioModel.create(defaultScenario);
+
     await welComeEmail({
       to: savedUser.email,
-      subject: 'Welcome to Replex Engine 🚀',
+      subject: 'Welcome to Replex Engine ',
       html: welcomeEmailTemplate(savedUser),
     });
 
@@ -398,13 +590,11 @@ export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ---------------- USER ----------------
     const user = await authModel.findById(id).lean();
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    // ---------------- LATEST VERIFICATION EMAIL ----------------
     const latestEmail = await EmailModel.findOne({
       userId: id,
       verificationUrl: { $ne: null },
@@ -412,26 +602,24 @@ export const getUserById = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // ---------------- ORGANIZATION (FULL DATA) ----------------
     const organization = await OrganizationModel.findOne({ userId: id }).lean();
 
     res.status(200).json({
-      message: "User fetched successfully",
+      message: 'User fetched successfully',
       data: {
-        ...user, // 🔥 full user (including profileImage, Ai, subscription, etc.)
+        ...user,
 
         verificationUrl: latestEmail?.verificationUrl || null,
         verificationCode: latestEmail?.verificationCode || null,
 
-        organization: organization || null, // 🔥 FULL organization
+        organization: organization || null,
       },
     });
   } catch (error) {
-    console.error("❌ Error fetching user:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error('❌ Error fetching user:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
-
 
 export const updateUserAndOrganization = async (req, res) => {
   try {
@@ -463,7 +651,7 @@ export const updateUserAndOrganization = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found" });
+        .json({ success: false, message: 'User not found' });
     }
 
     if (fullName !== undefined) user.fullName = fullName;
@@ -512,29 +700,29 @@ export const updateUserAndOrganization = async (req, res) => {
       organization = await OrganizationModel.create({
         userId: id,
         organizationName:
-          organizationName || user.organizationName || "My Organization",
-        Region: Region || "US",
-        country: country || "USA",
-        TimeZone: TimeZone || "UTC",
-        PartnerLink: PartnerLink || "",
+          organizationName || user.organizationName || 'My Organization',
+        Region: Region || 'US',
+        country: country || 'USA',
+        TimeZone: TimeZone || 'UTC',
+        PartnerLink: PartnerLink || '',
 
         // 🔥 NEW FIELDS
-        website: website || "",
-        address: address || "",
-        phone: phone || "",
-        whatsapp: whatsapp || "",
+        website: website || '',
+        address: address || '',
+        phone: phone || '',
+        whatsapp: whatsapp || '',
 
         hourlyRate: Number(hourlyRate) || 0,
         experienceYears: Number(experienceYears) || 0,
-        services: services || "",
+        services: services || '',
       });
     }
 
     res.status(200).json({
       success: true,
       message: imageUpdated
-        ? "Profile & image updated successfully"
-        : "User and Organization updated successfully",
+        ? 'Profile & image updated successfully'
+        : 'User and Organization updated successfully',
       imageUpdated,
       data: {
         user,
@@ -542,14 +730,13 @@ export const updateUserAndOrganization = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error updating user and organization:", error);
+    console.error('❌ Error updating user and organization:', error);
     res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: 'Internal Server Error',
     });
   }
 };
-
 
 export const verifyUser = async (req, res) => {
   try {
@@ -1936,21 +2123,169 @@ export const getUserActivity = async (req, res) => {
   }
 };
 
+// export const getEmailTrackingForAdmin = async (req, res) => {
+//   try {
+//     const { userId, service, type } = req.query; // optional filters
+
+//     const [users, emails, templates] = await Promise.all([
+//       authModel.find({}, 'fullName email').lean(),
+//       EmailModel.find(
+//         { isTestEmail: { $ne: true }, isForwarded: true },
+//         'userId subject textBody htmlBody templateId service stepType parentEmailId createdAt'
+//       ).lean(),
+//       TemplateModel.find({}, 'userId name service type active platform').lean(),
+//     ]);
+
+//     // Filter by user if provided
+//     const filteredUsers = userId
+//       ? users.filter((u) => String(u._id) === String(userId))
+//       : users;
+
+//     const userSummary = filteredUsers.map((user) => {
+//       const userIdStr = String(user._id);
+
+//       // Filter emails/templates for this user
+//       let userEmails = emails.filter((e) => String(e.userId) === userIdStr);
+//       let userTemplates = templates.filter(
+//         (t) => String(t.userId) === userIdStr
+//       );
+
+//       // Apply optional filters
+//       if (service) {
+//         userEmails = userEmails.filter(
+//           (e) => e.service?.toLowerCase() === service.toLowerCase()
+//         );
+//         userTemplates = userTemplates.filter(
+//           (t) => t.service?.toLowerCase() === service.toLowerCase()
+//         );
+//       }
+//       if (type) {
+//         userEmails = userEmails.filter(
+//           (e) => e.stepType?.toLowerCase() === type.toLowerCase()
+//         );
+//         userTemplates = userTemplates.filter(
+//           (t) => t.type?.toLowerCase() === type.toLowerCase()
+//         );
+//       }
+
+//       if (userEmails.length === 0) return null; // skip if no matching emails
+
+//       const templateUsageMap = {};
+//       const emailTemplateMap = [];
+
+//       userEmails.forEach((email) => {
+//         const matchedTemplate =
+//           email.templateId &&
+//           userTemplates.find((t) => String(t._id) === String(email.templateId));
+
+//         const detectedTemplate = matchedTemplate || null;
+//         const detectedPlatform = detectPlatform(email);
+
+//         emailTemplateMap.push({
+//           subject: email.subject || '(No Subject)',
+//           matchedTemplate: detectedTemplate?.name || '—',
+//           serviceDetected:
+//             email.service || detectedTemplate?.service || 'Unknown',
+//           stepType: email.stepType || detectedTemplate?.type || 'initial',
+//           detectedPlatform,
+//           date: email.createdAt,
+//           parentEmailId: email.parentEmailId || null,
+//           htmlBody: email.htmlBody || '',
+//         });
+
+//         if (detectedTemplate) {
+//           const key = String(detectedTemplate._id);
+//           templateUsageMap[key] = (templateUsageMap[key] || 0) + 1;
+//         }
+//       });
+
+//       const templatesByService = {};
+//       userTemplates.forEach((tpl) => {
+//         const usageCount = templateUsageMap[String(tpl._id)] || 0;
+//         if (usageCount > 0) {
+//           if (!templatesByService[tpl.service]) {
+//             templatesByService[tpl.service] = [];
+//           }
+//           templatesByService[tpl.service].push({
+//             name: tpl.name,
+//             type: tpl.type,
+//             active: tpl.active,
+//             platform: tpl.platform,
+//             usageCount,
+//           });
+//         }
+//       });
+
+//       return {
+//         user,
+//         totalEmails: userEmails.length,
+//         activeTemplates: Object.values(templatesByService)
+//           .flat()
+//           .filter((t) => t.active).length,
+//         inactiveTemplates: Object.values(templatesByService)
+//           .flat()
+//           .filter((t) => !t.active).length,
+//         templatesByService,
+//         emailTemplateMap,
+//       };
+//     });
+
+//     const filteredSummary = userSummary.filter(Boolean);
+
+//     res.json({ success: true, data: filteredSummary });
+//   } catch (error) {
+//     console.error('Error in email tracking summary:', error);
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
 export const getEmailTrackingForAdmin = async (req, res) => {
   try {
-    const { userId, service, type } = req.query; // optional filters
+    const { userId, service, type } = req.query;
 
-    // Fetch data in parallel
     const [users, emails, templates] = await Promise.all([
       authModel.find({}, 'fullName email').lean(),
+
+      // ✅ Fetch all emails
       EmailModel.find(
-        { isTestEmail: { $ne: true }, isForwarded: true },
-        'userId subject textBody htmlBody templateId service stepType parentEmailId createdAt'
+        { isTestEmail: { $ne: true } },
+        `
+          userId subject textBody htmlBody templateId 
+          service stepType parentEmailId createdAt 
+          inReplyTo references
+        `
       ).lean(),
-      TemplateModel.find({}, 'userId name service type active platform').lean(),
+
+      TemplateModel.find(
+        {},
+        'userId name service type active platform'
+      ).lean(),
     ]);
 
-    // Filter by user if provided
+    const normalizeId = (id) => (id ? String(id) : null);
+
+    // ✅ STEP 1: Build email map
+    const emailMap = {};
+    emails.forEach((e) => {
+      emailMap[String(e._id)] = {
+        ...e,
+        replies: [],
+      };
+    });
+
+    // ✅ STEP 2: Link replies → parents
+    emails.forEach((email) => {
+      const parentId =
+        normalizeId(email.parentEmailId) ||
+        normalizeId(email.inReplyTo) ||
+        normalizeId(email.references?.[0]);
+
+      if (parentId && emailMap[parentId]) {
+        emailMap[parentId].replies.push(email);
+      }
+    });
+
+    // ✅ Filter users
     const filteredUsers = userId
       ? users.filter((u) => String(u._id) === String(userId))
       : users;
@@ -1958,13 +2293,15 @@ export const getEmailTrackingForAdmin = async (req, res) => {
     const userSummary = filteredUsers.map((user) => {
       const userIdStr = String(user._id);
 
-      // Filter emails/templates for this user
-      let userEmails = emails.filter((e) => String(e.userId) === userIdStr);
+      let userEmails = emails.filter(
+        (e) => String(e.userId) === userIdStr
+      );
+
       let userTemplates = templates.filter(
         (t) => String(t.userId) === userIdStr
       );
 
-      // Apply optional filters
+      // Filters
       if (service) {
         userEmails = userEmails.filter(
           (e) => e.service?.toLowerCase() === service.toLowerCase()
@@ -1973,6 +2310,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
           (t) => t.service?.toLowerCase() === service.toLowerCase()
         );
       }
+
       if (type) {
         userEmails = userEmails.filter(
           (e) => e.stepType?.toLowerCase() === type.toLowerCase()
@@ -1982,44 +2320,74 @@ export const getEmailTrackingForAdmin = async (req, res) => {
         );
       }
 
-      if (userEmails.length === 0) return null; // skip if no matching emails
+      if (userEmails.length === 0) return null;
 
       const templateUsageMap = {};
       const emailTemplateMap = [];
 
-      userEmails.forEach((email) => {
-        const matchedTemplate =
-          email.templateId &&
-          userTemplates.find((t) => String(t._id) === String(email.templateId));
+      // ✅ Faster template lookup
+      const templateMap = {};
+      userTemplates.forEach((t) => {
+        templateMap[String(t._id)] = t;
+      });
 
-        const detectedTemplate = matchedTemplate || null;
+      userEmails.forEach((email) => {
+        const emailWithReplies = emailMap[String(email._id)];
+
+        // 🔥 IMPORTANT: ONLY include emails with replies
+        if (!emailWithReplies || emailWithReplies.replies.length === 0) {
+          return;
+        }
+
+        const detectedTemplate = email.templateId
+          ? templateMap[String(email.templateId)]
+          : null;
+
         const detectedPlatform = detectPlatform(email);
 
         emailTemplateMap.push({
+          id: email._id,
           subject: email.subject || '(No Subject)',
           matchedTemplate: detectedTemplate?.name || '—',
           serviceDetected:
             email.service || detectedTemplate?.service || 'Unknown',
-          stepType: email.stepType || detectedTemplate?.type || 'initial',
+          stepType:
+            email.stepType || detectedTemplate?.type || 'initial',
           detectedPlatform,
           date: email.createdAt,
           parentEmailId: email.parentEmailId || null,
           htmlBody: email.htmlBody || '',
+
+          replies: emailWithReplies.replies.map((r) => ({
+            id: r._id,
+            subject: r.subject || '(No Subject)',
+            htmlBody: r.htmlBody || '',
+            date: r.createdAt,
+            service: r.service || 'Unknown',
+          })),
         });
 
         if (detectedTemplate) {
           const key = String(detectedTemplate._id);
-          templateUsageMap[key] = (templateUsageMap[key] || 0) + 1;
+          templateUsageMap[key] =
+            (templateUsageMap[key] || 0) + 1;
         }
       });
 
+      // ❗ IMPORTANT: if no emails with replies → skip user
+      if (emailTemplateMap.length === 0) return null;
+
       const templatesByService = {};
+
       userTemplates.forEach((tpl) => {
-        const usageCount = templateUsageMap[String(tpl._id)] || 0;
+        const usageCount =
+          templateUsageMap[String(tpl._id)] || 0;
+
         if (usageCount > 0) {
           if (!templatesByService[tpl.service]) {
             templatesByService[tpl.service] = [];
           }
+
           templatesByService[tpl.service].push({
             name: tpl.name,
             type: tpl.type,
@@ -2032,13 +2400,18 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
       return {
         user,
-        totalEmails: userEmails.length,
+
+        // ✅ FIXED: count only emails WITH replies
+        totalEmails: emailTemplateMap.length,
+
         activeTemplates: Object.values(templatesByService)
           .flat()
           .filter((t) => t.active).length,
+
         inactiveTemplates: Object.values(templatesByService)
           .flat()
           .filter((t) => !t.active).length,
+
         templatesByService,
         emailTemplateMap,
       };
@@ -2046,10 +2419,16 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
     const filteredSummary = userSummary.filter(Boolean);
 
-    res.json({ success: true, data: filteredSummary });
+    res.json({
+      success: true,
+      data: filteredSummary,
+    });
   } catch (error) {
     console.error('Error in email tracking summary:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
@@ -2232,5 +2611,31 @@ export const updateAiStatus = async (req, res) => {
       success: false,
       message: 'Server error',
     });
+  }
+};
+
+
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await authModel.findByIdAndDelete(id);
+
+    res.send({ message: "User deleted" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+
+export const bulkDeleteUsers = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    await authModel.deleteMany({ _id: { $in: ids } });
+
+    res.send({ message: "Users deleted" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 };
