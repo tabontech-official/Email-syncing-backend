@@ -17,11 +17,13 @@ import {
   getTemplateUsageForAdmin,
   getUserActivity,
   getUserById,
+  giveProPlan,
   googleAuth,
   googleAuthCallback,
   logout,
   outlookOAuthCallback,
   requestLogin,
+  revokeProPlan,
   setPassword,
   signIn,
   signUp,
@@ -82,6 +84,12 @@ authRouter.get('/users', getAllUsers);
 authRouter.get('/connections', getAllConnections);
 authRouter.get('/user-activity', getUserActivity);
 authRouter.get('/email-tracking', getEmailTrackingForAdmin);
-authRouter.delete("/user/:id", deleteUser);
-authRouter.post("/users/bulk-delete", bulkDeleteUsers);
+authRouter.delete('/user/:id', deleteUser);
+authRouter.post('/users/bulk-delete', bulkDeleteUsers);
+authRouter.put('/admin/give-pro/:id', giveProPlan);
+authRouter.put(
+  '/admin/revoke-pro/:id',
+
+  revokeProPlan
+);
 export default authRouter;

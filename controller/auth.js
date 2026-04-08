@@ -2002,7 +2002,7 @@ export const getAllUsers = async (req, res) => {
     const users = await authModel
       .find({})
       .sort({ createdAt: -1 })
-      .select('fullName email role setup createdAt');
+      .select('fullName email role setup createdAt subscription');
 
     const verifiedMailhooks = await mailhookModel
       .find({ connectionVerified: true })
@@ -2635,6 +2635,98 @@ export const bulkDeleteUsers = async (req, res) => {
     await authModel.deleteMany({ _id: { $in: ids } });
 
     res.send({ message: "Users deleted" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const giveProPlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { durationInDays } = req.body;
+
+    if (!durationInDays || durationInDays <= 0) {
+      return res.status(400).json({ message: "Invalid duration" });
+    }
+
+    const user = await authModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const now = new Date();
+
+    // 🔥 if already has active plan → extend instead of overwrite
+    const currentEnd = user.subscription?.currentPeriodEnd;
+
+    let startDate = now;
+
+    if (currentEnd && currentEnd > now) {
+      startDate = currentEnd; // extend from existing expiry
+    }
+
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + durationInDays);
+
+    user.subscription = {
+      ...user.subscription,
+      plan: "pro",
+      status: "active",
+      currentPeriodStart: now, // 🔥 actual assignment time
+      currentPeriodEnd: endDate,
+    };
+
+    user.Ai = true;
+
+    await user.save();
+
+    res.json({
+      message: "Pro assigned",
+      startDate: now,
+      endDate,
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+
+export const revokeProPlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await authModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // 🔴 Prevent unnecessary updates
+    if (user.subscription?.plan === "free") {
+      return res.status(400).json({
+        message: "User is already on FREE plan",
+      });
+    }
+
+    // 🔥 keep old data (optional but useful)
+    const previousSubscription = { ...user.subscription };
+
+    // ✅ Update only required fields
+    user.subscription.plan = "free";
+    user.subscription.status = "inactive";
+    user.subscription.currentPeriodStart = null;
+    user.subscription.currentPeriodEnd = null;
+
+    // ⚠️ temporary (bad design long term)
+    user.Ai = false;
+
+    await user.save();
+
+    res.json({
+      message: "User downgraded to FREE plan",
+      previousSubscription, // 🔥 useful for debugging/admin logs
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

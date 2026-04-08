@@ -82,10 +82,11 @@ const authSchema = new mongoose.Schema(
       status: { type: String },
       plan: {
         type: String,
-        enum: ['free', 'pro'],
+
         default: 'free',
       },
       currentPeriodEnd: { type: Date },
+      currentPeriodStart: { type: Date },
     },
 
     TimeZone: {
