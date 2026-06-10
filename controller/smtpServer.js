@@ -2150,7 +2150,7 @@ If you receive this email, your mail forwarding is active and functioning.
     });
 
     await transporter.sendMail({
-      from: `"Zenith System" <${process.env.EMAIL_USER}>`,
+      from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
       to: toEmail,
       subject: testSubject,
       text: testBody,
