@@ -2657,13 +2657,12 @@ export const giveProPlan = async (req, res) => {
 
     const now = new Date();
 
-    // 🔥 if already has active plan → extend instead of overwrite
     const currentEnd = user.subscription?.currentPeriodEnd;
 
     let startDate = now;
 
     if (currentEnd && currentEnd > now) {
-      startDate = currentEnd; // extend from existing expiry
+      startDate = currentEnd; 
     }
 
     const endDate = new Date(startDate);
@@ -2673,7 +2672,7 @@ export const giveProPlan = async (req, res) => {
       ...user.subscription,
       plan: "pro",
       status: "active",
-      currentPeriodStart: now, // 🔥 actual assignment time
+      currentPeriodStart: now,
       currentPeriodEnd: endDate,
     };
 
