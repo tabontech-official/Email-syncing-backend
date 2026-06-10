@@ -423,7 +423,7 @@ function parseKeyValuePairs(text = '') {
 //     }
 
 //     // Validation forwarding test
-//     if (parsed.subject?.includes('Replex Forwarding Validation Test')) {
+//     if (parsed.subject?.includes('Replex Engine Forwarding Validation Test')) {
 //       console.log('✅ Forwarding validation email detected...');
 //       let originalEmail = senderAddress;
 //       const xForwardedFor = headerLower.match(/x-forwarded-for:\s*([^\s]+)/i);
@@ -639,7 +639,7 @@ console.log('🎯 FINAL MAILHOOK ADDRESS:', mailhookAddress);
     }
 
     /* ---------------- VALIDATION EMAIL ---------------- */
-    if (parsed.subject?.includes('Replex Forwarding Validation Test')) {
+    if (parsed.subject?.includes('Replex Engine Forwarding Validation Test')) {
       console.log('✅ Forwarding validation detected');
 
       await validationModel.findOneAndUpdate(
@@ -2132,7 +2132,7 @@ export const validateTestEmail = async (req, res) => {
     //   });
     // }
 
-    const testSubject = 'Replex Forwarding Validation Test';
+    const testSubject = 'Replex Engine Forwarding Validation Test';
     const testBody = `Hello,
 
 This is a test email from Replex Engine to confirm that your email forwarding setup is working correctly.
@@ -2150,7 +2150,7 @@ If you receive this email, your mail forwarding is active and functioning.
     });
 
     await transporter.sendMail({
-      from: `"Replex System" <${process.env.EMAIL_USER}>`,
+      from: `"Replex Engine System" <${process.env.EMAIL_USER}>`,
       to: toEmail,
       subject: testSubject,
       text: testBody,
@@ -2198,7 +2198,7 @@ export const getValidateEmail = async (req, res) => {
     // --------------------------------------------------
     // 2️⃣ Find validation test record
     // --------------------------------------------------
-    const testSubject = 'Replex Forwarding Validation Test';
+    const testSubject = 'Replex Engine Forwarding Validation Test';
     console.log('🔍 Searching validation record with subject:', testSubject);
 
     const testRecord = await validationModel
@@ -2360,29 +2360,29 @@ export const getTestEmailData = async (req, res) => {
     console.log('✅ Test data found!');
     console.log('🧾 Test Data ID:', testData._id);
 
-    // Step 2️⃣: Find Replex test email
-    console.log('🔍 Searching Replex validation email...');
-    const ReplexEmail = await EmailModel.findOne({
+    // Step 2️⃣: Find Replex Engine test email
+    console.log('🔍 Searching Replex Engine validation email...');
+    const Replex EngineEmail = await EmailModel.findOne({
       userId,
-      subject: { $regex: 'Replex Forwarding Validation Test', $options: 'i' },
+      subject: { $regex: 'Replex Engine Forwarding Validation Test', $options: 'i' },
       senderAddress: { $regex: process.env.EMAIL_USER, $options: 'i' },
     })
       .sort({ createdAt: -1 })
       .lean();
 
-    if (!ReplexEmail) {
-      console.warn('❌ No Replex validation email found for user:', userId);
+    if (!Replex EngineEmail) {
+      console.warn('❌ No Replex Engine validation email found for user:', userId);
       return res.status(404).json({
         success: false,
-        message: 'No Replex validation email received yet.',
+        message: 'No Replex Engine validation email received yet.',
       });
     }
 
-    console.log('✅ Replex validation email found!');
-    console.log('🆔 Replex Email ID:', ReplexEmail._id);
-    console.log('📨 Replex Subject:', ReplexEmail.subject);
-    console.log('📧 Replex From:', ReplexEmail.senderAddress);
-    console.log('📬 Replex To:', ReplexEmail.recipientAddress);
+    console.log('✅ Replex Engine validation email found!');
+    console.log('🆔 Replex Engine Email ID:', Replex EngineEmail._id);
+    console.log('📨 Replex Engine Subject:', Replex EngineEmail.subject);
+    console.log('📧 Replex Engine From:', Replex EngineEmail.senderAddress);
+    console.log('📬 Replex Engine To:', Replex EngineEmail.recipientAddress);
 
     // Step 3️⃣: Find Gmail confirmation email
     console.log('🔍 Searching Gmail forwarding confirmation email...');
@@ -2410,12 +2410,12 @@ export const getTestEmailData = async (req, res) => {
     console.log('📧 Gmail From:', gmailEmail.senderAddress);
     console.log('📅 Gmail Date:', gmailEmail.date);
 
-    // Step 4️⃣: Extract Gmail address from Replex "From"
-    console.log('🔍 Extracting Gmail address from Replex sender...');
-    const ReplexSender = ReplexEmail.senderAddress?.toLowerCase() || '';
-    const extractedGmail = ReplexSender.match(/<([^>]+)>/)?.[1] || ReplexSender;
+    // Step 4️⃣: Extract Gmail address from Replex Engine "From"
+    console.log('🔍 Extracting Gmail address from Replex Engine sender...');
+    const Replex EngineSender = Replex EngineEmail.senderAddress?.toLowerCase() || '';
+    const extractedGmail = Replex EngineSender.match(/<([^>]+)>/)?.[1] || Replex EngineSender;
 
-    console.log('📤 Extracted Gmail address from Replex:', extractedGmail);
+    console.log('📤 Extracted Gmail address from Replex Engine:', extractedGmail);
 
     const bodyText = gmailEmail.textBody?.toLowerCase() || '';
     console.log('🧾 Checking Gmail email body for match...');
@@ -2433,10 +2433,10 @@ export const getTestEmailData = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Gmail address mismatch between Replex and Gmail verification email.',
+          'Gmail address mismatch between Replex Engine and Gmail verification email.',
         data: {
           testDataId: testData._id,
-          ReplexEmailId: ReplexEmail._id,
+          Replex EngineEmailId: Replex EngineEmail._id,
           gmailEmailId: gmailEmail._id,
           expectedGmail: extractedGmail,
         },
@@ -2450,10 +2450,10 @@ export const getTestEmailData = async (req, res) => {
     return res.json({
       success: true,
       message:
-        'Forwarding verification successful — Gmail and Replex emails match.',
+        'Forwarding verification successful — Gmail and Replex Engine emails match.',
       data: {
         testData,
-        ReplexEmailId: ReplexEmail._id,
+        Replex EngineEmailId: Replex EngineEmail._id,
         gmailEmailId: gmailEmail._id,
         gmailSubject: gmailEmail.subject,
         gmailDate: gmailEmail.date,
