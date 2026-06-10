@@ -17,6 +17,8 @@ import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
 import { welComeEmail } from '../middleware/sendEmail.js';
+import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
+import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 
 export const defaultServices = [
   'General',
@@ -2645,28 +2647,38 @@ export const giveProPlan = async (req, res) => {
     const { id } = req.params;
     const { durationInDays } = req.body;
 
-    if (!durationInDays || durationInDays <= 0) {
-      return res.status(400).json({ message: "Invalid duration" });
+    const duration = Number(durationInDays);
+
+    if (!duration || duration <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid duration",
+      });
     }
 
     const user = await authModel.findById(id);
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     const now = new Date();
 
-    const currentEnd = user.subscription?.currentPeriodEnd;
+    const currentEnd = user.subscription?.currentPeriodEnd
+      ? new Date(user.subscription.currentPeriodEnd)
+      : null;
 
     let startDate = now;
 
     if (currentEnd && currentEnd > now) {
-      startDate = currentEnd; 
+      startDate = currentEnd;
     }
 
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + durationInDays);
+    endDate.setDate(endDate.getDate() + duration);
 
     user.subscription = {
       ...user.subscription,
@@ -2680,13 +2692,51 @@ export const giveProPlan = async (req, res) => {
 
     await user.save();
 
-    res.json({
-      message: "Pro assigned",
-      startDate: now,
+    let emailSent = false;
+
+    if (user.email) {
+      try {
+        await sendProPlanActivatedEmail({
+          to: user.email,
+          name: user.fullName || user.name || "there",
+          durationInDays: duration,
+          startDate,
+          endDate,
+        });
+
+        emailSent = true;
+      } catch (emailError) {
+        console.error("Pro plan activation email failed:", emailError.message);
+      }
+    } else {
+      console.warn("Pro assigned but user email is missing:", user._id);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Pro assigned for ${duration} days`,
+      durationInDays: duration,
+      startDate,
       endDate,
+      expiry: endDate,
+      emailSent,
+      user: {
+        _id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        name: user.name,
+        subscription: user.subscription,
+        Ai: user.Ai,
+      },
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("Give Pro Plan Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Error while assigning Pro plan",
+      error: error.message,
+    });
   }
 };
 
@@ -2698,35 +2748,78 @@ export const revokeProPlan = async (req, res) => {
     const user = await authModel.findById(id);
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
-    // 🔴 Prevent unnecessary updates
     if (user.subscription?.plan === "free") {
       return res.status(400).json({
+        success: false,
         message: "User is already on FREE plan",
       });
     }
 
-    // 🔥 keep old data (optional but useful)
-    const previousSubscription = { ...user.subscription };
+    const previousSubscription = {
+      plan: user.subscription?.plan || "pro",
+      status: user.subscription?.status || null,
+      currentPeriodStart: user.subscription?.currentPeriodStart || null,
+      currentPeriodEnd: user.subscription?.currentPeriodEnd || null,
+    };
 
-    // ✅ Update only required fields
-    user.subscription.plan = "free";
-    user.subscription.status = "inactive";
-    user.subscription.currentPeriodStart = null;
-    user.subscription.currentPeriodEnd = null;
+    user.subscription = {
+      ...user.subscription,
+      plan: "free",
+      status: "inactive",
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+    };
 
-    // ⚠️ temporary (bad design long term)
     user.Ai = false;
 
     await user.save();
 
-    res.json({
+    let emailSent = false;
+
+    if (user.email) {
+      try {
+        await sendProPlanRevokedEmail({
+          to: user.email,
+          name: user.fullName || user.name || "there",
+          previousPlan: previousSubscription.plan || "Pro",
+          previousEndDate: previousSubscription.currentPeriodEnd,
+        });
+
+        emailSent = true;
+      } catch (emailError) {
+        console.error("Pro plan revoke email failed:", emailError.message);
+      }
+    } else {
+      console.warn("Pro revoked but user email is missing:", user._id);
+    }
+
+    return res.status(200).json({
+      success: true,
       message: "User downgraded to FREE plan",
-      previousSubscription, // 🔥 useful for debugging/admin logs
+      emailSent,
+      previousSubscription,
+      user: {
+        _id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        name: user.name,
+        subscription: user.subscription,
+        Ai: user.Ai,
+      },
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("Revoke Pro Plan Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Error while revoking Pro plan",
+      error: error.message,
+    });
   }
 };
