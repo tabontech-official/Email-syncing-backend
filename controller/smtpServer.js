@@ -1576,8 +1576,7 @@ export const RunTestMode = async (req, res) => {
 </div>
 `;
 
-    // ✅ STEP 3: Send test email
-    const transporter = nodemailer.createTransport({
+     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -1586,7 +1585,7 @@ export const RunTestMode = async (req, res) => {
     });
 
     const emailId = `test-${Date.now()}`;
-    const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
+    const fromAddress = `Replex Engine <${process.env.EMAIL_USER}>`;
 
     await transporter.sendMail({
       from: fromAddress,
@@ -1624,7 +1623,7 @@ export const RunTestMode = async (req, res) => {
       emailId,
       parsedEmailObj: {
         from: {
-          value: [{ name: 'Zenith Inbox', address: process.env.EMAIL_USER }],
+          value: [{ name: 'Replex Engine', address: process.env.EMAIL_USER }],
         },
         subject,
         text: textBody,
@@ -1668,7 +1667,7 @@ export const RunCustomTestMode = async (req, res) => {
     }
 
     const mailhook = user.mailhook;
-    const partnerName = user.fullName || 'Zenith Inbox';
+    const partnerName = user.fullName || 'Replex Engine';
 
     let testData = await TestEmailDataModel.findOne({ userId });
 
@@ -1713,7 +1712,7 @@ export const RunCustomTestMode = async (req, res) => {
     });
 
     const emailId = `custom-test-${Date.now()}`;
-    const fromAddress = `Zenith Inbox <${process.env.EMAIL_USER}>`;
+    const fromAddress = `Replex Engine <${process.env.EMAIL_USER}>`;
 
     await transporter.sendMail({
       from: fromAddress,
@@ -1746,7 +1745,7 @@ export const RunCustomTestMode = async (req, res) => {
       emailId,
       parsedEmailObj: {
         from: {
-          value: [{ name: 'Zenith Inbox', address: process.env.EMAIL_USER }],
+          value: [{ name: 'Replex Engine', address: process.env.EMAIL_USER }],
         },
         subject,
         text: textBody,
@@ -2136,11 +2135,11 @@ export const validateTestEmail = async (req, res) => {
     const testSubject = 'Zenith Forwarding Validation Test';
     const testBody = `Hello,
 
-This is a test email from Zenith Inbox to confirm that your email forwarding setup is working correctly.
+This is a test email from Replex Engine to confirm that your email forwarding setup is working correctly.
 
 If you receive this email, your mail forwarding is active and functioning.
 
-— Zenith Inbox Team`;
+— Replex Engine Team`;
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -2525,17 +2524,17 @@ export const sendTestEmail = async (req, res) => {
 
     // 🔹 Email content
     const mailOptions = {
-      from: `"Zenith Inbox" <${process.env.EMAIL_USER}>`,
+      from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
       to: toEmail,
-      subject: 'Zenith Inbox Test Email',
+      subject: 'Replex Engine Test Email',
       text: `Hello,
 
-This is a test email from Zenith Inbox to confirm that your mail forwarding is set up correctly.
+This is a test email from Replex Engine to confirm that your mail forwarding is set up correctly.
 
 If you received this email, forwarding is working fine 
 
 Thank you,
-Zenith Inbox Team`,
+Replex Engine Team`,
     };
 
     // 🔹 Send the
