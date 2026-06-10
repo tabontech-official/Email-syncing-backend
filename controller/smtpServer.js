@@ -2150,7 +2150,7 @@ If you receive this email, your mail forwarding is active and functioning.
     });
 
     await transporter.sendMail({
-      from: `"Replex Engine System" <${process.env.EMAIL_USER}>`,
+      from: `"Zenith System" <${process.env.EMAIL_USER}>`,
       to: toEmail,
       subject: testSubject,
       text: testBody,
@@ -2360,9 +2360,9 @@ export const getTestEmailData = async (req, res) => {
     console.log('✅ Test data found!');
     console.log('🧾 Test Data ID:', testData._id);
 
-    // Step 2️⃣: Find Replex Engine test email
-    console.log('🔍 Searching Replex Engine validation email...');
-    const Replex EngineEmail = await EmailModel.findOne({
+    // Step 2️⃣: Find Zenith test email
+    console.log('🔍 Searching Zenith validation email...');
+    const zenithEmail = await EmailModel.findOne({
       userId,
       subject: { $regex: 'Replex Engine Forwarding Validation Test', $options: 'i' },
       senderAddress: { $regex: process.env.EMAIL_USER, $options: 'i' },
@@ -2370,19 +2370,19 @@ export const getTestEmailData = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    if (!Replex EngineEmail) {
-      console.warn('❌ No Replex Engine validation email found for user:', userId);
+    if (!zenithEmail) {
+      console.warn('❌ No Zenith validation email found for user:', userId);
       return res.status(404).json({
         success: false,
-        message: 'No Replex Engine validation email received yet.',
+        message: 'No Zenith validation email received yet.',
       });
     }
 
-    console.log('✅ Replex Engine validation email found!');
-    console.log('🆔 Replex Engine Email ID:', Replex EngineEmail._id);
-    console.log('📨 Replex Engine Subject:', Replex EngineEmail.subject);
-    console.log('📧 Replex Engine From:', Replex EngineEmail.senderAddress);
-    console.log('📬 Replex Engine To:', Replex EngineEmail.recipientAddress);
+    console.log('✅ Zenith validation email found!');
+    console.log('🆔 Zenith Email ID:', zenithEmail._id);
+    console.log('📨 Zenith Subject:', zenithEmail.subject);
+    console.log('📧 Zenith From:', zenithEmail.senderAddress);
+    console.log('📬 Zenith To:', zenithEmail.recipientAddress);
 
     // Step 3️⃣: Find Gmail confirmation email
     console.log('🔍 Searching Gmail forwarding confirmation email...');
@@ -2410,12 +2410,12 @@ export const getTestEmailData = async (req, res) => {
     console.log('📧 Gmail From:', gmailEmail.senderAddress);
     console.log('📅 Gmail Date:', gmailEmail.date);
 
-    // Step 4️⃣: Extract Gmail address from Replex Engine "From"
-    console.log('🔍 Extracting Gmail address from Replex Engine sender...');
-    const Replex EngineSender = Replex EngineEmail.senderAddress?.toLowerCase() || '';
-    const extractedGmail = Replex EngineSender.match(/<([^>]+)>/)?.[1] || Replex EngineSender;
+    // Step 4️⃣: Extract Gmail address from Zenith "From"
+    console.log('🔍 Extracting Gmail address from Zenith sender...');
+    const zenithSender = zenithEmail.senderAddress?.toLowerCase() || '';
+    const extractedGmail = zenithSender.match(/<([^>]+)>/)?.[1] || zenithSender;
 
-    console.log('📤 Extracted Gmail address from Replex Engine:', extractedGmail);
+    console.log('📤 Extracted Gmail address from Zenith:', extractedGmail);
 
     const bodyText = gmailEmail.textBody?.toLowerCase() || '';
     console.log('🧾 Checking Gmail email body for match...');
@@ -2433,10 +2433,10 @@ export const getTestEmailData = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Gmail address mismatch between Replex Engine and Gmail verification email.',
+          'Gmail address mismatch between Zenith and Gmail verification email.',
         data: {
           testDataId: testData._id,
-          Replex EngineEmailId: Replex EngineEmail._id,
+          zenithEmailId: zenithEmail._id,
           gmailEmailId: gmailEmail._id,
           expectedGmail: extractedGmail,
         },
@@ -2450,10 +2450,10 @@ export const getTestEmailData = async (req, res) => {
     return res.json({
       success: true,
       message:
-        'Forwarding verification successful — Gmail and Replex Engine emails match.',
+        'Forwarding verification successful — Gmail and Zenith emails match.',
       data: {
         testData,
-        Replex EngineEmailId: Replex EngineEmail._id,
+        zenithEmailId: zenithEmail._id,
         gmailEmailId: gmailEmail._id,
         gmailSubject: gmailEmail.subject,
         gmailDate: gmailEmail.date,
