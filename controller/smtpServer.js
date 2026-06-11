@@ -2512,26 +2512,25 @@ export const sendTestEmail = async (req, res) => {
         .json({ success: false, message: 'Missing email or user ID' });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false,
+       const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
     });
 
-    // 🔹 Email content
     const mailOptions = {
-      from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
+      from: process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
       to: toEmail,
-      subject: 'Replex Engine Test Email',
+      subject: "Replex Engine Test Email",
       text: `Hello,
 
 This is a test email from Replex Engine to confirm that your mail forwarding is set up correctly.
 
-If you received this email, forwarding is working fine 
+If you received this email, forwarding is working fine.
 
 Thank you,
 Replex Engine Team`,
