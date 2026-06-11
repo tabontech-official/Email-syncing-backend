@@ -16,7 +16,6 @@ import { scenarioModel } from '../Models/Scenario.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
-import { welComeEmail } from '../middleware/sendEmail.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
 import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 import mongoose from 'mongoose';
@@ -62,11 +61,11 @@ const welcomeEmailTemplate = (user) => `
       </h2>
 
       <p style="color:#374151;font-size:15px">
-        Hi <strong>${user.name || 'there'}</strong>,
+        Hi <strong>${user.fullName || "there"}</strong>,
       </p>
 
       <p style="color:#374151;font-size:15px">
-        Your Replex Engine account has been successfully created.  
+        Your Replex Engine account has been successfully created.
         You’re just a few steps away from automating your inbox.
       </p>
 
@@ -82,8 +81,9 @@ const welcomeEmailTemplate = (user) => `
         font-size:14px;
         color:#111827;
         border:1px dashed #d1d5db;
+        word-break:break-all;
       ">
-        ${user.mailhook}
+        ${user.mailhook || "N/A"}
       </div>
 
       <p style="margin-top:20px;color:#374151;font-size:15px">
@@ -113,209 +113,66 @@ const welcomeEmailTemplate = (user) => `
   </div>
 `;
 
+const welcomeEmailText = (user) => `
+Hi ${user.fullName || "there"},
+
+Your Replex Engine account has been successfully created.
+
+Your unique Mailhook is:
+${user.mailhook || "N/A"}
+
+Use this address to forward your emails and start building automation workflows.
+
+Go to Replex Engine Dashboard:
+https://replexengine.com
+
+— Team Replex Engine
+`;
+
+export const welComeEmail = async ({ to, subject, html, text }) => {
+  if (!to) {
+    throw new Error("Recipient email is required");
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  return transporter.sendMail({
+    from: process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html,
+    text,
+  });
+};
+
+export const sendWelcomeEmail = async ({ to, fullName, mailhook }) => {
+  const user = {
+    fullName,
+    mailhook,
+  };
+
+  return welComeEmail({
+    to,
+    subject: "Welcome to Replex Engine",
+    html: welcomeEmailTemplate(user),
+    text: welcomeEmailText(user),
+  });
+};
+
 const createToken = (payLoad) => {
   const token = jwt.sign({ payLoad }, process.env.SECRET_KEY, {
     expiresIn: '1d',
   });
   return token;
 };
-
-// export const signUp = async (req, res) => {
-//   try {
-//     const { fullName, email, password, country, website } = req.body;
-
-//     const userExist = await authModel.findOne({ email: req.body.email });
-//     if (userExist) {
-//       throw new Error('User already exists with this email');
-//     }
-
-//     const newUser = new authModel(req.body);
-//     const savedUser = await newUser.save();
-
-//     savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
-//     await savedUser.save();
-
-//     // --- Default Templates ---
-//     const templates = [];
-//     defaultServices.forEach((service) => {
-//       ['Initial Email', 'First Email', 'Second Email'].forEach(
-//         (emailName, idx) => {
-//           templates.push({
-//             userId: savedUser._id,
-//             platform: 'shopify',
-//             service,
-//             name: `${service} - ${emailName}`,
-//             type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
-//             conditions: [],
-//             content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
-//             active: true,
-//             locked: service === 'General',
-//           });
-//         }
-//       );
-//     });
-
-//     await TemplateModel.insertMany(templates);
-
-//     // --- Default OTHER Templates ---
-//     const otherTemplates = [];
-
-//     ['Initial Email', 'First Email', 'Second Email', 'Third Email'].forEach(
-//       (emailName, idx) => {
-//         otherTemplates.push({
-//           userId: savedUser._id,
-//           platform: 'other',
-//           service: 'General',
-//           name: `General - ${emailName}`,
-//           type:
-//             idx === 0
-//               ? 'initial'
-//               : idx === 1
-//                 ? 'first'
-//                 : idx === 2
-//                   ? 'second'
-//                   : 'third',
-//           conditions: [],
-//           content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
-//           active: true,
-//           locked: true, // keep locked for default
-//         });
-//       }
-//     );
-
-//     await TemplateModel.insertMany(otherTemplates);
-
-//     const defaultScenario = {
-//       userId: savedUser._id,
-//       name: 'Shopify Scenario',
-//       description: '',
-//       type: 'shopify',
-//       scenarioActive: false,
-//       routerBranches: [
-//         {
-//           id: Date.now(),
-//           hasModule: false,
-//           condition: null,
-//           modules: [
-//             {
-//               id: `${Date.now()}_1`,
-//               app: {
-//                 name: 'Initial Email',
-//                 color: 'bg-red-500',
-//                 icon: 'Gmail',
-//               },
-//               subject: '',
-//               cc: [],
-//               bcc: [],
-//               type: 'Send an Email',
-//               description: 'Send email via Gmail',
-//               connectionId: '',
-//               template: 'Initial Email',
-//               delayValue: 5,
-//               delayUnit: 'seconds',
-//               emailType: 'Gmail',
-//               filter: { conditions: [] },
-//             },
-//             {
-//               id: `${Date.now()}_2`,
-//               app: {
-//                 name: 'Delay',
-//                 color: 'bg-blue-500',
-//                 icon: 'Delay',
-//               },
-//               subject: '',
-//               cc: [],
-//               bcc: [],
-//               type: 'Delay',
-//               description: 'Wait 5 seconds',
-//               connectionId: '',
-//               template: '',
-//               delayValue: 5,
-//               delayUnit: 'seconds',
-//               emailType: 'Delay',
-//               filter: { conditions: [] },
-//             },
-//             {
-//               id: `${Date.now()}_3`,
-//               app: {
-//                 name: 'First Follow-up',
-//                 color: 'bg-red-500',
-//                 icon: 'Gmail',
-//               },
-//               subject: '',
-//               cc: [],
-//               bcc: [],
-//               type: 'Send an Email',
-//               description: 'Send email via Gmail',
-//               connectionId: '',
-//               template: 'First Follow-up',
-//               delayValue: 5,
-//               delayUnit: 'seconds',
-//               emailType: 'Gmail',
-//               filter: { conditions: [] },
-//             },
-//             {
-//               id: `${Date.now()}_4`,
-//               app: {
-//                 name: 'Delay',
-//                 color: 'bg-blue-500',
-//                 icon: 'Delay',
-//               },
-//               subject: '',
-//               cc: [],
-//               bcc: [],
-//               type: 'Delay',
-//               description: 'Wait 5 seconds',
-//               connectionId: '',
-//               template: '',
-//               delayValue: 5,
-//               delayUnit: 'seconds',
-//               emailType: 'Delay',
-//               filter: { conditions: [] },
-//             },
-//             {
-//               id: `${Date.now()}_5`,
-//               app: {
-//                 name: 'Second Follow-up',
-//                 color: 'bg-red-500',
-//                 icon: 'Gmail',
-//               },
-//               subject: '',
-//               cc: [],
-//               bcc: [],
-//               type: 'Send an Email',
-//               description: 'Send email via Gmail',
-//               connectionId: '',
-//               template: 'Second Follow-up',
-//               delayValue: 5,
-//               delayUnit: 'seconds',
-//               emailType: 'Gmail',
-//               filter: { conditions: [] },
-//             },
-//           ],
-//           filter: { conditions: [] },
-//         },
-//       ],
-//     };
-
-//     await scenarioModel.create(defaultScenario);
-//     await welComeEmail({
-//       to: savedUser.email,
-//       subject: 'Welcome to Replex Engine 🚀',
-//       html: welcomeEmailTemplate(savedUser),
-//     });
-
-//     const token = createToken({ _id: savedUser._id, role: savedUser.role });
-
-//     res.send({
-//       message: 'Successfully registered',
-//       token,
-//       data: savedUser,
-//     });
-//   } catch (error) {
-//     return res.status(400).json({ error: error.message });
-//   }
-// };
 
 export const signUp = async (req, res) => {
   try {
@@ -489,12 +346,15 @@ export const signUp = async (req, res) => {
 
     await scenarioModel.create(defaultScenario);
 
-    await welComeEmail({
-      to: savedUser.email,
-      subject: 'Welcome to Replex Engine ',
-      html: welcomeEmailTemplate(savedUser),
-    });
-
+  try {
+  await sendWelcomeEmail({
+    to: savedUser.email,
+    fullName: savedUser.fullName,
+    mailhook: savedUser.mailhook,
+  });
+} catch (emailError) {
+  console.error("Welcome email failed:", emailError.message);
+}
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
