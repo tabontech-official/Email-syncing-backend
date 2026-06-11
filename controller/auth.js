@@ -19,7 +19,7 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { welComeEmail } from '../middleware/sendEmail.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
 import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
-
+import mongoose from 'mongoose';
 export const defaultServices = [
   'General',
   'Troubleshooting',
