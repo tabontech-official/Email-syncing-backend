@@ -2646,6 +2646,7 @@ export const deleteUser = async (req, res) => {
 
     await Promise.all([
       TemplateModel.deleteMany({ userId: id }),
+      ConnectionModel.deleteMany({ userId: id }),
 
     ]);
 
@@ -2848,6 +2849,37 @@ export const revokeProPlan = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error while revoking Pro plan",
+      error: error.message,
+    });
+  }
+};
+
+
+export const deleteConnectionByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        error: "Invalid connection id",
+      });
+    }
+
+    const connection = await ConnectionModel.findById(id);
+
+    if (!connection) {
+      return res.status(404).json({
+        error: "Connection not found",
+      });
+    }
+
+    await ConnectionModel.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      message: "Connection deleted successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
       error: error.message,
     });
   }

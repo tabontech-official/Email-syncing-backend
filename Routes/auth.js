@@ -4,6 +4,7 @@ import {
   bulkDeleteUsers,
   completeSetup,
   createOrganization,
+  deleteConnectionByAdmin,
   deleteUser,
   forgotPassword,
   getAllConnections,
@@ -87,6 +88,7 @@ authRouter.get('/email-tracking', getEmailTrackingForAdmin);
 authRouter.delete('/user/:id', deleteUser);
 authRouter.post('/users/bulk-delete', bulkDeleteUsers);
 authRouter.put('/admin/give-pro/:id', giveProPlan);
+authRouter.delete('/connection/:id ', deleteConnectionByAdmin);
 authRouter.put(
   '/admin/revoke-pro/:id',
 
