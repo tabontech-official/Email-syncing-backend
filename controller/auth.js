@@ -2555,14 +2555,14 @@ export const getTemplateUsageForAdmin = async (req, res) => {
       totalUsedTemplates: Object.keys(globalUsageMap).length,
       mostUsedTemplate: mostUsedTemplate
         ? {
-            name: mostUsedTemplate.name,
-            service: mostUsedTemplate.service,
-            type: mostUsedTemplate.type,
-            usageCount: maxUsage,
-            usagePercentage: totalEmails
-              ? ((maxUsage / totalEmails) * 100).toFixed(2)
-              : 0,
-          }
+          name: mostUsedTemplate.name,
+          service: mostUsedTemplate.service,
+          type: mostUsedTemplate.type,
+          usageCount: maxUsage,
+          usagePercentage: totalEmails
+            ? ((maxUsage / totalEmails) * 100).toFixed(2)
+            : 0,
+        }
         : null,
     };
 
@@ -2617,18 +2617,47 @@ export const updateAiStatus = async (req, res) => {
 };
 
 
+// export const deleteUser = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     await authModel.findByIdAndDelete(id);
+
+//     res.send({ message: "User deleted" });
+//   } catch (error) {
+//     res.status(400).json({ error: error.message });
+//   }
+// };
+
+
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid user id" });
+    }
+
+    const user = await authModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    await Promise.all([
+      TemplateModel.deleteMany({ userId: id }),
+
+    ]);
+
     await authModel.findByIdAndDelete(id);
 
-    res.send({ message: "User deleted" });
+    res.status(200).json({
+      message: "User and related data deleted successfully",
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
-
 
 export const bulkDeleteUsers = async (req, res) => {
   try {
