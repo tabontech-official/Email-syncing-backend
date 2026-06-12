@@ -35,6 +35,7 @@ import {
   updateUserAndOrganization,
   verifyLogin,
   verifyUser,
+  updateConnectionById,
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
 
@@ -89,6 +90,7 @@ authRouter.delete('/user/:id', deleteUser);
 authRouter.post('/users/bulk-delete', bulkDeleteUsers);
 authRouter.put('/admin/give-pro/:id', giveProPlan);
 authRouter.delete('/connection/:id ', deleteConnectionByAdmin);
+authRouter.put('/connection/:id', updateConnectionById);
 authRouter.put(
   '/admin/revoke-pro/:id',
 

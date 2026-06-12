@@ -58,7 +58,7 @@ You are replying on behalf of:
 Name: ${user.fullName}
 Company: ${user.organizationName}
 Email: ${user.email}
-Country: ${user.country }
+Country: ${user.country}
 
 Agency Context:
 - Certified Shopify Experts & Partners
@@ -216,10 +216,9 @@ export const startSMTPServer = () => {
 
           await emailDoc.save();
           console.log(
-            `Email saved to DB with ID: ${emailDoc._id} ${
-              matchedTemplate
-                ? `(linked to template: ${matchedTemplate._id})`
-                : '(no template matched)'
+            `Email saved to DB with ID: ${emailDoc._id} ${matchedTemplate
+              ? `(linked to template: ${matchedTemplate._id})`
+              : '(no template matched)'
             }`
           );
 
@@ -258,10 +257,10 @@ export const getEmails = async (req, res) => {
       status: e.status,
       template: e.templateId
         ? {
-            id: e.templateId._id,
-            service: e.templateId.service,
-            platform: e.templateId.platform,
-          }
+          id: e.templateId._id,
+          service: e.templateId.service,
+          platform: e.templateId.platform,
+        }
         : null,
     }));
 
@@ -535,6 +534,82 @@ function parseKeyValuePairs(text = '') {
 // };
 
 
+const isValidConnectionId = (connectionId) => {
+  const value = (connectionId || '').toString().trim();
+
+  return (
+    value &&
+    value !== 'null' &&
+    value !== 'undefined' &&
+    value !== '(empty)'
+  );
+};
+
+const getModuleSearchText = (module = {}) => {
+  return [
+    module.type,
+    module.app?.name,
+    module.app?.displayName,
+    module.emailType,
+    module.template,
+    module.title,
+    module.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const isEmailModule = (module = {}) => {
+  const text = getModuleSearchText(module);
+
+  return (
+    text.includes('email') ||
+    text.includes('gmail') ||
+    text.includes('smtp') ||
+    text.includes('outlook') ||
+    text.includes('follow') ||
+    text.includes('initial')
+  );
+};
+
+const isDelayModule = (module = {}) => {
+  const text = getModuleSearchText(module);
+  return text.includes('delay');
+};
+
+const normalizeModuleType = (module = {}) => {
+  if (isDelayModule(module)) {
+    return {
+      ...module,
+      type: 'Delay',
+    };
+  }
+
+  if (isEmailModule(module)) {
+    return {
+      ...module,
+      type: module.emailType === 'Email' ? 'Custom Email' : 'Send an Email',
+    };
+  }
+
+  return module;
+};
+
+const moduleDebug = (module = {}) => ({
+  id: module.id || module._id,
+  type: module.type,
+  appName: module.app?.name,
+  displayName: module.app?.displayName,
+  emailType: module.emailType,
+  template: module.template,
+  connectionId: module.connectionId,
+  isEmailModule: isEmailModule(module),
+  isDelayModule: isDelayModule(module),
+  hasConnection: isValidConnectionId(module.connectionId),
+});
+
+
 export const mailHookWebhook = async (req, res) => {
   try {
     console.log('==============================');
@@ -562,49 +637,49 @@ export const mailHookWebhook = async (req, res) => {
 
     const senderAddress =
       parsed.from?.value?.[0]?.address?.toLowerCase() || '';
-// 🔥 FIX: normalize envelope (string → object)
-let envelope = req.body.envelope;
+    // 🔥 FIX: normalize envelope (string → object)
+    let envelope = req.body.envelope;
 
-if (typeof envelope === 'string') {
-  try {
-    envelope = JSON.parse(envelope);
-  } catch (e) {
-    console.warn('⚠️ Failed to parse envelope JSON');
-    envelope = null;
-  }
-}
+    if (typeof envelope === 'string') {
+      try {
+        envelope = JSON.parse(envelope);
+      } catch (e) {
+        console.warn('⚠️ Failed to parse envelope JSON');
+        envelope = null;
+      }
+    }
 
     /* ---------------- RESOLVE MAILHOOK ADDRESS (🔥 FIXED) ---------------- */
-   let mailhookAddress = '';
+    let mailhookAddress = '';
 
-// 1️⃣ ENVELOPE (KING)
-if (envelope?.to) {
-  mailhookAddress = Array.isArray(envelope.to)
-    ? envelope.to[0]
-    : envelope.to;
-}
+    // 1️⃣ ENVELOPE (KING)
+    if (envelope?.to) {
+      mailhookAddress = Array.isArray(envelope.to)
+        ? envelope.to[0]
+        : envelope.to;
+    }
 
-// 2️⃣ HEADERS fallback
-if (!mailhookAddress && req.body.headers) {
-  const match =
-    req.body.headers.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
-    req.body.headers.match(/delivered-to:\s*([^\s>]+)/i) ||
-    req.body.headers.match(/original-to:\s*([^\s>]+)/i);
+    // 2️⃣ HEADERS fallback
+    if (!mailhookAddress && req.body.headers) {
+      const match =
+        req.body.headers.match(/x-forwarded-to:\s*([^\s>]+)/i) ||
+        req.body.headers.match(/delivered-to:\s*([^\s>]+)/i) ||
+        req.body.headers.match(/original-to:\s*([^\s>]+)/i);
 
-  if (match?.[1]) mailhookAddress = match[1];
-}
+      if (match?.[1]) mailhookAddress = match[1];
+    }
 
-// 3️⃣ LAST fallback
-if (!mailhookAddress) {
-  mailhookAddress = parsed.to?.value?.[0]?.address || '';
-}
+    // 3️⃣ LAST fallback
+    if (!mailhookAddress) {
+      mailhookAddress = parsed.to?.value?.[0]?.address || '';
+    }
 
-mailhookAddress = mailhookAddress
-  .replace(/[<>]/g, '')
-  .trim()
-  .toLowerCase();
+    mailhookAddress = mailhookAddress
+      .replace(/[<>]/g, '')
+      .trim()
+      .toLowerCase();
 
-console.log('🎯 FINAL MAILHOOK ADDRESS:', mailhookAddress);
+    console.log('🎯 FINAL MAILHOOK ADDRESS:', mailhookAddress);
 
 
     /* ---------------- VALIDATE MAILHOOK ---------------- */
@@ -749,12 +824,10 @@ export const executeScenarios = async (emailData) => {
 
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
-    // 🧩 Extract fields for Shopify
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
 
-    // 🧠 🟢 Fetch ALL scenarios (shopify + other)
     const scenarios = await scenarioModel.find({ userId }).lean();
     console.log(`📚 Found ${scenarios.length} total scenario(s)`);
 
@@ -779,32 +852,32 @@ export const executeScenarios = async (emailData) => {
 
           const matches = branch.filter?.conditions?.length
             ? branch.filter.conditions.every((cond) => {
-                let fieldValue = '';
+              let fieldValue = '';
 
-                switch (cond.field?.toLowerCase()) {
-                  case 'subject':
-                    fieldValue = (subject || '').toLowerCase();
-                    break;
-                  case 'body':
-                    fieldValue = (body || '').toLowerCase();
-                    break;
-                  case 'from':
-                    fieldValue = (from || '').toLowerCase();
-                    break;
-                  default:
-                    return false;
-                }
+              switch (cond.field?.toLowerCase()) {
+                case 'subject':
+                  fieldValue = (subject || '').toLowerCase();
+                  break;
+                case 'body':
+                  fieldValue = (body || '').toLowerCase();
+                  break;
+                case 'from':
+                  fieldValue = (from || '').toLowerCase();
+                  break;
+                default:
+                  return false;
+              }
 
-                const condValue = (cond.value || '').toLowerCase();
+              const condValue = (cond.value || '').toLowerCase();
 
-                if (cond.operator === 'Contains')
-                  return fieldValue.includes(condValue);
+              if (cond.operator === 'Contains')
+                return fieldValue.includes(condValue);
 
-                if (['Equal to', 'Equals'].includes(cond.operator))
-                  return fieldValue === condValue;
+              if (['Equal to', 'Equals'].includes(cond.operator))
+                return fieldValue === condValue;
 
-                return false;
-              })
+              return false;
+            })
             : true;
 
           if (!matches) {
@@ -857,16 +930,14 @@ export const executeScenarios = async (emailData) => {
                 finalTemplateContent = module.template;
               }
 
-              // CASE 3: Nothing present, fallback
               else {
                 finalTemplateContent = '';
               }
 
-              // Send email with final template
               await sendEmailModule(
                 {
                   ...module,
-                  template: finalTemplateContent, // 🔥 FINAL HTML CONTENT HERE
+                  template: finalTemplateContent, 
                 },
                 from,
                 subject,
@@ -876,15 +947,12 @@ export const executeScenarios = async (emailData) => {
           }
         }
 
-        // 🟢 DO NOT run Shopify logic for this scenario
         continue;
       }
 
-      // 🟥 ELSE → RUN EXISTING SHOPIFY LOGIC (UNCHANGED)
       console.log('🛍 Running Shopify Scenario Logic...');
 
-      // ---- YOUR FULL SHOPIFY LOGIC STARTS HERE ----
-      // (Everything below is original code unchanged)
+    
 
       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
 
@@ -897,28 +965,28 @@ export const executeScenarios = async (emailData) => {
 
         const matches = branch.filter?.conditions?.length
           ? branch.filter.conditions.every((cond) => {
-              const fieldValue =
-                cond.field?.toLowerCase() === 'body'
-                  ? (body || '').toLowerCase()
-                  : cond.field?.toLowerCase() === 'subject'
-                    ? (subject || '').toLowerCase()
-                    : '';
-              const condValue = (cond.value || '').toLowerCase();
+            const fieldValue =
+              cond.field?.toLowerCase() === 'body'
+                ? (body || '').toLowerCase()
+                : cond.field?.toLowerCase() === 'subject'
+                  ? (subject || '').toLowerCase()
+                  : '';
+            const condValue = (cond.value || '').toLowerCase();
 
-              console.log(
-                `   ➤ Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
-              );
+            console.log(
+              `   Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
+            );
 
-              switch (cond.operator?.toLowerCase()) {
-                case 'contains':
-                  return fieldValue.includes(condValue);
-                case 'equals':
-                case 'equal to':
-                  return fieldValue === condValue;
-                default:
-                  return false;
-              }
-            })
+            switch (cond.operator?.toLowerCase()) {
+              case 'contains':
+                return fieldValue.includes(condValue);
+              case 'equals':
+              case 'equal to':
+                return fieldValue === condValue;
+              default:
+                return false;
+            }
+          })
           : true;
 
         if (!matches) {
@@ -953,40 +1021,244 @@ export const executeScenarios = async (emailData) => {
           );
 
           try {
-            const rawType = (
-              module.type ||
-              module.app?.name ||
-              ''
-            ).toLowerCase();
-            if (
-              rawType.includes('gmail') ||
-              rawType.includes('email') ||
-              rawType.includes('follow') ||
-              rawType.includes('initial')
-            ) {
-              module.type = 'Send an Email';
-            } else if (rawType.includes('delay')) {
-              module.type = 'Delay';
-            }
+            const normalizedModule = normalizeModuleType(module);
+            Object.assign(module, normalizedModule);
 
+            console.log('🧠 Normalized current module:', moduleDebug(module));
+
+            // if (module.type === 'Delay') {
+            //   if (!module.delayValue || !module.delayUnit) continue;
+
+            //   const delayMs = convertToMs(module.delayValue, module.delayUnit);
+
+            //   const remainingModules = branch.modules
+            //     .slice(i + 1)
+            //     .filter((m) =>
+            //       ['Send an Email', 'Custom Email'].includes(m.type)
+            //     );
+
+            //   await DelayJobModel.create({
+            //     userId,
+            //     emailData,
+            //     emailId,
+            //     scenarioId: scenario._id,
+            //     modulesLeft: remainingModules,
+            //     scheduledAt: new Date(Date.now() + delayMs),
+            //   });
+
+            //   await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+            //     $push: { completedModules: module.id || module._id },
+            //     $set: {
+            //       pendingModules: remainingModules.map((m) => m.id || m._id),
+            //       status: 'partial',
+            //       lastExecutedAt: new Date(),
+            //     },
+            //   });
+
+            //   break;
+            // }
             if (module.type === 'Delay') {
-              if (!module.delayValue || !module.delayUnit) continue;
+              console.log('⏳ Delay module detected:', moduleDebug(module));
+
+              if (!module.delayValue || !module.delayUnit) {
+                console.log('⚠️ Delay skipped — delayValue or delayUnit missing:', {
+                  delayValue: module.delayValue,
+                  delayUnit: module.delayUnit,
+                });
+                continue;
+              }
 
               const delayMs = convertToMs(module.delayValue, module.delayUnit);
 
-              const remainingModules = branch.modules
+              const modulesAfterDelay = branch.modules
                 .slice(i + 1)
-                .filter((m) =>
-                  ['Send an Email', 'Custom Email'].includes(m.type)
+                .map((m) => normalizeModuleType(m));
+
+              console.log(
+                '🧩 Modules after delay before filtering:',
+                modulesAfterDelay.map(moduleDebug)
+              );
+
+              const remainingModulesRaw = modulesAfterDelay.filter((m) => {
+                const valid = isEmailModule(m) && isValidConnectionId(m.connectionId);
+
+                console.log('🔍 Checking delayed remaining module:', {
+                  ...moduleDebug(m),
+                  accepted: valid,
+                  rejectedReason: !isEmailModule(m)
+                    ? 'Not email module'
+                    : !isValidConnectionId(m.connectionId)
+                      ? 'Missing connectionId'
+                      : null,
+                });
+
+                return valid;
+              });
+
+              const remainingModules = [];
+
+              for (const delayedModule of remainingModulesRaw) {
+                let templateContent =
+                  delayedModule.template || 'Thanks for your email!';
+
+                let stepType = 'initial';
+
+                const lowerTpl = (delayedModule.template || '').toLowerCase();
+
+                if (lowerTpl.includes('first')) {
+                  stepType = 'first';
+                } else if (lowerTpl.includes('second')) {
+                  stepType = 'second';
+                }
+
+                const textToSearch = `${subject || ''} ${body || ''}`.toLowerCase();
+
+                const defaultServices = [
+                  'General',
+                  'Troubleshooting',
+                  'Theme customization',
+                  'Store build or redesign',
+                  'Store migration',
+                  'Website and marketing content',
+                  'SEO',
+                  'Site performance and speed',
+                  'Custom apps and integrations',
+                  'Store settings configuration',
+                  'Product and collection setup',
+                  'Social media marketing',
+                  'Product descriptions',
+                  'Search engine advertising',
+                  'POS setup and migration',
+                  'Custom domain setup',
+                  'Conversion rate optimization',
+                  'Analytics and tracking',
+                  'Sales channel setup',
+                  'Logo and visual branding',
+                  'Business strategy guidance',
+                  'Website audit and optimization strategy',
+                  'Sales tax guidance',
+                  'Product photography',
+                  'Email marketing',
+                  '3D modelling',
+                  'Banner ads',
+                  'Video and illustrations',
+                  'Content marketing',
+                  'Product sourcing guidance',
+                ];
+
+                let matchedService = defaultServices.find((s) =>
+                  textToSearch.includes(s.toLowerCase())
                 );
 
-              await DelayJobModel.create({
+                matchedService = matchedService || 'General';
+
+                const tpl =
+                  (await TemplateModel.findOne({
+                    userId,
+                    platform: 'shopify',
+                    service: new RegExp(`^${matchedService}$`, 'i'),
+                    $or: [
+                      {
+                        name: new RegExp(
+                          stepType === 'initial'
+                            ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                            : stepType === 'first'
+                              ? '(.*First Email.*|.*First Follow-up.*)'
+                              : '(.*Second Email.*|.*Second Follow-up.*)',
+                          'i'
+                        ),
+                      },
+                    ],
+                    active: true,
+                  })) ||
+                  (await TemplateModel.findOne({
+                    userId,
+                    platform: 'shopify',
+                    service: /^General$/i,
+                    $or: [
+                      {
+                        name: new RegExp(
+                          stepType === 'initial'
+                            ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                            : stepType === 'first'
+                              ? '(.*First Email.*|.*First Follow-up.*)'
+                              : '(.*Second Email.*|.*Second Follow-up.*)',
+                          'i'
+                        ),
+                      },
+                    ],
+                    active: true,
+                  }));
+
+                if (tpl) {
+                  templateContent = fillTemplate(tpl.content, extractedFields);
+
+                  console.log('✅ Delayed module template content resolved:', {
+                    moduleId: delayedModule.id || delayedModule._id,
+                    originalTemplateName: delayedModule.template,
+                    templateId: tpl._id,
+                    templateName: tpl.name,
+                    service: tpl.service,
+                    stepType,
+                    preview: templateContent.slice(0, 200),
+                  });
+                } else {
+                  templateContent = fillTemplate(templateContent, extractedFields);
+
+                  console.log('⚠️ Template not found for delayed module. Using fallback/direct template:', {
+                    moduleId: delayedModule.id || delayedModule._id,
+                    originalTemplateName: delayedModule.template,
+                    matchedService,
+                    stepType,
+                    preview: templateContent.slice(0, 200),
+                  });
+                }
+
+                remainingModules.push({
+                  ...delayedModule,
+                  template: templateContent, 
+                  templateName: delayedModule.template, 
+                  templateId: tpl?._id || null,
+                  service: tpl?.service || matchedService,
+                  stepType,
+                });
+              }
+
+              console.log(
+                ` Remaining delayed email modules: ${remainingModules.length}`,
+                remainingModules.map(moduleDebug)
+              );
+
+              if (remainingModules.length === 0) {
+                console.log(
+                  'Delay found but no valid email modules after delay. Job will NOT be created.'
+                );
+
+                await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
+                  $push: { completedModules: module.id || module._id },
+                  $set: {
+                    status: 'partial',
+                    lastExecutedAt: new Date(),
+                  },
+                });
+
+                break;
+              }
+
+              const delayJob = await DelayJobModel.create({
                 userId,
                 emailData,
                 emailId,
                 scenarioId: scenario._id,
                 modulesLeft: remainingModules,
                 scheduledAt: new Date(Date.now() + delayMs),
+              });
+
+              console.log('DelayJob created:', {
+                delayJobId: delayJob._id,
+                scheduledAt: delayJob.scheduledAt,
+                modulesLeftCount: remainingModules.length,
+                modulesLeft: remainingModules.map(moduleDebug),
               });
 
               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
@@ -1000,7 +1272,6 @@ export const executeScenarios = async (emailData) => {
 
               break;
             }
-
             if (['Send an Email', 'Custom Email'].includes(module.type)) {
               if (!module.connectionId) continue;
 
@@ -1331,8 +1602,8 @@ export const sendEmailModule = async (
         const toClean = extractEmail(to);
         const ccClean = cc
           ? cc.split(',').map((addr) => ({
-              emailAddress: { address: extractEmail(addr.trim()) },
-            }))
+            emailAddress: { address: extractEmail(addr.trim()) },
+          }))
           : [];
 
         const message = {
@@ -1576,7 +1847,7 @@ export const RunTestMode = async (req, res) => {
 </div>
 `;
 
-     const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -2502,6 +2773,105 @@ export const deleteConnectionById = async (req, res) => {
   }
 };
 
+
+export const updateConnectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      email,
+      name,
+      verified,
+      status,
+      smtp,
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Connection ID is required.",
+      });
+    }
+
+    const existing = await ConnectionModel.findById(id);
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "Connection not found.",
+      });
+    }
+
+    const updateData = {};
+
+    if (email !== undefined) {
+      updateData.email = email;
+    }
+
+    if (name !== undefined) {
+      updateData.name = name;
+    }
+
+    if (verified !== undefined) {
+      updateData.verified = verified;
+    }
+
+    if (status !== undefined) {
+      if (!["active", "disconnected"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status value.",
+        });
+      }
+
+      updateData.status = status;
+    }
+
+    if (smtp !== undefined) {
+      if (existing.provider !== "smtp") {
+        return res.status(400).json({
+          success: false,
+          message: "SMTP details can only be updated for SMTP connections.",
+        });
+      }
+
+      updateData.smtp = {
+        ...existing.smtp,
+        ...smtp,
+      };
+    }
+
+    const updatedConnection = await ConnectionModel.findByIdAndUpdate(
+      id,
+      updateData,
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).select("-tokens -smtp.password");
+
+    return res.status(200).json({
+      success: true,
+      message: "Connection updated successfully.",
+      data: updatedConnection,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A connection with this email already exists for this user.",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating connection.",
+      error: error.message,
+    });
+  }
+};
+
+
 export const sendTestEmail = async (req, res) => {
   try {
     const { toEmail, userId } = req.body;
@@ -2512,7 +2882,7 @@ export const sendTestEmail = async (req, res) => {
         .json({ success: false, message: 'Missing email or user ID' });
     }
 
-       const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT) || 587,
       secure: process.env.SMTP_SECURE === "true",

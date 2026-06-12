@@ -15,6 +15,7 @@ import {
   RunCustomTestMode,
   RunTestMode,
   sendTestEmail,
+  updateConnectionById,
   validateTestEmail,
   verifyConnection,
 } from '../controller/smtpServer.js';
@@ -50,5 +51,5 @@ emailRouter.post("/verify", verifyConnection);
 emailRouter.get("/:id", getConnectionById);
 emailRouter.post("/test/custom", RunCustomTestMode);
 emailRouter.get("/email/latest/:userId", getLatestServiceEmail);
-
+emailRouter.put("/connection/:id", updateConnectionById);
 export default emailRouter;

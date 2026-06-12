@@ -1,9 +1,11 @@
+
+
 // import cron from "node-cron";
 // import { sendEmailModule } from "./smtpServer.js";
 // import { DelayJobModel } from "../Models/DelayJob.js";
 // import { AutomationStatusModel } from "../Models/AutomationStatus.js";
 
-// // ✅ Utility to replace placeholders with extracted fields
+// // ✅ Utility to replace placeholders
 // export function fillTemplate(template, fields) {
 //   return template.replace(/{{(.*?)}}/g, (_, key) => {
 //     const cleanKey = key.trim();
@@ -44,26 +46,28 @@
 //   return fields;
 // }
 
-// // ✅ Delay Worker
+// // ✅ Delay Worker (fixed)
 // export const startDelayWorker = () => {
 //   cron.schedule("* * * * *", async () => {
 //     try {
 //       const now = new Date();
 
-//       // 🟪 Only pick jobs that are due and not already processing
+//       // 🟪 Find due jobs that are not already processing
 //       const jobs = await DelayJobModel.find({
 //         scheduledAt: { $lte: now },
-//         status: { $ne: "processing" }
+//         $or: [{ status: { $exists: false } }, { status: { $ne: "processing" } }],
 //       });
 
 //       for (const job of jobs) {
-//         // 🟪 Mark job as processing immediately (prevent duplicate pickup)
+//         console.log(`⏰ [DelayWorker] Processing delayed job for user ${job.userId}`);
+
+//         // 🟪 Mark job as processing (prevent duplicate)
 //         await DelayJobModel.updateOne(
 //           { _id: job._id },
 //           { $set: { status: "processing", startedAt: new Date() } }
 //         );
 
-//         // 🟪 Extract fields from the saved email data
+//         // 🟪 Extract email fields for placeholders
 //         const extractedFields = extractFieldsFromEmail(
 //           job.emailData?.parsedEmailObj || {
 //             text: job.emailData?.body,
@@ -72,64 +76,83 @@
 //           }
 //         );
 
-//         for (const module of job.modulesLeft) {
-//           if (module.type === "Send an Email" || module.type === "Custom Email") {
-//             try {
-//               // 🟪 Fill placeholders
-//               let finalTemplate = module.template || "Thanks for your email!";
-//               finalTemplate = fillTemplate(finalTemplate, extractedFields);
+//         // 🟪 Filter out only supported (email-type) modules
+//         const emailModules = (job.modulesLeft || []).filter((m) => {
+//           const t = (m.type || m.app?.name || "").toLowerCase();
+//           return (
+//             t.includes("email") ||
+//             t.includes("gmail") ||
+//             t.includes("follow") ||
+//             t.includes("initial")
+//           );
+//         });
 
-//               // 🟪 Send the email
-//               await sendEmailModule(
-//                 { ...module, template: finalTemplate },
-//                 job.emailData.from,
-//                 job.emailData.subject,
-//                 job.emailId
-//               );
+//         if (emailModules.length === 0) {
+//           console.log(
+//             `⚠️ [DelayWorker] No valid email modules found for job ${job._id}`
+//           );
+//           await DelayJobModel.deleteOne({ _id: job._id });
+//           continue;
+//         }
 
-//               // 🟪 Update Automation Status safely
-//               const moduleId = module.id || module._id?.toString();
-//               await AutomationStatusModel.findOneAndUpdate(
-//                 { emailId: job.emailId, scenarioId: job.scenarioId },
-//                 {
-//                   $addToSet: { completedModules: moduleId }, // prevent duplicates
-//                   $pull: { pendingModules: moduleId },
-//                   $set: {
-//                     lastExecutedAt: new Date(),
-//                     status: "partial"
-//                   }
-//                 }
-//               );
+//         // 🟪 Process each valid delayed email module
+//         for (const module of emailModules) {
+//           try {
+//             console.log(`📤 [DelayWorker] Sending delayed email for module: ${module.type}`);
 
-//               // 🟪 Final status check
-//               const statusDoc = await AutomationStatusModel.findOne({
-//                 emailId: job.emailId,
-//                 scenarioId: job.scenarioId,
-//               });
-//               if (statusDoc && statusDoc.pendingModules.length === 0) {
-//                 statusDoc.status = "completed";
-//                 await statusDoc.save();
+//             let finalTemplate = module.template || "Thanks for your email!";
+//             finalTemplate = fillTemplate(finalTemplate, extractedFields);
+
+//             // Send email
+//             await sendEmailModule(
+//               { ...module, template: finalTemplate },
+//               job.emailData.from,
+//               job.emailData.subject,
+//               job.emailId
+//             );
+
+//             // Update Automation Status
+//             const moduleId = module.id || module._id?.toString();
+//             await AutomationStatusModel.findOneAndUpdate(
+//               { emailId: job.emailId, scenarioId: job.scenarioId },
+//               {
+//                 $addToSet: { completedModules: moduleId },
+//                 $pull: { pendingModules: moduleId },
+//                 $set: {
+//                   lastExecutedAt: new Date(),
+//                   status: "partial",
+//                 },
 //               }
-//             } catch (err) {
-//               console.error("❌ [DelayWorker] Error while sending email:", err);
-//               await AutomationStatusModel.findOneAndUpdate(
-//                 { emailId: job.emailId, scenarioId: job.scenarioId },
-//                 { $set: { status: "failed", lastExecutedAt: new Date() } }
-//               );
+//             );
+
+//             // Check if all modules done
+//             const statusDoc = await AutomationStatusModel.findOne({
+//               emailId: job.emailId,
+//               scenarioId: job.scenarioId,
+//             });
+//             if (statusDoc && statusDoc.pendingModules.length === 0) {
+//               statusDoc.status = "completed";
+//               await statusDoc.save();
 //             }
-//           } else {
-//             console.log("⚠️ [DelayWorker] Skipping unsupported module:", module.type);
+//           } catch (err) {
+//             console.error("❌ [DelayWorker] Error while sending delayed email:", err);
+//             await AutomationStatusModel.findOneAndUpdate(
+//               { emailId: job.emailId, scenarioId: job.scenarioId },
+//               { $set: { status: "failed", lastExecutedAt: new Date() } }
+//             );
 //           }
 //         }
 
-//         // 🟪 Clean up the job after execution
+//         // 🟪 Clean up after successful execution
 //         await DelayJobModel.deleteOne({ _id: job._id });
+//         console.log(`✅ [DelayWorker] Finished delayed job ${job._id}`);
 //       }
 //     } catch (err) {
 //       console.error("❌ [DelayWorker] Cron execution failed:", err);
 //     }
 //   });
 // };
+
 
 
 

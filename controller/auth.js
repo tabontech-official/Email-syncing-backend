@@ -2744,3 +2744,71 @@ export const deleteConnectionByAdmin = async (req, res) => {
     });
   }
 };
+
+export const updateConnectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        error: "Invalid connection id",
+      });
+    }
+
+    const connection = await ConnectionModel.findById(id);
+    if (!connection) {
+      return res.status(404).json({
+        error: "Connection not found",
+      });
+    }
+
+    const { name, email, status, smtp } = req.body;
+    const updateData = {};
+
+    if (name !== undefined) updateData.name = name;
+    if (status !== undefined) updateData.status = status;
+
+    if (connection.provider === 'smtp') {
+      if (email !== undefined) updateData.email = email;
+      if (smtp !== undefined && typeof smtp === 'object') {
+        updateData.smtp = {
+          host: smtp.host !== undefined ? smtp.host : (connection.smtp?.host),
+          port: smtp.port !== undefined ? Number(smtp.port) : (connection.smtp?.port),
+          username: smtp.username !== undefined ? smtp.username : (connection.smtp?.username),
+        };
+        if (smtp.password !== undefined && smtp.password !== '') {
+          updateData.smtp.password = smtp.password;
+        } else if (connection.smtp?.password) {
+          updateData.smtp.password = connection.smtp.password;
+        }
+      }
+    }
+
+    const updatedConnection = await ConnectionModel.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
+    const returnedConnection = updatedConnection.toObject();
+    if (returnedConnection.tokens) delete returnedConnection.tokens;
+    if (returnedConnection.smtp && returnedConnection.smtp.password) {
+      delete returnedConnection.smtp.password;
+    }
+
+    return res.status(200).json({
+      success: true,
+      connection: returnedConnection,
+    });
+  } catch (error) {
+    console.error("Error updating connection:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({
+        error: "A connection with this email already exists for this user.",
+      });
+    }
+    return res.status(500).json({
+      error: error.message,
+    });
+  }
+};
