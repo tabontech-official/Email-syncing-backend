@@ -404,49 +404,6 @@ export const signIn = async (req, res) => {
   }
 };
 
-// export const getUserById = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-
-//     const user = await authModel.findById(id);
-//     if (!user) {
-//       return res.status(404).json({ error: 'User not found' });
-//     }
-
-//     const latestEmail = await EmailModel.findOne({
-//       userId: id,
-//       verificationUrl: { $ne: null },
-//     })
-//       .sort({ createdAt: -1 })
-//       .lean();
-
-//     const organization = await OrganizationModel.findOne({ userId: id }).lean();
-
-//     res.status(200).json({
-//       message: 'User fetched successfully',
-//       data: {
-//         ...user.toObject(),
-//         verificationUrl: latestEmail?.verificationUrl || null,
-//         verificationCode: latestEmail?.verificationCode || null,
-//         organization: organization
-//           ? {
-//               organizationName: organization.organizationName,
-//               Region: organization.Region,
-//               country: organization.country,
-//               TimeZone: organization.TimeZone,
-//               PartnerLink: organization.PartnerLink,
-//               createdAt: organization.createdAt,
-//               updatedAt: organization.updatedAt,
-//               _id: organization._id,
-//             }
-//           : null,
-//       },
-//     });
-//   } catch (error) {
-//     console.error('Error fetching user:', error);
-//     res.status(500).json({ error: 'Internal Server Error' });
-//   }
-// };
 
 export const getUserById = async (req, res) => {
   try {
@@ -968,13 +925,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-// const CLIENT_ID =
-//   '1072288734636-og1s7nku04nb0gf56v53gr8uar1tjjpq.apps.googleusercontent.com';
-// const CLIENT_SECRET = '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';
-// const REDIRECT_URI = 'http://localhost:5000/auth/google/callback';
-// console.log('CLIENT_ID', CLIENT_ID);
-// console.log('CLIENT_SECRET', CLIENT_SECRET);
-// console.log('REDIRECT_URI', REDIRECT_URI);
+
 
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
@@ -1246,10 +1197,6 @@ export const addSmtpConnection = async (req, res) => {
   }
 };
 
-// const MICROSOFT_CLIENT_ID = '09979dca-57cd-450e-8934-24887f1f368c';
-// const MICROSOFT_CLIENT_SECRET = 'TQK8Q~Awgm.47QKh2QT5w~D4nqZiwkGGJpoQ5c._';
-// const MICROSOFT_REDIRECT_URI = 'http://localhost:5000/auth/outlook/callback';
-// const FRONTEND_URL = 'http://localhost:3006';
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
