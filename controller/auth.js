@@ -346,15 +346,15 @@ export const signUp = async (req, res) => {
 
     await scenarioModel.create(defaultScenario);
 
-  try {
-  await sendWelcomeEmail({
-    to: savedUser.email,
-    fullName: savedUser.fullName,
-    mailhook: savedUser.mailhook,
-  });
-} catch (emailError) {
-  console.error("Welcome email failed:", emailError.message);
-}
+    try {
+      await sendWelcomeEmail({
+        to: savedUser.email,
+        fullName: savedUser.fullName,
+        mailhook: savedUser.mailhook,
+      });
+    } catch (emailError) {
+      console.error("Welcome email failed:", emailError.message);
+    }
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
     res.send({
