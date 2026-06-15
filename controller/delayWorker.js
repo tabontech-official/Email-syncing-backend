@@ -299,7 +299,6 @@ export const startDelayWorker = () => {
           }
         }
 
-        // 🟪 Clean up after successful execution
         await DelayJobModel.deleteOne({ _id: job._id });
         console.log(`✅ [DelayWorker] Finished delayed job ${job._id}`);
       }

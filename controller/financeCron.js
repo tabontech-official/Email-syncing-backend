@@ -114,6 +114,8 @@ const sendEmail = async ({ to, subject, html }) => {
 //     }
 //   }, 1000); // Run every second
 // };
+
+
 export const financeCron = () => {
   cron.schedule('0 * * * *', async () => {
     try {

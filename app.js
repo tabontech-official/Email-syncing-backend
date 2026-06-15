@@ -27,6 +27,7 @@ import { mailhookModel } from './Models/MailhookSchema.js';
 import stripeRouter from './Routes/stripe.js';
 import { stripeWebhook } from './controller/stripe.js';
 import SalesRouter from './Routes/talkToSales.js';
+import scenarioRunLogRouter from './Routes/scenarioRunLog.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -64,6 +65,7 @@ app.use('/template', templateRouter);
 app.use('/mailhook', emailRouter);
 app.use('/scenario', scenarioRouter);
 app.use('/mailhookcard', mailhookRouter);
+app.use("/scenario-run-log", scenarioRunLogRouter);
 
 (async () => {
   try {
