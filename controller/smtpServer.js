@@ -841,23 +841,23 @@ export const executeScenarios = async (emailData) => {
       console.log('=======================================');
       console.log(`Executing Scenario: ${scenario.name} (${scenario.type})`);
       console.log('=======================================');
-      const runStartedAt = new Date();
-      const runSteps = [];
+const runStartedAt = new Date();
+const runSteps = [];
 
-      const addRunStep = (step) => {
-        runSteps.push({
-          stepKey: step.stepKey,
-          stepName: step.stepName,
-          status: step.status || "pending",
-          message: step.message || "",
-          issue: step.issue || "",
-          location: step.location || "",
-          suggestion: step.suggestion || "",
-          meta: step.meta || {},
-          startedAt: step.startedAt || new Date(),
-          completedAt: step.completedAt || new Date(),
-        });
-      };
+const addRunStep = (step) => {
+  runSteps.push({
+    stepKey: step.stepKey,
+    stepName: step.stepName,
+    status: step.status || "pending",
+    message: step.message || "",
+    issue: step.issue || "",
+    location: step.location || "",
+    suggestion: step.suggestion || "",
+    meta: step.meta || {},
+    startedAt: step.startedAt || new Date(),
+    completedAt: step.completedAt || new Date(),
+  });
+};
       if (!scenario.routerBranches?.length) continue;
 
       if (scenario.type === 'other') {
@@ -954,26 +954,26 @@ export const executeScenarios = async (emailData) => {
               await sendEmailModule(
                 {
                   ...module,
-                  template: finalTemplateContent,
+                  template: finalTemplateContent, 
                 },
                 from,
                 subject,
                 emailId
               );
               addRunStep({
-                stepKey: "reply-email-send",
-                stepName: "Reply Email Send",
-                status: "success",
-                message: "Reply email sent successfully.",
-                location: from,
-                meta: {
-                  moduleId: module.id || module._id,
-                  templateId: tpl?._id || null,
-                  templateName: tpl?.name || module.template || "",
-                  service: matchedService,
-                  stepType,
-                },
-              });
+  stepKey: "reply-email-send",
+  stepName: "Reply Email Send",
+  status: "success",
+  message: "Reply email sent successfully.",
+  location: from,
+  meta: {
+    moduleId: module.id || module._id,
+    templateId: tpl?._id || null,
+    templateName: tpl?.name || module.template || "",
+    service: matchedService,
+    stepType,
+  },
+});
             }
           }
         }
@@ -983,7 +983,7 @@ export const executeScenarios = async (emailData) => {
 
       console.log('🛍 Running Shopify Scenario Logic...');
 
-
+    
 
       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
 
@@ -1247,8 +1247,8 @@ export const executeScenarios = async (emailData) => {
 
                 remainingModules.push({
                   ...delayedModule,
-                  template: templateContent,
-                  templateName: delayedModule.template,
+                  template: templateContent, 
+                  templateName: delayedModule.template, 
                   templateId: tpl?._id || null,
                   service: tpl?.service || matchedService,
                   stepType,
@@ -1291,19 +1291,19 @@ export const executeScenarios = async (emailData) => {
                 modulesLeftCount: remainingModules.length,
                 modulesLeft: remainingModules.map(moduleDebug),
               });
-              addRunStep({
-                stepKey: "delay-job-create",
-                stepName: "Delay Job Create",
-                status: "success",
-                message: "Delay job created successfully.",
-                location: delayJob._id.toString(),
-                meta: {
-                  delayValue: module.delayValue,
-                  delayUnit: module.delayUnit,
-                  scheduledAt: delayJob.scheduledAt,
-                  modulesLeftCount: remainingModules.length,
-                },
-              });
+addRunStep({
+  stepKey: "delay-job-create",
+  stepName: "Delay Job Create",
+  status: "success",
+  message: "Delay job created successfully.",
+  location: delayJob._id.toString(),
+  meta: {
+    delayValue: module.delayValue,
+    delayUnit: module.delayUnit,
+    scheduledAt: delayJob.scheduledAt,
+    modulesLeftCount: remainingModules.length,
+  },
+});
               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                 $push: { completedModules: module.id || module._id },
                 $set: {
@@ -1469,47 +1469,38 @@ export const executeScenarios = async (emailData) => {
         }
       }
 
-      console.log('=======================================');
+         await ScenarioRunLogModel.create({
+        userId,
+        scenarioId: scenario._id,
+        scenarioName: scenario.name || "",
+        scenarioType: scenario.type || "shopify",
+        runType: "live",
+        status: runSteps.some((s) => s.status === "failed")
+          ? "failed"
+          : runSteps.length > 0
+            ? "success"
+            : "partial",
+        message:
+          runSteps.length > 0
+            ? "Live scenario executed successfully."
+            : "Scenario matched but no executable step completed.",
+        service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
+        businessEmail: from || "",
+        customerName: extractedFields.FullName || "",
+        parentEmailId: emailId || null,
+        templateId: runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
+        templateName: runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
+        steps: runSteps,
+        requestPayload: { userId, from, subject, body, emailId },
+        responsePayload: { completedSteps: runSteps.length },
+        startedAt: runStartedAt,
+        completedAt: new Date(),
+      });
     }
 
     console.log('🎉 All Scenarios Execution Complete!');
     console.log('=======================================');
-    await ScenarioRunLogModel.create({
-      userId,
-      scenarioId: scenario._id,
-      scenarioName: scenario.name || "",
-      scenarioType: scenario.type || "shopify",
-      runType: "live",
-      status: runSteps.some((s) => s.status === "failed")
-        ? "failed"
-        : runSteps.length > 0
-          ? "success"
-          : "partial",
-      message:
-        runSteps.length > 0
-          ? "Live scenario executed successfully."
-          : "Scenario matched but no executable step completed.",
-      service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
-      businessEmail: from || "",
-      customerName: extractedFields.FullName || "",
-      parentEmailId: emailId || null,
-      templateId: runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
-      templateName:
-        runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
-      steps: runSteps,
-      requestPayload: {
-        userId,
-        from,
-        subject,
-        body,
-        emailId,
-      },
-      responsePayload: {
-        completedSteps: runSteps.length,
-      },
-      startedAt: runStartedAt,
-      completedAt: new Date(),
-    });
+    
   } catch (err) {
     console.error('🔥 Fatal Error in executeScenarios:', err);
   }
