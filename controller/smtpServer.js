@@ -951,42 +951,30 @@ export const executeScenarios = async (emailData) => {
                 finalTemplateContent = '';
               }
 
-              // await sendEmailModule(
-              //   {
-              //     ...module,
-              //     template: finalTemplateContent,
-              //   },
-              //   from,
-              //   subject,
-              //   emailId
-              // );
-              // addRunStep({
-              //   stepKey: "reply-email-send",
-              //   stepName: "Reply Email Send",
-              //   status: "success",
-              //   message: "Reply email sent successfully.",
-              //   location: from,
-              //   meta: {
-              //     moduleId: module.id || module._id,
-              //     templateId: tpl?._id || null,
-              //     templateName: tpl?.name || module.template || "",
-              //     service: matchedService,
-              //     stepType,
-              //   },
-              // });
-              const sendResult = await sendEmailModule(
+              await sendEmailModule(
                 {
                   ...module,
-                  template: templateContent,
-                  templateId: tpl?._id || null,
-                  templateName: tpl?.name || module.template || "",
-                  service: matchedService,
-                  stepType,
+                  template: finalTemplateContent,
                 },
                 from,
                 subject,
                 emailId
               );
+              addRunStep({
+                stepKey: "reply-email-send",
+                stepName: "Reply Email Send",
+                status: "success",
+                message: "Reply email sent successfully.",
+                location: from,
+                meta: {
+                  moduleId: module.id || module._id,
+                  templateId: tpl?._id || null,
+                  templateName: tpl?.name || module.template || "",
+                  service: matchedService,
+                  stepType,
+                },
+              });
+             
 
               if (sendResult?.success) {
                 addRunStep({
@@ -1448,19 +1436,37 @@ export const executeScenarios = async (emailData) => {
 
               templateContent = fillTemplate(templateContent, extractedFields);
 
-              await sendEmailModule(
-                {
-                  ...module,
-                  template: templateContent,
-                  templateId: tpl?._id || null,
-                  service: matchedService,
-                  stepType,
-                },
-                from,
-                subject,
-                emailId
-              );
+             const sendResult = await sendEmailModule(
+  {
+    ...module,
+    template: templateContent,
+    templateId: tpl?._id || null,
+    templateName: tpl?.name || module.template || "",
+    service: matchedService,
+    stepType,
+  },
+  from,
+  subject,
+  emailId
+);
 
+if (sendResult?.success) {
+  addRunStep({
+    stepKey: "reply-email-send",
+    stepName: "Reply Email Send",
+    status: "success",
+    message: "Reply email sent successfully.",
+    location: from,
+    meta: {
+      moduleId: module.id || module._id,
+      replyEmailId: sendResult.replyEmailId,
+      templateId: tpl?._id || null,
+      templateName: tpl?.name || module.template || "",
+      service: matchedService,
+      stepType,
+    },
+  });
+}
               const updated = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
                 {
