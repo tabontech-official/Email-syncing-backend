@@ -14,7 +14,7 @@ export const getHistory = async (req, res) => {
 
     const logs = await ScenarioRunLogModel.find({
       $or: [
-        { scenarioId },
+        { scenarioId: new mongoose.Types.ObjectId(scenarioId) },
         { scenarioId: null },
       ],
       scenarioType: "shopify",
@@ -22,7 +22,31 @@ export const getHistory = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(20)
       .select(
-        "status message runType service businessEmail customerName errorSummary usedGeneralTemplate startedAt completedAt createdAt steps"
+        [
+          "userId",
+          "scenarioId",
+          "scenarioName",
+          "scenarioType",
+          "status",
+          "message",
+          "runType",
+          "service",
+          "businessEmail",
+          "customerName",
+          "parentEmailId",
+          "replyEmailId",
+          "templateId",
+          "templateName",
+          "errorSummary",
+          "errorDetails",
+          "usedGeneralTemplate",
+          "requestPayload",
+          "responsePayload",
+          "startedAt",
+          "completedAt",
+          "createdAt",
+          "steps",
+        ].join(" ")
       )
       .lean();
 

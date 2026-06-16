@@ -841,23 +841,23 @@ export const executeScenarios = async (emailData) => {
       console.log('=======================================');
       console.log(`Executing Scenario: ${scenario.name} (${scenario.type})`);
       console.log('=======================================');
-const runStartedAt = new Date();
-const runSteps = [];
+      const runStartedAt = new Date();
+      const runSteps = [];
 
-const addRunStep = (step) => {
-  runSteps.push({
-    stepKey: step.stepKey,
-    stepName: step.stepName,
-    status: step.status || "pending",
-    message: step.message || "",
-    issue: step.issue || "",
-    location: step.location || "",
-    suggestion: step.suggestion || "",
-    meta: step.meta || {},
-    startedAt: step.startedAt || new Date(),
-    completedAt: step.completedAt || new Date(),
-  });
-};
+      const addRunStep = (step) => {
+        runSteps.push({
+          stepKey: step.stepKey,
+          stepName: step.stepName,
+          status: step.status || "pending",
+          message: step.message || "",
+          issue: step.issue || "",
+          location: step.location || "",
+          suggestion: step.suggestion || "",
+          meta: step.meta || {},
+          startedAt: step.startedAt || new Date(),
+          completedAt: step.completedAt || new Date(),
+        });
+      };
       if (!scenario.routerBranches?.length) continue;
 
       if (scenario.type === 'other') {
@@ -951,29 +951,60 @@ const addRunStep = (step) => {
                 finalTemplateContent = '';
               }
 
-              await sendEmailModule(
+              // await sendEmailModule(
+              //   {
+              //     ...module,
+              //     template: finalTemplateContent,
+              //   },
+              //   from,
+              //   subject,
+              //   emailId
+              // );
+              // addRunStep({
+              //   stepKey: "reply-email-send",
+              //   stepName: "Reply Email Send",
+              //   status: "success",
+              //   message: "Reply email sent successfully.",
+              //   location: from,
+              //   meta: {
+              //     moduleId: module.id || module._id,
+              //     templateId: tpl?._id || null,
+              //     templateName: tpl?.name || module.template || "",
+              //     service: matchedService,
+              //     stepType,
+              //   },
+              // });
+              const sendResult = await sendEmailModule(
                 {
                   ...module,
-                  template: finalTemplateContent, 
+                  template: templateContent,
+                  templateId: tpl?._id || null,
+                  templateName: tpl?.name || module.template || "",
+                  service: matchedService,
+                  stepType,
                 },
                 from,
                 subject,
                 emailId
               );
-              addRunStep({
-  stepKey: "reply-email-send",
-  stepName: "Reply Email Send",
-  status: "success",
-  message: "Reply email sent successfully.",
-  location: from,
-  meta: {
-    moduleId: module.id || module._id,
-    templateId: tpl?._id || null,
-    templateName: tpl?.name || module.template || "",
-    service: matchedService,
-    stepType,
-  },
-});
+
+              if (sendResult?.success) {
+                addRunStep({
+                  stepKey: "reply-email-send",
+                  stepName: "Reply Email Send",
+                  status: "success",
+                  message: "Reply email sent successfully.",
+                  location: from,
+                  meta: {
+                    moduleId: module.id || module._id,
+                    replyEmailId: sendResult.replyEmailId,
+                    templateId: tpl?._id || null,
+                    templateName: tpl?.name || module.template || "",
+                    service: matchedService,
+                    stepType,
+                  },
+                });
+              }
             }
           }
         }
@@ -983,7 +1014,7 @@ const addRunStep = (step) => {
 
       console.log('🛍 Running Shopify Scenario Logic...');
 
-    
+
 
       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
 
@@ -1247,8 +1278,8 @@ const addRunStep = (step) => {
 
                 remainingModules.push({
                   ...delayedModule,
-                  template: templateContent, 
-                  templateName: delayedModule.template, 
+                  template: templateContent,
+                  templateName: delayedModule.template,
                   templateId: tpl?._id || null,
                   service: tpl?.service || matchedService,
                   stepType,
@@ -1291,19 +1322,19 @@ const addRunStep = (step) => {
                 modulesLeftCount: remainingModules.length,
                 modulesLeft: remainingModules.map(moduleDebug),
               });
-addRunStep({
-  stepKey: "delay-job-create",
-  stepName: "Delay Job Create",
-  status: "success",
-  message: "Delay job created successfully.",
-  location: delayJob._id.toString(),
-  meta: {
-    delayValue: module.delayValue,
-    delayUnit: module.delayUnit,
-    scheduledAt: delayJob.scheduledAt,
-    modulesLeftCount: remainingModules.length,
-  },
-});
+              addRunStep({
+                stepKey: "delay-job-create",
+                stepName: "Delay Job Create",
+                status: "success",
+                message: "Delay job created successfully.",
+                location: delayJob._id.toString(),
+                meta: {
+                  delayValue: module.delayValue,
+                  delayUnit: module.delayUnit,
+                  scheduledAt: delayJob.scheduledAt,
+                  modulesLeftCount: remainingModules.length,
+                },
+              });
               await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
                 $push: { completedModules: module.id || module._id },
                 $set: {
@@ -1469,7 +1500,7 @@ addRunStep({
         }
       }
 
-         await ScenarioRunLogModel.create({
+      await ScenarioRunLogModel.create({
         userId,
         scenarioId: scenario._id,
         scenarioName: scenario.name || "",
@@ -1500,7 +1531,7 @@ addRunStep({
 
     console.log('🎉 All Scenarios Execution Complete!');
     console.log('=======================================');
-    
+
   } catch (err) {
     console.error('🔥 Fatal Error in executeScenarios:', err);
   }
@@ -1792,8 +1823,19 @@ export const sendEmailModule = async (
 
       await sentDoc.save();
       log('✅ Sent email saved in DB with ID:', sentDoc._id);
+      return {
+        success: true,
+        replyEmailId: sentDoc._id,
+        templateId: sentDoc.templateId || null,
+        service: sentDoc.service || "",
+        stepType: sentDoc.stepType || "initial",
+      };
     } else {
       log('⚠️ Email not sent — skipping save.');
+      return {
+        success: false,
+        replyEmailId: null,
+      };
     }
 
     log('=========================================');
