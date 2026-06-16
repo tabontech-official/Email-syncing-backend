@@ -1519,6 +1519,9 @@ export const executeScenarios = async (emailData) => {
         businessEmail: from || "",
         customerName: extractedFields.FullName || "",
         parentEmailId: emailId || null,
+        replyEmailId:
+          runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
+
         templateId: runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
         templateName: runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
         steps: runSteps,
