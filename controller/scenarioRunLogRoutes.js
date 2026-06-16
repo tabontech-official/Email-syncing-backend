@@ -56,14 +56,14 @@ export const getHistory = async (req, res) => {
         const [parentEmail, replyEmail] = await Promise.all([
           log.parentEmailId
             ? EmailModel.findById(log.parentEmailId)
-                .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
-                .lean()
+              .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
+              .lean()
             : null,
 
           log.replyEmailId
             ? EmailModel.findById(log.replyEmailId)
-                .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
-                .lean()
+              .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
+              .lean()
             : null,
         ]);
 
