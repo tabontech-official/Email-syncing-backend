@@ -729,10 +729,64 @@ export const getSetupProgress = async (req, res) => {
   }
 };
 
+// export const createOrganization = async (req, res) => {
+//   try {
+//     const { organizationName, Region, country, PartnerLink, TimeZone, userId } =
+//       req.body;
+
+//     if (!organizationName || !userId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'organizationName and userId are required.',
+//       });
+//     }
+
+//     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+//     const geo = geoip.lookup(ip);
+
+//     const detectedRegion = Region || geo?.region || 'Unknown';
+//     const detectedCountry = country || geo?.country || 'Unknown';
+//     const detectedTimeZone =
+//       TimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+//     const organization = await OrganizationModel.create({
+//       userId,
+//       organizationName,
+//       Region: detectedRegion,
+//       country: detectedCountry,
+//       TimeZone: detectedTimeZone,
+//       PartnerLink: PartnerLink || '',
+//     });
+
+//     res.status(201).json({
+//       success: true,
+//       message: 'Organization created successfully',
+//       data: organization,
+//     });
+//   } catch (error) {
+//     console.error(' createOrganization Error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to create organization',
+//       error: error.message,
+//     });
+//   }
+// };
+
+
 export const createOrganization = async (req, res) => {
   try {
-    const { organizationName, Region, country, PartnerLink, TimeZone, userId } =
-      req.body;
+    const {
+      userId,
+      organizationName,
+      Region,
+      region,
+      country,
+      TimeZone,
+      timeZone,
+      PartnerLink,
+      partnerLink,
+    } = req.body;
 
     if (!organizationName || !userId) {
       return res.status(400).json({
@@ -741,38 +795,60 @@ export const createOrganization = async (req, res) => {
       });
     }
 
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const geo = geoip.lookup(ip);
+    const finalRegion = Region || region || 'US';
+    const finalCountry = country || 'USA';
+    const finalTimeZone = TimeZone || timeZone || 'UTC';
+    const finalPartnerLink = PartnerLink || partnerLink || '';
 
-    const detectedRegion = Region || geo?.region || 'Unknown';
-    const detectedCountry = country || geo?.country || 'Unknown';
-    const detectedTimeZone =
-      TimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const organization = await OrganizationModel.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        organizationName,
+        Region: finalRegion,
+        country: finalCountry,
+        TimeZone: finalTimeZone,
+        PartnerLink: finalPartnerLink,
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      }
+    );
 
-    const organization = await OrganizationModel.create({
+    const updatedUser = await authModel.findByIdAndUpdate(
       userId,
-      organizationName,
-      Region: detectedRegion,
-      country: detectedCountry,
-      TimeZone: detectedTimeZone,
-      PartnerLink: PartnerLink || '',
-    });
+      {
+        organizationName,
+        Region: finalRegion,
+        country: finalCountry,
+        TimeZone: finalTimeZone,
+        PartnerLink: finalPartnerLink,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Organization created successfully',
-      data: organization,
+      message: 'Organization created/updated successfully',
+      data: {
+        organization,
+        user: updatedUser,
+      },
     });
   } catch (error) {
-    console.error(' createOrganization Error:', error);
-    res.status(500).json({
+    console.error('createOrganization Error:', error);
+    return res.status(500).json({
       success: false,
       message: 'Failed to create organization',
       error: error.message,
     });
   }
 };
-
 export const getOrganizationByUserId = async (req, res) => {
   try {
     const { userId } = req.params;
