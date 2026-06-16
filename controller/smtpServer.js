@@ -2491,72 +2491,185 @@ export const RunTestMode = async (req, res) => {
     const replaceTemplateFields = (content = "") => {
       return content
         .replace(/{{FullName}}/g, dummyCustomer)
+        .replace(/{{Full name}}/g, dummyCustomer)
         .replace(/{{BusinessEmail}}/g, businessEmail || "")
+        .replace(/{{Business email}}/g, businessEmail || "")
         .replace(/{{StoreName}}/g, storeName || "")
+        .replace(/{{Store name}}/g, storeName || "")
         .replace(/{{StoreURL}}/g, storeUrl)
+        .replace(/{{Store URL}}/g, storeUrl)
         .replace(/{{Country}}/g, country || "")
         .replace(/{{Service}}/g, service || "")
         .replace(/{{Budget}}/g, budget || "")
-        .replace(/{{ProblemGoal}}/g, helpDescription || "");
+        .replace(/{{ProblemGoal}}/g, helpDescription || "")
+        .replace(/{{Problem & Goal}}/g, helpDescription || "");
     };
 
     const replyHtmlBody = replaceTemplateFields(selectedTemplate.content || "");
-    const replyTextBody = replyHtmlBody.replace(/<[^>]+>/g, "");
 
     const replySubject = parentSubject.startsWith("Re:")
       ? parentSubject
       : `Re: ${parentSubject}`;
 
-    const replySendInfo = await transporter.sendMail({
-      from: fromAddress,
-      to: businessEmail,
-      subject: replySubject,
-      text: replyTextBody,
-      html: replyHtmlBody,
-      inReplyTo: parentSendInfo.messageId,
-      references: parentSendInfo.messageId,
+    const scenario = await scenarioModel.findOne({ userId }).lean();
+
+    const allModules =
+      scenario?.routerBranches?.flatMap((branch) => branch.modules || []) || [];
+
+    console.log(
+      "ALL MODULES FOR TEST:",
+      allModules.map((m) => ({
+        id: m.id || m._id,
+        appName: m.app?.name,
+        displayName: m.app?.displayName,
+        defaultTemplate: m.app?.defaultTemplate,
+        template: m.template,
+        type: m.type,
+        emailType: m.emailType,
+        connectionId: m.connectionId,
+      }))
+    );
+
+    const initialEmailModule = allModules.find((m) => {
+      const text = [
+        m.app?.name,
+        m.app?.displayName,
+        m.app?.defaultTemplate,
+        m.template,
+        m.type,
+        m.emailType,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes("initial email");
     });
+
+    if (!initialEmailModule) {
+      addStep({
+        stepKey: "initial-email-module-check",
+        stepName: "Initial Email Module Check",
+        status: "failed",
+        message: "Initial Email module not found.",
+        issue: "No Initial Email module exists in scenario.",
+        location: "scenario.routerBranches.modules",
+        suggestion: "Add Initial Email module and select a connection.",
+      });
+
+      await saveRunLog({
+        status: "failed",
+        message: "Initial Email module not found.",
+        errorSummary: "Missing Initial Email module.",
+        userId,
+        service,
+        businessEmail,
+        fullName,
+        useGeneralTemplate,
+        parentEmail,
+        selectedTemplate,
+        requestPayload: req.body,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: "Initial Email module not found. Please add Initial Email module first.",
+      });
+    }
+
+    if (!initialEmailModule.connectionId) {
+      addStep({
+        stepKey: "initial-email-connection-check",
+        stepName: "Initial Email Connection Check",
+        status: "failed",
+        message: "Initial Email module has no selected connection.",
+        issue: "connectionId is missing from Initial Email module.",
+        location: "scenario.routerBranches.modules.connectionId",
+        suggestion: "Select Gmail/Outlook/SMTP connection in Initial Email module.",
+      });
+
+      await saveRunLog({
+        status: "failed",
+        message: "Initial Email module connection is missing.",
+        errorSummary: "Missing connectionId.",
+        userId,
+        service,
+        businessEmail,
+        fullName,
+        useGeneralTemplate,
+        parentEmail,
+        selectedTemplate,
+        requestPayload: req.body,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: "Initial Email module has no selected connection. Please select Gmail/Outlook/SMTP connection.",
+      });
+    }
+
+    const emailModulePayload = {
+      ...initialEmailModule,
+      connectionId: initialEmailModule.connectionId,
+      subject: replySubject,
+      template: replyHtmlBody,
+      templateId: selectedTemplate._id,
+      service: useGeneralTemplate ? "General" : service,
+      stepType: "Initial Email",
+    };
+
+    const sendResult = await sendEmailModule(
+      emailModulePayload,
+      businessEmail,
+      parentSubject,
+      parentEmail._id
+    );
+
+    if (!sendResult?.success) {
+      addStep({
+        stepKey: "reply-email-send",
+        stepName: "Reply Email Send",
+        status: "failed",
+        message: "Reply email failed through selected connection.",
+        issue: "sendEmailModule returned false.",
+        location: String(initialEmailModule.connectionId),
+        suggestion: "Check selected connection tokens/SMTP credentials.",
+      });
+
+      await saveRunLog({
+        status: "failed",
+        message: "Failed to send reply using selected connection.",
+        errorSummary: "sendEmailModule failed.",
+        userId,
+        service,
+        businessEmail,
+        fullName,
+        useGeneralTemplate,
+        parentEmail,
+        selectedTemplate,
+        requestPayload: req.body,
+      });
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send email through selected connection.",
+      });
+    }
+
+    const replyEmail = await EmailModel.findById(sendResult.replyEmailId);
 
     addStep({
       stepKey: "reply-email-send",
       stepName: "Reply Email Send",
       status: "success",
-      message: "Template reply sent to business email.",
+      message: "Reply email sent using selected DB connection.",
       location: businessEmail,
-      meta: { messageId: replySendInfo.messageId },
-    });
-
-    const replyEmail = await EmailModel.create({
-      userId,
-      templateId: selectedTemplate._id,
-      senderFirstName: partnerName.split(" ")[0] || "",
-      senderLastName: partnerName.split(" ").slice(1).join(" ") || "",
-      senderAddress: process.env.EMAIL_USER,
-      recipientFirstName: dummyCustomer.split(" ")[0] || "",
-      recipientLastName: dummyCustomer.split(" ").slice(1).join(" ") || "",
-      recipientAddress: businessEmail,
-      subject: replySubject,
-      textBody: replyTextBody,
-      htmlBody: replyHtmlBody,
-      service: useGeneralTemplate ? "General" : service,
-      stepType: "Initial Email",
-      messageId: replySendInfo.messageId,
-      inReplyTo: parentSendInfo.messageId,
-      references: [parentSendInfo.messageId],
-      date: new Date(),
-      parentEmailId: parentEmail._id,
-      isForwarded: false,
-      isTestEmail: true,
-      isValidateTestEmail: true,
-      extraFields: {
-        originalService: service,
-        usedGeneralTemplate: useGeneralTemplate,
-        templateName: selectedTemplate.name,
-        storeName,
-        storeUrl,
-        country,
-        budget,
-        helpDescription,
+      meta: {
+        replyEmailId: sendResult.replyEmailId,
+        connectionId: initialEmailModule.connectionId,
+        templateId: selectedTemplate._id,
+        service: sendResult.service,
+        stepType: sendResult.stepType,
       },
     });
 
@@ -2564,8 +2677,8 @@ export const RunTestMode = async (req, res) => {
       stepKey: "reply-email-save",
       stepName: "Reply Email Save",
       status: "success",
-      message: "Reply email saved in database.",
-      location: String(replyEmail._id),
+      message: "Reply email saved in database by sendEmailModule.",
+      location: String(replyEmail?._id || sendResult.replyEmailId),
     });
 
     await executeScenarios({
@@ -2594,13 +2707,14 @@ export const RunTestMode = async (req, res) => {
 
     const responsePayload = {
       parentEmailId: parentEmail._id,
-      replyEmailId: replyEmail._id,
+      replyEmailId: replyEmail?._id || sendResult.replyEmailId,
       templateId: selectedTemplate._id,
+      connectionId: initialEmailModule.connectionId,
     };
 
     await saveRunLog({
       status: "success",
-      message: `Test email created, template reply sent to ${businessEmail}, and scenario executed.`,
+      message: `Test email created, reply sent to ${businessEmail} using selected connection, and scenario executed.`,
       userId,
       service,
       businessEmail,
@@ -2615,11 +2729,12 @@ export const RunTestMode = async (req, res) => {
 
     return res.json({
       success: true,
-      message: `Test email created, template reply sent to ${businessEmail}, and scenario executed.`,
+      message: `Test email created, reply sent to ${businessEmail} using selected connection, and scenario executed.`,
       parentEmail,
       replyEmail,
       selectedTemplate,
       testInputData: testData,
+      connectionId: initialEmailModule.connectionId,
     });
   } catch (err) {
     console.error("Run Test Error:", err);
@@ -3749,17 +3864,42 @@ export const verifyConnection = async (req, res) => {
           throw new Error('Missing SMTP credentials');
         }
 
-        const transporter = nodemailer.createTransport({
-          host: connection.smtp.host,
-          port: connection.smtp.port || 465,
-          secure: connection.smtp.port === 465,
-          auth: {
-            user: connection.smtp.username,
-            pass: connection.smtp.password,
-          },
-          tls: { rejectUnauthorized: false },
-        });
+        // const transporter = nodemailer.createTransport({
+        //   host: connection.smtp.host,
+        //   port: connection.smtp.port || 465,
+        //   secure: connection.smtp.port === 465,
+        //   auth: {
+        //     user: connection.smtp.username,
+        //     pass: connection.smtp.password,
+        //   },
+        //   tls: { rejectUnauthorized: false },
+        // });
+const smtpPort = Number(connection.smtp.port || 587);
 
+log("SMTP CONFIG:", {
+  host: connection.smtp.host,
+  port: smtpPort,
+  secure: smtpPort === 465,
+  username: connection.smtp.username,
+  email: connection.email,
+});
+
+const transporter = nodemailer.createTransport({
+  host: connection.smtp.host,
+  port: smtpPort,
+  secure: smtpPort === 465,
+  requireTLS: smtpPort === 587,
+  auth: {
+    user: connection.smtp.username || connection.email,
+    pass: connection.smtp.password,
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
+  socketTimeout: 30000,
+});
         await transporter.verify();
         verified = true;
         console.log('✅ SMTP verification successful!');
