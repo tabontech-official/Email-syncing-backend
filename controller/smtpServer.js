@@ -843,7 +843,8 @@ export const executeScenarios = async (emailData) => {
       console.log('=======================================');
       const runStartedAt = new Date();
       const runSteps = [];
-
+let runLogDoc = null;
+let delayCreated = false;
       const addRunStep = (step) => {
         runSteps.push({
           stepKey: step.stepKey,
@@ -1295,35 +1296,69 @@ export const executeScenarios = async (emailData) => {
                 break;
               }
 
-              const runLog = await ScenarioRunLogModel.create({
-                userId,
-                scenarioId: scenario._id,
-                scenarioName: scenario.name || "",
-                scenarioType: scenario.type || "shopify",
-                runType: "live",
-                status: "partial",
-                message: "Scenario started and delay job created.",
-                service: remainingModules.find((m) => m.service)?.service || "",
-                businessEmail: from || "",
-                customerName: extractedFields.FullName || "",
-                parentEmailId: emailId || null,
-                steps: runSteps,
-                requestPayload: { userId, from, subject, body, emailId },
-                responsePayload: { completedSteps: runSteps.length },
-                startedAt: runStartedAt,
-                completedAt: null,
-              });
+            addRunStep({
+  stepKey: "delay-job-create",
+  stepName: "Delay Job Create",
+  status: "success",
+  message: "Delay job created successfully.",
+  location: "",
+  meta: {
+    delayValue: module.delayValue,
+    delayUnit: module.delayUnit,
+    scheduledAt: new Date(Date.now() + delayMs),
+    modulesLeftCount: remainingModules.length,
+  },
+});
 
-              const delayJob = await DelayJobModel.create({
-                userId,
-                emailData,
-                emailId,
-                scenarioId: scenario._id,
-                runLogId: runLog._id,
-                modulesLeft: remainingModules,
-                scheduledAt: new Date(Date.now() + delayMs),
-              });
+runLogDoc = await ScenarioRunLogModel.create({
+  userId,
+  scenarioId: scenario._id,
+  scenarioName: scenario.name || "",
+  scenarioType: scenario.type || "shopify",
+  runType: "live",
+  status: "partial",
+  message: "Scenario waiting for delayed modules.",
+  service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
+  businessEmail: from || "",
+  customerName: extractedFields.FullName || "",
+  parentEmailId: emailId || null,
+  replyEmailId:
+    runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
+  templateId:
+    runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
+  templateName:
+    runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
+  steps: runSteps,
+  requestPayload: { userId, from, subject, body, emailId },
+  responsePayload: {
+    completedSteps: runSteps.length,
+    delayedModulesCount: remainingModules.length,
+  },
+  startedAt: runStartedAt,
+  completedAt: null,
+});
 
+const delayJob = await DelayJobModel.create({
+  userId,
+  emailData,
+  emailId,
+  scenarioId: scenario._id,
+  runLogId: runLogDoc._id,
+  modulesLeft: remainingModules,
+  scheduledAt: new Date(Date.now() + delayMs),
+});
+
+delayCreated = true;
+
+await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
+  $set: {
+    "steps.$[delayStep].location": delayJob._id.toString(),
+    "steps.$[delayStep].meta.delayJobId": delayJob._id,
+    "steps.$[delayStep].meta.scheduledAt": delayJob.scheduledAt,
+  },
+}, {
+  arrayFilters: [{ "delayStep.stepKey": "delay-job-create" }],
+});
               console.log('DelayJob created:', {
                 delayJobId: delayJob._id,
                 scheduledAt: delayJob.scheduledAt,
@@ -1526,36 +1561,39 @@ export const executeScenarios = async (emailData) => {
         }
       }
 
-      await ScenarioRunLogModel.create({
-        userId,
-        scenarioId: scenario._id,
-        scenarioName: scenario.name || "",
-        scenarioType: scenario.type || "shopify",
-        runType: "live",
-        status: runSteps.some((s) => s.status === "failed")
-          ? "failed"
-          : runSteps.length > 0
-            ? "success"
-            : "partial",
-        message:
-          runSteps.length > 0
-            ? "Live scenario executed successfully."
-            : "Scenario matched but no executable step completed.",
-        service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
-        businessEmail: from || "",
-        customerName: extractedFields.FullName || "",
-        parentEmailId: emailId || null,
-        replyEmailId:
-          runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
-
-        templateId: runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
-        templateName: runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
-        steps: runSteps,
-        requestPayload: { userId, from, subject, body, emailId },
-        responsePayload: { completedSteps: runSteps.length },
-        startedAt: runStartedAt,
-        completedAt: new Date(),
-      });
+      if (!delayCreated) {
+  await ScenarioRunLogModel.create({
+    userId,
+    scenarioId: scenario._id,
+    scenarioName: scenario.name || "",
+    scenarioType: scenario.type || "shopify",
+    runType: "live",
+    status: runSteps.some((s) => s.status === "failed")
+      ? "failed"
+      : runSteps.length > 0
+        ? "success"
+        : "partial",
+    message:
+      runSteps.length > 0
+        ? "Live scenario executed successfully."
+        : "Scenario matched but no executable step completed.",
+    service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
+    businessEmail: from || "",
+    customerName: extractedFields.FullName || "",
+    parentEmailId: emailId || null,
+    replyEmailId:
+      runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
+    templateId:
+      runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
+    templateName:
+      runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
+    steps: runSteps,
+    requestPayload: { userId, from, subject, body, emailId },
+    responsePayload: { completedSteps: runSteps.length },
+    startedAt: runStartedAt,
+    completedAt: new Date(),
+  });
+}
     }
 
     console.log('🎉 All Scenarios Execution Complete!');
