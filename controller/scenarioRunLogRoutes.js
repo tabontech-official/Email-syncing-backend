@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
+import { EmailModel } from "../Models/Email.js";
 
 export const getHistory = async (req, res) => {
   try {
@@ -50,9 +51,33 @@ export const getHistory = async (req, res) => {
       )
       .lean();
 
+    const logsWithEmails = await Promise.all(
+      logs.map(async (log) => {
+        const [parentEmail, replyEmail] = await Promise.all([
+          log.parentEmailId
+            ? EmailModel.findById(log.parentEmailId)
+                .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
+                .lean()
+            : null,
+
+          log.replyEmailId
+            ? EmailModel.findById(log.replyEmailId)
+                .select("senderAddress recipientAddress subject textBody htmlBody date service stepType templateId parentEmailId")
+                .lean()
+            : null,
+        ]);
+
+        return {
+          ...log,
+          parentEmail,
+          replyEmail,
+        };
+      })
+    );
+
     return res.status(200).json({
       success: true,
-      logs,
+      logs: logsWithEmails,
     });
   } catch (err) {
     console.error("Fetch Shopify scenario logs error:", err);
