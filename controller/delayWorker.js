@@ -160,6 +160,7 @@ import cron from "node-cron";
 import { sendEmailModule } from "./smtpServer.js";
 import { DelayJobModel } from "../Models/DelayJob.js";
 import { AutomationStatusModel } from "../Models/AutomationStatus.js";
+import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
 
 // ✅ Utility to replace placeholders
 export function fillTemplate(template, fields) {
@@ -260,13 +261,47 @@ export const startDelayWorker = () => {
             finalTemplate = fillTemplate(finalTemplate, extractedFields);
 
             // Send email
-            await sendEmailModule(
-              { ...module, template: finalTemplate },
-              job.emailData.from,
-              job.emailData.subject,
-              job.emailId
-            );
+            // await sendEmailModule(
+            //   { ...module, template: finalTemplate },
+            //   job.emailData.from,
+            //   job.emailData.subject,
+            //   job.emailId
+            // );
+const sendResult = await sendEmailModule(
+  { ...module, template: finalTemplate },
+  job.emailData.from,
+  job.emailData.subject,
+  job.emailId
+);
 
+await ScenarioRunLogModel.findByIdAndUpdate(job.runLogId, {
+  $push: {
+    steps: {
+      stepKey: "delayed-email-send",
+      stepName: "Delayed Email Send",
+      status: "success",
+      message: "Delayed email sent successfully.",
+      location: job.emailData.from,
+      meta: {
+        delayJobId: job._id,
+        moduleId: module.id || module._id,
+        replyEmailId: sendResult?.replyEmailId || null,
+        templateId: module.templateId || null,
+        templateName: module.templateName || "",
+        service: module.service || "",
+        stepType: module.stepType || "",
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+    },
+  },
+  $set: {
+    status: "success",
+    message: "Delayed scenario completed successfully.",
+    replyEmailId: sendResult?.replyEmailId || null,
+    completedAt: new Date(),
+  },
+});
             // Update Automation Status
             const moduleId = module.id || module._id?.toString();
             await AutomationStatusModel.findOneAndUpdate(

@@ -7,6 +7,8 @@ const delayJobSchema = new mongoose.Schema({
   scheduledAt: Date,
   emailId: { type: String },
   scenarioId: { type: mongoose.Schema.Types.ObjectId },
+  runLogId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScenarioRunLog' },
+
 });
 
 export const DelayJobModel = mongoose.model('DelayJob', delayJobSchema);

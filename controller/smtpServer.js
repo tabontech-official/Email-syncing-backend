@@ -974,7 +974,7 @@ export const executeScenarios = async (emailData) => {
                   stepType,
                 },
               });
-             
+
 
               if (sendResult?.success) {
                 addRunStep({
@@ -1295,11 +1295,31 @@ export const executeScenarios = async (emailData) => {
                 break;
               }
 
+              const runLog = await ScenarioRunLogModel.create({
+                userId,
+                scenarioId: scenario._id,
+                scenarioName: scenario.name || "",
+                scenarioType: scenario.type || "shopify",
+                runType: "live",
+                status: "partial",
+                message: "Scenario started and delay job created.",
+                service: remainingModules.find((m) => m.service)?.service || "",
+                businessEmail: from || "",
+                customerName: extractedFields.FullName || "",
+                parentEmailId: emailId || null,
+                steps: runSteps,
+                requestPayload: { userId, from, subject, body, emailId },
+                responsePayload: { completedSteps: runSteps.length },
+                startedAt: runStartedAt,
+                completedAt: null,
+              });
+
               const delayJob = await DelayJobModel.create({
                 userId,
                 emailData,
                 emailId,
                 scenarioId: scenario._id,
+                runLogId: runLog._id,
                 modulesLeft: remainingModules,
                 scheduledAt: new Date(Date.now() + delayMs),
               });
@@ -1436,37 +1456,37 @@ export const executeScenarios = async (emailData) => {
 
               templateContent = fillTemplate(templateContent, extractedFields);
 
-             const sendResult = await sendEmailModule(
-  {
-    ...module,
-    template: templateContent,
-    templateId: tpl?._id || null,
-    templateName: tpl?.name || module.template || "",
-    service: matchedService,
-    stepType,
-  },
-  from,
-  subject,
-  emailId
-);
+              const sendResult = await sendEmailModule(
+                {
+                  ...module,
+                  template: templateContent,
+                  templateId: tpl?._id || null,
+                  templateName: tpl?.name || module.template || "",
+                  service: matchedService,
+                  stepType,
+                },
+                from,
+                subject,
+                emailId
+              );
 
-if (sendResult?.success) {
-  addRunStep({
-    stepKey: "reply-email-send",
-    stepName: "Reply Email Send",
-    status: "success",
-    message: "Reply email sent successfully.",
-    location: from,
-    meta: {
-      moduleId: module.id || module._id,
-      replyEmailId: sendResult.replyEmailId,
-      templateId: tpl?._id || null,
-      templateName: tpl?.name || module.template || "",
-      service: matchedService,
-      stepType,
-    },
-  });
-}
+              if (sendResult?.success) {
+                addRunStep({
+                  stepKey: "reply-email-send",
+                  stepName: "Reply Email Send",
+                  status: "success",
+                  message: "Reply email sent successfully.",
+                  location: from,
+                  meta: {
+                    moduleId: module.id || module._id,
+                    replyEmailId: sendResult.replyEmailId,
+                    templateId: tpl?._id || null,
+                    templateName: tpl?.name || module.template || "",
+                    service: matchedService,
+                    stepType,
+                  },
+                });
+              }
               const updated = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
                 {
