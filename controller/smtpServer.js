@@ -3875,8 +3875,7 @@ export const verifyConnection = async (req, res) => {
         //   tls: { rejectUnauthorized: false },
         // });
 const smtpPort = Number(connection.smtp.port || 587);
-
-log("SMTP CONFIG:", {
+console.log("SMTP CONFIG:", {
   host: connection.smtp.host,
   port: smtpPort,
   secure: smtpPort === 465,
