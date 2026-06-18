@@ -19,6 +19,11 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
 import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 import mongoose from 'mongoose';
+import speakeasy from "speakeasy";
+import QRCode from "qrcode";
+
+
+
 export const defaultServices = [
   'General',
   'Troubleshooting',
@@ -367,43 +372,158 @@ export const signUp = async (req, res) => {
   }
 };
 
+// export const signIn = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     const user = await authModel.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({ error: 'User does not exist' });
+//     }
+
+//     const isMatch = await user.comparePassword(password);
+//     if (!isMatch) {
+//       return res.status(400).json({ error: 'Password does not match' });
+//     }
+//     if (!user.guideStatus?.sidebar) {
+//       user.guideStatus = {
+//         sidebar: { completed: false, step: 1 },
+//         navbar: { completed: false, step: 0 },
+//       };
+//     }
+
+//     // ✅ Record login timestamp
+//     user.lastLogin = new Date();
+//     await user.save();
+
+//     const token = createToken({ _id: user._id, role: user.role });
+
+//     res.status(200).json({
+//       message: 'Successfully logged in',
+//       token,
+//       data: user,
+//     });
+//   } catch (error) {
+//     console.error('Error during login:', error);
+//     res.status(500).json({ error: error.message });
+//   }
+// };
+
+
 export const signIn = async (req, res) => {
   try {
+    console.log("=======================================");
+    console.log("🔐 [signIn] Login request received");
+    console.log("📩 Request body:", {
+      email: req.body?.email,
+      hasPassword: Boolean(req.body?.password),
+    });
+    console.log("=======================================");
+
     const { email, password } = req.body;
 
-    const user = await authModel.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ error: 'User does not exist' });
+    if (!email || !password) {
+      console.warn("⚠️ [signIn] Missing email or password");
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+      });
     }
 
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Password does not match' });
+    console.log("🔎 [signIn] Searching user by email:", email);
+
+    const user = await authModel.findOne({ email });
+
+    if (!user) {
+      console.warn("❌ [signIn] User does not exist:", email);
+      return res.status(404).json({
+        success: false,
+        error: "User does not exist",
+      });
     }
+
+    console.log("✅ [signIn] User found:", {
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+      twoFactorEnabled: user.twoFactorEnabled,
+      hasTwoFactorSecret: Boolean(user.twoFactorSecret),
+    });
+
+    console.log("🔑 [signIn] Comparing password...");
+
+    const isMatch = await user.comparePassword(password);
+
+    if (!isMatch) {
+      console.warn("❌ [signIn] Password does not match for:", email);
+      return res.status(400).json({
+        success: false,
+        error: "Password does not match",
+      });
+    }
+
+    console.log("✅ [signIn] Password matched successfully");
+
     if (!user.guideStatus?.sidebar) {
+      console.log("🧭 [signIn] guideStatus missing. Initializing default guideStatus...");
+
       user.guideStatus = {
         sidebar: { completed: false, step: 1 },
         navbar: { completed: false, step: 0 },
       };
+    } else {
+      console.log("✅ [signIn] guideStatus already exists:", user.guideStatus);
     }
 
-    // ✅ Record login timestamp
+    if (user.twoFactorEnabled) {
+      console.log("🛡️ [signIn] 2FA is enabled. Login token will NOT be issued yet.");
+
+      await user.save();
+
+      console.log("📤 [signIn] Sending requiresTwoFactor response:", {
+        userId: user._id,
+        requiresTwoFactor: true,
+      });
+
+      return res.status(200).json({
+        success: true,
+        requiresTwoFactor: true,
+        userId: user._id,
+        message: "Two-step authentication code required",
+      });
+    }
+
+    console.log("🟢 [signIn] 2FA not enabled. Proceeding with normal login...");
+
     user.lastLogin = new Date();
     await user.save();
 
+    console.log("💾 [signIn] lastLogin updated:", user.lastLogin);
+
     const token = createToken({ _id: user._id, role: user.role });
 
-    res.status(200).json({
-      message: 'Successfully logged in',
+    console.log("🎫 [signIn] JWT token created successfully");
+    console.log("✅ [signIn] Login completed for:", {
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+    });
+    console.log("=======================================");
+
+    return res.status(200).json({
+      success: true,
+      message: "Successfully logged in",
       token,
       data: user,
     });
   } catch (error) {
-    console.error('Error during login:', error);
-    res.status(500).json({ error: error.message });
+    console.error("🔥 [signIn] Error during login:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 };
-
 
 export const getUserById = async (req, res) => {
   try {
@@ -1240,6 +1360,238 @@ export const getConnections = async (req, res) => {
   } catch (err) {
     console.error('❌ Failed to fetch connections:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+
+export const setupTwoFactor = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const secret = speakeasy.generateSecret({
+      name: `Replex Engine (${user.email})`,
+      issuer: "Replex Engine",
+    });
+
+    user.twoFactorTempSecret = secret.base32;
+    await user.save();
+
+    const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+    return res.status(200).json({
+      success: true,
+      message: "2FA setup initialized",
+      qrCodeUrl,
+      manualKey: secret.base32,
+    });
+  } catch (error) {
+    console.error("setupTwoFactor error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to setup 2FA",
+      error: error.message,
+    });
+  }
+};
+
+
+export const verifyTwoFactorSetup = async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+
+    if (!userId || !token) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and token are required",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user || !user.twoFactorTempSecret) {
+      return res.status(404).json({
+        success: false,
+        message: "2FA setup not found",
+      });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorTempSecret,
+      encoding: "base32",
+      token,
+      window: 1,
+    });
+
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid authentication code",
+      });
+    }
+
+    user.twoFactorSecret = user.twoFactorTempSecret;
+    user.twoFactorTempSecret = null;
+    user.twoFactorEnabled = true;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-step authentication enabled successfully",
+      data: {
+        twoFactorEnabled: user.twoFactorEnabled,
+      },
+    });
+  } catch (error) {
+    console.error("verifyTwoFactorSetup error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to verify 2FA setup",
+      error: error.message,
+    });
+  }
+};
+
+export const disableTwoFactor = async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: "Two-step authentication is already disabled",
+      });
+    }
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Authentication code is required",
+      });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: "base32",
+      token,
+      window: 1,
+    });
+
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid authentication code",
+      });
+    }
+
+    user.twoFactorEnabled = false;
+    user.twoFactorSecret = null;
+    user.twoFactorTempSecret = null;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-step authentication disabled successfully",
+    });
+  } catch (error) {
+    console.error("disableTwoFactor error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to disable 2FA",
+      error: error.message,
+    });
+  }
+};
+
+
+export const verifyLoginTwoFactor = async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+
+    if (!userId || !token) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and token are required",
+      });
+    }
+
+    const user = await authModel.findById(userId);
+
+    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({
+        success: false,
+        message: "2FA is not enabled for this account",
+      });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: "base32",
+      token,
+      window: 1,
+    });
+
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid authentication code",
+      });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
+
+    const loginToken = createToken({
+      _id: user._id,
+      role: user.role,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Successfully logged in",
+      token: loginToken,
+      data: user,
+    });
+  } catch (error) {
+    console.error("verifyLoginTwoFactor error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to verify login 2FA",
+      error: error.message,
+    });
   }
 };
 

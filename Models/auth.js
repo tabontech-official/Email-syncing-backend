@@ -99,6 +99,18 @@ const authSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    twoFactorEnabled: {
+  type: Boolean,
+  default: false,
+},
+twoFactorSecret: {
+  type: String,
+  default: null,
+},
+twoFactorTempSecret: {
+  type: String,
+  default: null,
+},
   },
 
   { timestamps: true }

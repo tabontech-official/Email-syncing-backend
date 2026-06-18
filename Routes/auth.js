@@ -36,6 +36,10 @@ import {
   verifyLogin,
   verifyUser,
   updateConnectionById,
+  setupTwoFactor,
+  verifyTwoFactorSetup,
+  disableTwoFactor,
+  verifyLoginTwoFactor,
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
 
@@ -51,7 +55,10 @@ authRouter.patch('/verify/:id', verifyUser);
 authRouter.post('/saveSmtpConnection', addSmtpConnection);
 authRouter.post('/organization/create', createOrganization);
 authRouter.get('/organization/get/:userId', getOrganizationByUserId);
-
+authRouter.post("/2fa/setup", setupTwoFactor);
+authRouter.post("/2fa/verify-setup", verifyTwoFactorSetup);
+authRouter.post("/2fa/disable", disableTwoFactor);
+authRouter.post("/2fa/verify-login", verifyLoginTwoFactor);
 authRouter.get('/google', googleAuth);
 
 authRouter.get('/google/callback', googleAuthCallback);
