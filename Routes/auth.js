@@ -40,6 +40,7 @@ import {
   verifyTwoFactorSetup,
   disableTwoFactor,
   verifyLoginTwoFactor,
+  googleLogin,
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
 
@@ -103,4 +104,6 @@ authRouter.put(
 
   revokeProPlan
 );
+authRouter.post('/google-login', googleLogin);
+
 export default authRouter;

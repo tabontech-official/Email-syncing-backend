@@ -1226,6 +1226,154 @@ export const googleAuthCallback = async (req, res) => {
   }
 };
 
+export const googleLogin = async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ error: "Google token missing" });
+    }
+
+    const client = new google.auth.OAuth2(CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: CLIENT_ID, 
+    });
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const fullName = payload.name || "Google User";
+    
+    let user = await authModel.findOne({ email });
+
+    // Helper to generate token
+    const createToken = (payLoad) => {
+      return jwt.sign({ payLoad }, process.env.SECRET_KEY, { expiresIn: '1d' });
+    };
+
+    if (user) {
+      user.lastLogin = new Date();
+      await user.save();
+      const token = createToken({ _id: user._id, role: user.role });
+      return res.status(200).json({
+        message: 'Successfully logged in with Google',
+        token,
+        data: user,
+      });
+    }
+
+    // --- CREATE NEW USER ---
+    user = new authModel({
+      fullName,
+      email,
+      password: await bcrypt.hash(Date.now().toString() + Math.random(), 10), // random password
+      country: "Unknown",
+      PartnerLink: '',
+      isVerified: true // automatically verified since it's from Google
+    });
+
+    const savedUser = await user.save();
+    
+    await OrganizationModel.create({
+      userId: savedUser._id,
+      organizationName: fullName || 'My Organization',
+      website: '',
+      address: '',
+      country: 'Unknown',
+      Region: 'Unknown',
+      PartnerLink: '',
+      phone: '',
+      whatsapp: '',
+      TimeZone: 'UTC',
+    });
+
+    savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
+    await savedUser.save();
+
+    // Default Templates
+    const templates = [];
+    defaultServices.forEach((service) => {
+      ['Initial Email', 'First Email', 'Second Email'].forEach(
+        (emailName, idx) => {
+          templates.push({
+            userId: savedUser._id,
+            platform: 'shopify',
+            service,
+            name: `${service} - ${emailName}`,
+            type: idx === 0 ? 'initial' : idx === 1 ? 'first' : 'second',
+            conditions: [],
+            content: `This is the ${emailName.toUpperCase()} template for ${service}. You can edit this content.`,
+            active: true,
+            locked: service === 'General',
+          });
+        }
+      );
+    });
+    await TemplateModel.insertMany(templates);
+
+    const otherTemplates = [];
+    ['Initial Email', 'First Email', 'Second Email', 'Third Email'].forEach(
+      (emailName, idx) => {
+        otherTemplates.push({
+          userId: savedUser._id,
+          platform: 'other',
+          service: 'General',
+          name: `General - ${emailName}`,
+          type: idx === 0 ? 'initial' : idx === 1 ? 'first' : idx === 2 ? 'second' : 'third',
+          conditions: [],
+          content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
+          active: true,
+          locked: true,
+        });
+      }
+    );
+    await TemplateModel.insertMany(otherTemplates);
+
+    const defaultScenario = {
+      userId: savedUser._id,
+      name: 'Shopify Scenario',
+      description: '',
+      type: 'shopify',
+      scenarioActive: false,
+      routerBranches: [{
+        id: Date.now(),
+        hasModule: false,
+        condition: null,
+        modules: [{
+          id: `${Date.now()}_1`,
+          app: { name: 'Initial Email', color: 'bg-red-500', icon: 'Gmail' },
+          type: 'Send an Email',
+          template: 'Initial Email',
+          delayValue: 5,
+          delayUnit: 'seconds',
+          emailType: 'Gmail',
+          filter: { conditions: [] },
+        }],
+        filter: { conditions: [] },
+      }],
+    };
+    await scenarioModel.create(defaultScenario);
+
+    try {
+      await sendWelcomeEmail({
+        to: savedUser.email,
+        fullName: savedUser.fullName,
+        mailhook: savedUser.mailhook,
+      });
+    } catch (e) {
+      console.log("Welcome email error:", e);
+    }
+
+    const token = createToken({ _id: savedUser._id, role: savedUser.role });
+    return res.status(200).json({
+      message: 'Successfully registered and logged in with Google',
+      token,
+      data: savedUser,
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    return res.status(500).json({ error: "Failed to authenticate with Google" });
+  }
+};
+
 export const getAuthorizedClient = async (connection) => {
   const oAuth2Client = new google.auth.OAuth2(
     CLIENT_ID,
