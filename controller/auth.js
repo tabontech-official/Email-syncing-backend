@@ -3251,3 +3251,84 @@ export const updateConnectionById = async (req, res) => {
     });
   }
 };
+
+
+export const loginAsUserByAdmin = async (req, res) => {
+  try {
+    console.log("====================================");
+    console.log("🔥 [loginAsUserByAdmin] API HIT");
+    console.log("📌 params:", req.params);
+    console.log("📌 userId param:", req.params.userId);
+    console.log("📌 req.user:", req.user);
+    console.log("📌 req.headers.authorization:", req.headers.authorization);
+    console.log("====================================");
+
+    if (!req.user) {
+      console.log("❌ req.user missing. Middleware did not set req.user");
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: req.user missing",
+      });
+    }
+
+    console.log("👤 Current requester:", {
+      id: req.user._id,
+      role: req.user.role,
+    });
+
+    if (req.user.role !== "admin") {
+      console.log("❌ Not admin:", req.user.role);
+      return res.status(403).json({
+        success: false,
+        message: "Only admin allowed",
+      });
+    }
+
+    console.log("✅ Admin verified");
+
+    const user = await authModel.findById(req.params.userId);
+
+    console.log("🔎 Target user found:", user ? {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+    } : null);
+
+    if (!user) {
+      console.log("❌ Target user not found:", req.params.userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const tokenPayload = {
+      _id: user._id,
+      role: user.role,
+      impersonated: true,
+      adminId: req.user._id,
+    };
+
+    console.log("🎫 Creating impersonation token payload:", tokenPayload);
+
+    const token = createToken(tokenPayload);
+
+    console.log("✅ Impersonation token created");
+    console.log("====================================");
+
+    return res.json({
+      success: true,
+      message: "Logged in as user successfully",
+      token,
+      data: user,
+    });
+  } catch (error) {
+    console.error("🔥 [loginAsUserByAdmin] ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error in loginAsUserByAdmin",
+      error: error.message,
+    });
+  }
+};

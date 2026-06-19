@@ -41,8 +41,10 @@ import {
   disableTwoFactor,
   verifyLoginTwoFactor,
   googleLogin,
+  loginAsUserByAdmin,
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
+import { authMiddleware } from '../middleware/authmiddleware.js';
 
 const authRouter = express.Router();
 
@@ -105,5 +107,6 @@ authRouter.put(
   revokeProPlan
 );
 authRouter.post('/google-login', googleLogin);
+authRouter.post('/admin/login-as/:userId', authMiddleware,loginAsUserByAdmin);
 
 export default authRouter;
