@@ -42,12 +42,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 //   return response;
 // };
 
-export const generateGeminiReply = async ({
-  from,
-  subject,
-  body,
-  user,
-}) => {
+export const generateGeminiReply = async ({ from, subject, body, user }) => {
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
   });
@@ -101,7 +96,6 @@ IMPORTANT:
   const result = await model.generateContent(prompt);
   return result.response.text().trim();
 };
-
 
 function checkCondition(condition, email) {
   const fieldValue = (email[condition.field] || '').toLowerCase();
@@ -217,9 +211,10 @@ export const startSMTPServer = () => {
 
           await emailDoc.save();
           console.log(
-            `Email saved to DB with ID: ${emailDoc._id} ${matchedTemplate
-              ? `(linked to template: ${matchedTemplate._id})`
-              : '(no template matched)'
+            `Email saved to DB with ID: ${emailDoc._id} ${
+              matchedTemplate
+                ? `(linked to template: ${matchedTemplate._id})`
+                : '(no template matched)'
             }`
           );
 
@@ -258,10 +253,10 @@ export const getEmails = async (req, res) => {
       status: e.status,
       template: e.templateId
         ? {
-          id: e.templateId._id,
-          service: e.templateId.service,
-          platform: e.templateId.platform,
-        }
+            id: e.templateId._id,
+            service: e.templateId.service,
+            platform: e.templateId.platform,
+          }
         : null,
     }));
 
@@ -534,15 +529,11 @@ function parseKeyValuePairs(text = '') {
 //   }
 // };
 
-
 const isValidConnectionId = (connectionId) => {
   const value = (connectionId || '').toString().trim();
 
   return (
-    value &&
-    value !== 'null' &&
-    value !== 'undefined' &&
-    value !== '(empty)'
+    value && value !== 'null' && value !== 'undefined' && value !== '(empty)'
   );
 };
 
@@ -610,7 +601,6 @@ const moduleDebug = (module = {}) => ({
   hasConnection: isValidConnectionId(module.connectionId),
 });
 
-
 export const mailHookWebhook = async (req, res) => {
   try {
     console.log('==============================');
@@ -636,8 +626,7 @@ export const mailHookWebhook = async (req, res) => {
       };
     }
 
-    const senderAddress =
-      parsed.from?.value?.[0]?.address?.toLowerCase() || '';
+    const senderAddress = parsed.from?.value?.[0]?.address?.toLowerCase() || '';
     // 🔥 FIX: normalize envelope (string → object)
     let envelope = req.body.envelope;
 
@@ -675,13 +664,9 @@ export const mailHookWebhook = async (req, res) => {
       mailhookAddress = parsed.to?.value?.[0]?.address || '';
     }
 
-    mailhookAddress = mailhookAddress
-      .replace(/[<>]/g, '')
-      .trim()
-      .toLowerCase();
+    mailhookAddress = mailhookAddress.replace(/[<>]/g, '').trim().toLowerCase();
 
     console.log('🎯 FINAL MAILHOOK ADDRESS:', mailhookAddress);
-
 
     /* ---------------- VALIDATE MAILHOOK ---------------- */
     if (!mailhookAddress.endsWith('@mail.replexengine.com')) {
@@ -699,9 +684,7 @@ export const mailHookWebhook = async (req, res) => {
 
     /* ---------------- FORWARD DETECTION ---------------- */
     const headerText =
-      typeof parsed.headers === 'string'
-        ? parsed.headers.toLowerCase()
-        : '';
+      typeof parsed.headers === 'string' ? parsed.headers.toLowerCase() : '';
 
     const isForwarded =
       headerText.includes('forwarded') ||
@@ -774,8 +757,6 @@ export const mailHookWebhook = async (req, res) => {
   }
 };
 
-
-
 function fillTemplate(template, fields) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
     const cleanKey = key.trim();
@@ -843,17 +824,17 @@ export const executeScenarios = async (emailData) => {
       console.log('=======================================');
       const runStartedAt = new Date();
       const runSteps = [];
-let runLogDoc = null;
-let delayCreated = false;
+      let runLogDoc = null;
+      let delayCreated = false;
       const addRunStep = (step) => {
         runSteps.push({
           stepKey: step.stepKey,
           stepName: step.stepName,
-          status: step.status || "pending",
-          message: step.message || "",
-          issue: step.issue || "",
-          location: step.location || "",
-          suggestion: step.suggestion || "",
+          status: step.status || 'pending',
+          message: step.message || '',
+          issue: step.issue || '',
+          location: step.location || '',
+          suggestion: step.suggestion || '',
           meta: step.meta || {},
           startedAt: step.startedAt || new Date(),
           completedAt: step.completedAt || new Date(),
@@ -870,32 +851,32 @@ let delayCreated = false;
 
           const matches = branch.filter?.conditions?.length
             ? branch.filter.conditions.every((cond) => {
-              let fieldValue = '';
+                let fieldValue = '';
 
-              switch (cond.field?.toLowerCase()) {
-                case 'subject':
-                  fieldValue = (subject || '').toLowerCase();
-                  break;
-                case 'body':
-                  fieldValue = (body || '').toLowerCase();
-                  break;
-                case 'from':
-                  fieldValue = (from || '').toLowerCase();
-                  break;
-                default:
-                  return false;
-              }
+                switch (cond.field?.toLowerCase()) {
+                  case 'subject':
+                    fieldValue = (subject || '').toLowerCase();
+                    break;
+                  case 'body':
+                    fieldValue = (body || '').toLowerCase();
+                    break;
+                  case 'from':
+                    fieldValue = (from || '').toLowerCase();
+                    break;
+                  default:
+                    return false;
+                }
 
-              const condValue = (cond.value || '').toLowerCase();
+                const condValue = (cond.value || '').toLowerCase();
 
-              if (cond.operator === 'Contains')
-                return fieldValue.includes(condValue);
+                if (cond.operator === 'Contains')
+                  return fieldValue.includes(condValue);
 
-              if (['Equal to', 'Equals'].includes(cond.operator))
-                return fieldValue === condValue;
+                if (['Equal to', 'Equals'].includes(cond.operator))
+                  return fieldValue === condValue;
 
-              return false;
-            })
+                return false;
+              })
             : true;
 
           if (!matches) {
@@ -946,9 +927,7 @@ let delayCreated = false;
               ) {
                 console.log('📝 OTHER: Using direct template HTML');
                 finalTemplateContent = module.template;
-              }
-
-              else {
+              } else {
                 finalTemplateContent = '';
               }
 
@@ -962,33 +941,32 @@ let delayCreated = false;
                 emailId
               );
               addRunStep({
-                stepKey: "reply-email-send",
-                stepName: "Reply Email Send",
-                status: "success",
-                message: "Reply email sent successfully.",
+                stepKey: 'reply-email-send',
+                stepName: 'Reply Email Send',
+                status: 'success',
+                message: 'Reply email sent successfully.',
                 location: from,
                 meta: {
                   moduleId: module.id || module._id,
                   templateId: tpl?._id || null,
-                  templateName: tpl?.name || module.template || "",
+                  templateName: tpl?.name || module.template || '',
                   service: matchedService,
                   stepType,
                 },
               });
 
-
               if (sendResult?.success) {
                 addRunStep({
-                  stepKey: "reply-email-send",
-                  stepName: "Reply Email Send",
-                  status: "success",
-                  message: "Reply email sent successfully.",
+                  stepKey: 'reply-email-send',
+                  stepName: 'Reply Email Send',
+                  status: 'success',
+                  message: 'Reply email sent successfully.',
                   location: from,
                   meta: {
                     moduleId: module.id || module._id,
                     replyEmailId: sendResult.replyEmailId,
                     templateId: tpl?._id || null,
-                    templateName: tpl?.name || module.template || "",
+                    templateName: tpl?.name || module.template || '',
                     service: matchedService,
                     stepType,
                   },
@@ -1003,7 +981,18 @@ let delayCreated = false;
 
       console.log('🛍 Running Shopify Scenario Logic...');
 
+      const subjectLower = (subject || '').toLowerCase().trim();
 
+      const isShopifyInquiry = subjectLower.startsWith(
+        'shopify partner directory: new service inquiry from'
+      );
+
+      if (!isShopifyInquiry) {
+        console.log(
+          '⛔ Not a Shopify Partner Directory inquiry — skipping Shopify scenario only.'
+        );
+        continue;
+      }
 
       console.log(`🧱 Branch Count: ${scenario.routerBranches?.length || 0}`);
 
@@ -1016,28 +1005,28 @@ let delayCreated = false;
 
         const matches = branch.filter?.conditions?.length
           ? branch.filter.conditions.every((cond) => {
-            const fieldValue =
-              cond.field?.toLowerCase() === 'body'
-                ? (body || '').toLowerCase()
-                : cond.field?.toLowerCase() === 'subject'
-                  ? (subject || '').toLowerCase()
-                  : '';
-            const condValue = (cond.value || '').toLowerCase();
+              const fieldValue =
+                cond.field?.toLowerCase() === 'body'
+                  ? (body || '').toLowerCase()
+                  : cond.field?.toLowerCase() === 'subject'
+                    ? (subject || '').toLowerCase()
+                    : '';
+              const condValue = (cond.value || '').toLowerCase();
 
-            console.log(
-              `   Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
-            );
+              console.log(
+                `   Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
+              );
 
-            switch (cond.operator?.toLowerCase()) {
-              case 'contains':
-                return fieldValue.includes(condValue);
-              case 'equals':
-              case 'equal to':
-                return fieldValue === condValue;
-              default:
-                return false;
-            }
-          })
+              switch (cond.operator?.toLowerCase()) {
+                case 'contains':
+                  return fieldValue.includes(condValue);
+                case 'equals':
+                case 'equal to':
+                  return fieldValue === condValue;
+                default:
+                  return false;
+              }
+            })
           : true;
 
         if (!matches) {
@@ -1112,10 +1101,13 @@ let delayCreated = false;
               console.log('⏳ Delay module detected:', moduleDebug(module));
 
               if (!module.delayValue || !module.delayUnit) {
-                console.log('⚠️ Delay skipped — delayValue or delayUnit missing:', {
-                  delayValue: module.delayValue,
-                  delayUnit: module.delayUnit,
-                });
+                console.log(
+                  '⚠️ Delay skipped — delayValue or delayUnit missing:',
+                  {
+                    delayValue: module.delayValue,
+                    delayUnit: module.delayUnit,
+                  }
+                );
                 continue;
               }
 
@@ -1131,7 +1123,8 @@ let delayCreated = false;
               );
 
               const remainingModulesRaw = modulesAfterDelay.filter((m) => {
-                const valid = isEmailModule(m) && isValidConnectionId(m.connectionId);
+                const valid =
+                  isEmailModule(m) && isValidConnectionId(m.connectionId);
 
                 console.log('🔍 Checking delayed remaining module:', {
                   ...moduleDebug(m),
@@ -1162,7 +1155,8 @@ let delayCreated = false;
                   stepType = 'second';
                 }
 
-                const textToSearch = `${subject || ''} ${body || ''}`.toLowerCase();
+                const textToSearch =
+                  `${subject || ''} ${body || ''}`.toLowerCase();
 
                 const defaultServices = [
                   'General',
@@ -1254,15 +1248,21 @@ let delayCreated = false;
                     preview: templateContent.slice(0, 200),
                   });
                 } else {
-                  templateContent = fillTemplate(templateContent, extractedFields);
+                  templateContent = fillTemplate(
+                    templateContent,
+                    extractedFields
+                  );
 
-                  console.log('⚠️ Template not found for delayed module. Using fallback/direct template:', {
-                    moduleId: delayedModule.id || delayedModule._id,
-                    originalTemplateName: delayedModule.template,
-                    matchedService,
-                    stepType,
-                    preview: templateContent.slice(0, 200),
-                  });
+                  console.log(
+                    '⚠️ Template not found for delayed module. Using fallback/direct template:',
+                    {
+                      moduleId: delayedModule.id || delayedModule._id,
+                      originalTemplateName: delayedModule.template,
+                      matchedService,
+                      stepType,
+                      preview: templateContent.slice(0, 200),
+                    }
+                  );
                 }
 
                 remainingModules.push({
@@ -1296,69 +1296,77 @@ let delayCreated = false;
                 break;
               }
 
-            addRunStep({
-  stepKey: "delay-job-create",
-  stepName: "Delay Job Create",
-  status: "success",
-  message: "Delay job created successfully.",
-  location: "",
-  meta: {
-    delayValue: module.delayValue,
-    delayUnit: module.delayUnit,
-    scheduledAt: new Date(Date.now() + delayMs),
-    modulesLeftCount: remainingModules.length,
-  },
-});
+              addRunStep({
+                stepKey: 'delay-job-create',
+                stepName: 'Delay Job Create',
+                status: 'success',
+                message: 'Delay job created successfully.',
+                location: '',
+                meta: {
+                  delayValue: module.delayValue,
+                  delayUnit: module.delayUnit,
+                  scheduledAt: new Date(Date.now() + delayMs),
+                  modulesLeftCount: remainingModules.length,
+                },
+              });
 
-runLogDoc = await ScenarioRunLogModel.create({
-  userId,
-  scenarioId: scenario._id,
-  scenarioName: scenario.name || "",
-  scenarioType: scenario.type || "shopify",
-  runType: "live",
-  status: "partial",
-  message: "Scenario waiting for delayed modules.",
-  service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
-  businessEmail: from || "",
-  customerName: extractedFields.FullName || "",
-  parentEmailId: emailId || null,
-  replyEmailId:
-    runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
-  templateId:
-    runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
-  templateName:
-    runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
-  steps: runSteps,
-  requestPayload: { userId, from, subject, body, emailId },
-  responsePayload: {
-    completedSteps: runSteps.length,
-    delayedModulesCount: remainingModules.length,
-  },
-  startedAt: runStartedAt,
-  completedAt: null,
-});
+              runLogDoc = await ScenarioRunLogModel.create({
+                userId,
+                scenarioId: scenario._id,
+                scenarioName: scenario.name || '',
+                scenarioType: scenario.type || 'shopify',
+                runType: 'live',
+                status: 'partial',
+                message: 'Scenario waiting for delayed modules.',
+                service:
+                  runSteps.find((s) => s.meta?.service)?.meta?.service || '',
+                businessEmail: from || '',
+                customerName: extractedFields.FullName || '',
+                parentEmailId: emailId || null,
+                replyEmailId:
+                  runSteps.find((s) => s.meta?.replyEmailId)?.meta
+                    ?.replyEmailId || null,
+                templateId:
+                  runSteps.find((s) => s.meta?.templateId)?.meta?.templateId ||
+                  null,
+                templateName:
+                  runSteps.find((s) => s.meta?.templateName)?.meta
+                    ?.templateName || '',
+                steps: runSteps,
+                requestPayload: { userId, from, subject, body, emailId },
+                responsePayload: {
+                  completedSteps: runSteps.length,
+                  delayedModulesCount: remainingModules.length,
+                },
+                startedAt: runStartedAt,
+                completedAt: null,
+              });
 
-const delayJob = await DelayJobModel.create({
-  userId,
-  emailData,
-  emailId,
-  scenarioId: scenario._id,
-  runLogId: runLogDoc._id,
-  modulesLeft: remainingModules,
-  scheduledAt: new Date(Date.now() + delayMs),
-});
+              const delayJob = await DelayJobModel.create({
+                userId,
+                emailData,
+                emailId,
+                scenarioId: scenario._id,
+                runLogId: runLogDoc._id,
+                modulesLeft: remainingModules,
+                scheduledAt: new Date(Date.now() + delayMs),
+              });
 
-delayCreated = true;
+              delayCreated = true;
 
-await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
-  $set: {
-    "steps.$[delayStep].location": delayJob._id.toString(),
-    "steps.$[delayStep].meta.delayJobId": delayJob._id,
-    "steps.$[delayStep].meta.scheduledAt": delayJob.scheduledAt,
-  },
-}, {
-  arrayFilters: [{ "delayStep.stepKey": "delay-job-create" }],
-});
+              await ScenarioRunLogModel.findByIdAndUpdate(
+                runLogDoc._id,
+                {
+                  $set: {
+                    'steps.$[delayStep].location': delayJob._id.toString(),
+                    'steps.$[delayStep].meta.delayJobId': delayJob._id,
+                    'steps.$[delayStep].meta.scheduledAt': delayJob.scheduledAt,
+                  },
+                },
+                {
+                  arrayFilters: [{ 'delayStep.stepKey': 'delay-job-create' }],
+                }
+              );
               console.log('DelayJob created:', {
                 delayJobId: delayJob._id,
                 scheduledAt: delayJob.scheduledAt,
@@ -1366,10 +1374,10 @@ await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
                 modulesLeft: remainingModules.map(moduleDebug),
               });
               addRunStep({
-                stepKey: "delay-job-create",
-                stepName: "Delay Job Create",
-                status: "success",
-                message: "Delay job created successfully.",
+                stepKey: 'delay-job-create',
+                stepName: 'Delay Job Create',
+                status: 'success',
+                message: 'Delay job created successfully.',
                 location: delayJob._id.toString(),
                 meta: {
                   delayValue: module.delayValue,
@@ -1395,15 +1403,15 @@ await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
               let templateContent = module.template || 'Thanks for your email!';
               let stepType = 'initial';
 
-              const subjectLower = (subject || '').toLowerCase().trim();
+              // const subjectLower = (subject || '').toLowerCase().trim();
 
-              if (
-                !subjectLower.startsWith(
-                  'shopify partner directory: new service inquiry from'
-                )
-              ) {
-                continue;
-              }
+              // if (
+              //   !subjectLower.startsWith(
+              //     'shopify partner directory: new service inquiry from'
+              //   )
+              // ) {
+              //   continue;
+              // }
 
               const lowerTpl = (module.template || '').toLowerCase();
               if (lowerTpl.includes('first')) stepType = 'first';
@@ -1496,7 +1504,7 @@ await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
                   ...module,
                   template: templateContent,
                   templateId: tpl?._id || null,
-                  templateName: tpl?.name || module.template || "",
+                  templateName: tpl?.name || module.template || '',
                   service: matchedService,
                   stepType,
                 },
@@ -1507,16 +1515,16 @@ await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
 
               if (sendResult?.success) {
                 addRunStep({
-                  stepKey: "reply-email-send",
-                  stepName: "Reply Email Send",
-                  status: "success",
-                  message: "Reply email sent successfully.",
+                  stepKey: 'reply-email-send',
+                  stepName: 'Reply Email Send',
+                  status: 'success',
+                  message: 'Reply email sent successfully.',
                   location: from,
                   meta: {
                     moduleId: module.id || module._id,
                     replyEmailId: sendResult.replyEmailId,
                     templateId: tpl?._id || null,
-                    templateName: tpl?.name || module.template || "",
+                    templateName: tpl?.name || module.template || '',
                     service: matchedService,
                     stepType,
                   },
@@ -1562,43 +1570,44 @@ await ScenarioRunLogModel.findByIdAndUpdate(runLogDoc._id, {
       }
 
       if (!delayCreated) {
-  await ScenarioRunLogModel.create({
-    userId,
-    scenarioId: scenario._id,
-    scenarioName: scenario.name || "",
-    scenarioType: scenario.type || "shopify",
-    runType: "live",
-    status: runSteps.some((s) => s.status === "failed")
-      ? "failed"
-      : runSteps.length > 0
-        ? "success"
-        : "partial",
-    message:
-      runSteps.length > 0
-        ? "Live scenario executed successfully."
-        : "Scenario matched but no executable step completed.",
-    service: runSteps.find((s) => s.meta?.service)?.meta?.service || "",
-    businessEmail: from || "",
-    customerName: extractedFields.FullName || "",
-    parentEmailId: emailId || null,
-    replyEmailId:
-      runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId || null,
-    templateId:
-      runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
-    templateName:
-      runSteps.find((s) => s.meta?.templateName)?.meta?.templateName || "",
-    steps: runSteps,
-    requestPayload: { userId, from, subject, body, emailId },
-    responsePayload: { completedSteps: runSteps.length },
-    startedAt: runStartedAt,
-    completedAt: new Date(),
-  });
-}
+        await ScenarioRunLogModel.create({
+          userId,
+          scenarioId: scenario._id,
+          scenarioName: scenario.name || '',
+          scenarioType: scenario.type || 'shopify',
+          runType: 'live',
+          status: runSteps.some((s) => s.status === 'failed')
+            ? 'failed'
+            : runSteps.length > 0
+              ? 'success'
+              : 'partial',
+          message:
+            runSteps.length > 0
+              ? 'Live scenario executed successfully.'
+              : 'Scenario matched but no executable step completed.',
+          service: runSteps.find((s) => s.meta?.service)?.meta?.service || '',
+          businessEmail: from || '',
+          customerName: extractedFields.FullName || '',
+          parentEmailId: emailId || null,
+          replyEmailId:
+            runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId ||
+            null,
+          templateId:
+            runSteps.find((s) => s.meta?.templateId)?.meta?.templateId || null,
+          templateName:
+            runSteps.find((s) => s.meta?.templateName)?.meta?.templateName ||
+            '',
+          steps: runSteps,
+          requestPayload: { userId, from, subject, body, emailId },
+          responsePayload: { completedSteps: runSteps.length },
+          startedAt: runStartedAt,
+          completedAt: new Date(),
+        });
+      }
     }
 
     console.log('🎉 All Scenarios Execution Complete!');
     console.log('=======================================');
-
   } catch (err) {
     console.error('🔥 Fatal Error in executeScenarios:', err);
   }
@@ -1770,8 +1779,8 @@ export const sendEmailModule = async (
         const toClean = extractEmail(to);
         const ccClean = cc
           ? cc.split(',').map((addr) => ({
-            emailAddress: { address: extractEmail(addr.trim()) },
-          }))
+              emailAddress: { address: extractEmail(addr.trim()) },
+            }))
           : [];
 
         const message = {
@@ -1894,8 +1903,8 @@ export const sendEmailModule = async (
         success: true,
         replyEmailId: sentDoc._id,
         templateId: sentDoc.templateId || null,
-        service: sentDoc.service || "",
-        stepType: sentDoc.stepType || "initial",
+        service: sentDoc.service || '',
+        stepType: sentDoc.stepType || 'initial',
       };
     } else {
       log('⚠️ Email not sent — skipping save.');
@@ -2002,7 +2011,7 @@ export const sendEmailModule = async (
 //     <p style="margin:8px 0;">
 //       <strong>Select the store you're working on</strong><br>
 //       ${storeName || 'N/A'}<br>
-//       <a href="https://${storeName ? storeName.toLowerCase().replace(/\s+/g, '') : 'example'}.myshopify.com" 
+//       <a href="https://${storeName ? storeName.toLowerCase().replace(/\s+/g, '') : 'example'}.myshopify.com"
 //          style="color:#006eff; text-decoration:none;">
 //          https://${storeName ? storeName.toLowerCase().replace(/\s+/g, '') : 'example'}.myshopify.com
 //       </a>
@@ -2097,8 +2106,6 @@ export const sendEmailModule = async (
 //   }
 // };
 
-
-
 export const RunTestMode = async (req, res) => {
   const startedAt = new Date();
   const steps = [];
@@ -2107,10 +2114,10 @@ export const RunTestMode = async (req, res) => {
     stepKey,
     stepName,
     status,
-    message = "",
-    issue = "",
-    location = "",
-    suggestion = "",
+    message = '',
+    issue = '',
+    location = '',
+    suggestion = '',
     meta = {},
   }) => {
     steps.push({
@@ -2130,14 +2137,14 @@ export const RunTestMode = async (req, res) => {
   const saveRunLog = async ({
     status,
     message,
-    errorSummary = "",
+    errorSummary = '',
     errorDetails = {},
     userId,
     scenarioId = null,
-    scenarioName = "Shopify Scenario",
-    service = "",
-    businessEmail = "",
-    fullName = "",
+    scenarioName = 'Shopify Scenario',
+    service = '',
+    businessEmail = '',
+    fullName = '',
     useGeneralTemplate = false,
     parentEmail = null,
     replyEmail = null,
@@ -2150,8 +2157,8 @@ export const RunTestMode = async (req, res) => {
         userId,
         scenarioId,
         scenarioName,
-        scenarioType: "shopify",
-        runType: "test",
+        scenarioType: 'shopify',
+        runType: 'test',
         status,
         message,
         service,
@@ -2161,7 +2168,7 @@ export const RunTestMode = async (req, res) => {
         parentEmailId: parentEmail?._id || null,
         replyEmailId: replyEmail?._id || null,
         templateId: selectedTemplate?._id || null,
-        templateName: selectedTemplate?.name || "",
+        templateName: selectedTemplate?.name || '',
         steps,
         errorSummary,
         errorDetails,
@@ -2171,7 +2178,7 @@ export const RunTestMode = async (req, res) => {
         completedAt: new Date(),
       });
     } catch (logErr) {
-      console.error("Failed to save scenario run log:", logErr);
+      console.error('Failed to save scenario run log:', logErr);
     }
   };
 
@@ -2190,21 +2197,21 @@ export const RunTestMode = async (req, res) => {
 
     if (!userId || !fullName || !businessEmail || !service) {
       addStep({
-        stepKey: "request-validation",
-        stepName: "Request Validation",
-        status: "failed",
-        message: "Missing required fields.",
-        issue: "userId, fullName, businessEmail, or service is missing.",
-        location: "RunTestMode request body",
-        suggestion: "Send all required fields from frontend.",
+        stepKey: 'request-validation',
+        stepName: 'Request Validation',
+        status: 'failed',
+        message: 'Missing required fields.',
+        issue: 'userId, fullName, businessEmail, or service is missing.',
+        location: 'RunTestMode request body',
+        suggestion: 'Send all required fields from frontend.',
         meta: { body: req.body },
       });
 
       if (userId) {
         await saveRunLog({
-          status: "failed",
-          message: "Missing required fields.",
-          errorSummary: "Request validation failed.",
+          status: 'failed',
+          message: 'Missing required fields.',
+          errorSummary: 'Request validation failed.',
           userId,
           service,
           businessEmail,
@@ -2216,35 +2223,35 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(400).json({
         success: false,
-        message: "Missing required fields.",
+        message: 'Missing required fields.',
       });
     }
 
     addStep({
-      stepKey: "request-validation",
-      stepName: "Request Validation",
-      status: "success",
-      message: "Required fields are valid.",
-      location: "RunTestMode request body",
+      stepKey: 'request-validation',
+      stepName: 'Request Validation',
+      status: 'success',
+      message: 'Required fields are valid.',
+      location: 'RunTestMode request body',
     });
 
     const user = await authModel.findById(userId);
 
     if (!user || !user.mailhook) {
       addStep({
-        stepKey: "mailhook-check",
-        stepName: "Mailhook Check",
-        status: "failed",
-        message: "Mailhook not found for this user.",
-        issue: "User does not exist or mailhook is missing.",
-        location: "authModel user record",
-        suggestion: "Create/connect mailhook before running test.",
+        stepKey: 'mailhook-check',
+        stepName: 'Mailhook Check',
+        status: 'failed',
+        message: 'Mailhook not found for this user.',
+        issue: 'User does not exist or mailhook is missing.',
+        location: 'authModel user record',
+        suggestion: 'Create/connect mailhook before running test.',
       });
 
       await saveRunLog({
-        status: "failed",
-        message: "Mailhook not found for this user.",
-        errorSummary: "Mailhook missing.",
+        status: 'failed',
+        message: 'Mailhook not found for this user.',
+        errorSummary: 'Mailhook missing.',
         userId,
         service,
         businessEmail,
@@ -2255,21 +2262,21 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(404).json({
         success: false,
-        message: "Mailhook not found for this user.",
+        message: 'Mailhook not found for this user.',
       });
     }
 
     addStep({
-      stepKey: "mailhook-check",
-      stepName: "Mailhook Check",
-      status: "success",
-      message: "Mailhook found.",
+      stepKey: 'mailhook-check',
+      stepName: 'Mailhook Check',
+      status: 'success',
+      message: 'Mailhook found.',
       location: user.mailhook,
     });
 
     const mailhook = user.mailhook;
-    const partnerName = user.fullName || "The Fold Tech";
-    const dummyCustomer = fullName || "Dummy Customer";
+    const partnerName = user.fullName || 'The Fold Tech';
+    const dummyCustomer = fullName || 'Dummy Customer';
 
     let testData = await TestEmailDataModel.findOne({ userId });
 
@@ -2286,10 +2293,10 @@ export const RunTestMode = async (req, res) => {
       await testData.save();
 
       addStep({
-        stepKey: "test-input-save",
-        stepName: "Test Input Save",
-        status: "success",
-        message: "Existing test input updated.",
+        stepKey: 'test-input-save',
+        stepName: 'Test Input Save',
+        status: 'success',
+        message: 'Existing test input updated.',
         location: String(testData._id),
       });
     } else {
@@ -2305,22 +2312,22 @@ export const RunTestMode = async (req, res) => {
       });
 
       addStep({
-        stepKey: "test-input-save",
-        stepName: "Test Input Save",
-        status: "success",
-        message: "New test input saved.",
+        stepKey: 'test-input-save',
+        stepName: 'Test Input Save',
+        status: 'success',
+        message: 'New test input saved.',
         location: String(testData._id),
       });
     }
 
     const storeSlug = storeName
-      ? storeName.toLowerCase().replace(/\s+/g, "")
-      : "example";
+      ? storeName.toLowerCase().replace(/\s+/g, '')
+      : 'example';
 
     const storeUrl = `https://${storeSlug}.myshopify.com`;
 
     const parentSubject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
-    const parentTextBody = helpDescription || "No description provided.";
+    const parentTextBody = helpDescription || 'No description provided.';
 
     const parentHtmlBody = `
 <div style="font-family: Arial, Helvetica, sans-serif; color:#2b2b2b; line-height:1.6; background:#fff; padding:20px;">
@@ -2342,13 +2349,13 @@ export const RunTestMode = async (req, res) => {
     </p>
     <p style="margin:8px 0;">
       <strong>Select the store you're working on</strong><br>
-      ${storeName || "N/A"}<br>
+      ${storeName || 'N/A'}<br>
       <a href="${storeUrl}" style="color:#006eff; text-decoration:none;">${storeUrl}</a>
     </p>
-    <p style="margin:8px 0;"><strong>Country</strong><br>${country || "N/A"}</p>
+    <p style="margin:8px 0;"><strong>Country</strong><br>${country || 'N/A'}</p>
     <p style="margin:8px 0;"><strong>Select a service offered by ${partnerName}</strong><br>${service}</p>
-    <p style="margin:8px 0;"><strong>Budget (USD)</strong><br>${budget || "Not specified"}</p>
-    <p style="margin:8px 0;"><strong>Description</strong><br>${helpDescription || "No additional information provided."}</p>
+    <p style="margin:8px 0;"><strong>Budget (USD)</strong><br>${budget || 'Not specified'}</p>
+    <p style="margin:8px 0;"><strong>Description</strong><br>${helpDescription || 'No additional information provided.'}</p>
   </div>
   <p style="margin-top:20px;">
     Thank you for being a part of the <strong>Shopify Partner Directory</strong>.
@@ -2358,7 +2365,7 @@ export const RunTestMode = async (req, res) => {
 `;
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -2376,25 +2383,25 @@ export const RunTestMode = async (req, res) => {
     });
 
     addStep({
-      stepKey: "parent-email-send",
-      stepName: "Parent Test Email Send",
-      status: "success",
-      message: "Parent test email sent to mailhook.",
+      stepKey: 'parent-email-send',
+      stepName: 'Parent Test Email Send',
+      status: 'success',
+      message: 'Parent test email sent to mailhook.',
       location: mailhook,
       meta: { messageId: parentSendInfo.messageId },
     });
 
     const parentEmail = await EmailModel.create({
       userId,
-      senderFirstName: dummyCustomer.split(" ")[0] || "",
-      senderLastName: dummyCustomer.split(" ").slice(1).join(" ") || "",
+      senderFirstName: dummyCustomer.split(' ')[0] || '',
+      senderLastName: dummyCustomer.split(' ').slice(1).join(' ') || '',
       senderAddress: businessEmail,
       recipientAddress: mailhook,
       subject: parentSubject,
       textBody: parentTextBody,
       htmlBody: parentHtmlBody,
       service,
-      stepType: "shopify-test-parent",
+      stepType: 'shopify-test-parent',
       messageId: parentSendInfo.messageId,
       date: new Date(),
       isForwarded: false,
@@ -2411,10 +2418,10 @@ export const RunTestMode = async (req, res) => {
     });
 
     addStep({
-      stepKey: "parent-email-save",
-      stepName: "Parent Test Email Save",
-      status: "success",
-      message: "Parent test email saved in database.",
+      stepKey: 'parent-email-save',
+      stepName: 'Parent Test Email Save',
+      status: 'success',
+      message: 'Parent test email saved in database.',
       location: String(parentEmail._id),
     });
 
@@ -2430,7 +2437,7 @@ export const RunTestMode = async (req, res) => {
     } else {
       selectedTemplate = await TemplateModel.findOne({
         userId,
-        service: { $regex: new RegExp(`^${service}$`, "i") },
+        service: { $regex: new RegExp(`^${service}$`, 'i') },
         active: true,
         name: { $regex: /initial/i },
       });
@@ -2447,19 +2454,22 @@ export const RunTestMode = async (req, res) => {
 
     if (!selectedTemplate) {
       addStep({
-        stepKey: "template-check",
-        stepName: "Template Check",
-        status: "failed",
-        message: "No active Initial Email template found.",
-        issue: "No active service or General Initial Email template exists.",
-        location: useGeneralTemplate ? "General templates" : `${service} templates`,
-        suggestion: "Activate an Initial Email template and run the test again.",
+        stepKey: 'template-check',
+        stepName: 'Template Check',
+        status: 'failed',
+        message: 'No active Initial Email template found.',
+        issue: 'No active service or General Initial Email template exists.',
+        location: useGeneralTemplate
+          ? 'General templates'
+          : `${service} templates`,
+        suggestion:
+          'Activate an Initial Email template and run the test again.',
       });
 
       await saveRunLog({
-        status: "failed",
-        message: "No active Initial Email template found.",
-        errorSummary: "Template missing.",
+        status: 'failed',
+        message: 'No active Initial Email template found.',
+        errorSummary: 'Template missing.',
         userId,
         service,
         businessEmail,
@@ -2471,16 +2481,16 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(404).json({
         success: false,
-        message: "No active Initial Email template found.",
+        message: 'No active Initial Email template found.',
         parentEmail,
       });
     }
 
     addStep({
-      stepKey: "template-check",
-      stepName: "Template Check",
-      status: "success",
-      message: "Template selected successfully.",
+      stepKey: 'template-check',
+      stepName: 'Template Check',
+      status: 'success',
+      message: 'Template selected successfully.',
       location: selectedTemplate.name,
       meta: {
         templateId: selectedTemplate._id,
@@ -2488,26 +2498,26 @@ export const RunTestMode = async (req, res) => {
       },
     });
 
-    const replaceTemplateFields = (content = "") => {
+    const replaceTemplateFields = (content = '') => {
       return content
         .replace(/{{FullName}}/g, dummyCustomer)
         .replace(/{{Full name}}/g, dummyCustomer)
-        .replace(/{{BusinessEmail}}/g, businessEmail || "")
-        .replace(/{{Business email}}/g, businessEmail || "")
-        .replace(/{{StoreName}}/g, storeName || "")
-        .replace(/{{Store name}}/g, storeName || "")
+        .replace(/{{BusinessEmail}}/g, businessEmail || '')
+        .replace(/{{Business email}}/g, businessEmail || '')
+        .replace(/{{StoreName}}/g, storeName || '')
+        .replace(/{{Store name}}/g, storeName || '')
         .replace(/{{StoreURL}}/g, storeUrl)
         .replace(/{{Store URL}}/g, storeUrl)
-        .replace(/{{Country}}/g, country || "")
-        .replace(/{{Service}}/g, service || "")
-        .replace(/{{Budget}}/g, budget || "")
-        .replace(/{{ProblemGoal}}/g, helpDescription || "")
-        .replace(/{{Problem & Goal}}/g, helpDescription || "");
+        .replace(/{{Country}}/g, country || '')
+        .replace(/{{Service}}/g, service || '')
+        .replace(/{{Budget}}/g, budget || '')
+        .replace(/{{ProblemGoal}}/g, helpDescription || '')
+        .replace(/{{Problem & Goal}}/g, helpDescription || '');
     };
 
-    const replyHtmlBody = replaceTemplateFields(selectedTemplate.content || "");
+    const replyHtmlBody = replaceTemplateFields(selectedTemplate.content || '');
 
-    const replySubject = parentSubject.startsWith("Re:")
+    const replySubject = parentSubject.startsWith('Re:')
       ? parentSubject
       : `Re: ${parentSubject}`;
 
@@ -2517,7 +2527,7 @@ export const RunTestMode = async (req, res) => {
       scenario?.routerBranches?.flatMap((branch) => branch.modules || []) || [];
 
     console.log(
-      "ALL MODULES FOR TEST:",
+      'ALL MODULES FOR TEST:',
       allModules.map((m) => ({
         id: m.id || m._id,
         appName: m.app?.name,
@@ -2540,27 +2550,27 @@ export const RunTestMode = async (req, res) => {
         m.emailType,
       ]
         .filter(Boolean)
-        .join(" ")
+        .join(' ')
         .toLowerCase();
 
-      return text.includes("initial email");
+      return text.includes('initial email');
     });
 
     if (!initialEmailModule) {
       addStep({
-        stepKey: "initial-email-module-check",
-        stepName: "Initial Email Module Check",
-        status: "failed",
-        message: "Initial Email module not found.",
-        issue: "No Initial Email module exists in scenario.",
-        location: "scenario.routerBranches.modules",
-        suggestion: "Add Initial Email module and select a connection.",
+        stepKey: 'initial-email-module-check',
+        stepName: 'Initial Email Module Check',
+        status: 'failed',
+        message: 'Initial Email module not found.',
+        issue: 'No Initial Email module exists in scenario.',
+        location: 'scenario.routerBranches.modules',
+        suggestion: 'Add Initial Email module and select a connection.',
       });
 
       await saveRunLog({
-        status: "failed",
-        message: "Initial Email module not found.",
-        errorSummary: "Missing Initial Email module.",
+        status: 'failed',
+        message: 'Initial Email module not found.',
+        errorSummary: 'Missing Initial Email module.',
         userId,
         service,
         businessEmail,
@@ -2573,25 +2583,27 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(400).json({
         success: false,
-        message: "Initial Email module not found. Please add Initial Email module first.",
+        message:
+          'Initial Email module not found. Please add Initial Email module first.',
       });
     }
 
     if (!initialEmailModule.connectionId) {
       addStep({
-        stepKey: "initial-email-connection-check",
-        stepName: "Initial Email Connection Check",
-        status: "failed",
-        message: "Initial Email module has no selected connection.",
-        issue: "connectionId is missing from Initial Email module.",
-        location: "scenario.routerBranches.modules.connectionId",
-        suggestion: "Select Gmail/Outlook/SMTP connection in Initial Email module.",
+        stepKey: 'initial-email-connection-check',
+        stepName: 'Initial Email Connection Check',
+        status: 'failed',
+        message: 'Initial Email module has no selected connection.',
+        issue: 'connectionId is missing from Initial Email module.',
+        location: 'scenario.routerBranches.modules.connectionId',
+        suggestion:
+          'Select Gmail/Outlook/SMTP connection in Initial Email module.',
       });
 
       await saveRunLog({
-        status: "failed",
-        message: "Initial Email module connection is missing.",
-        errorSummary: "Missing connectionId.",
+        status: 'failed',
+        message: 'Initial Email module connection is missing.',
+        errorSummary: 'Missing connectionId.',
         userId,
         service,
         businessEmail,
@@ -2604,7 +2616,8 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(400).json({
         success: false,
-        message: "Initial Email module has no selected connection. Please select Gmail/Outlook/SMTP connection.",
+        message:
+          'Initial Email module has no selected connection. Please select Gmail/Outlook/SMTP connection.',
       });
     }
 
@@ -2614,8 +2627,8 @@ export const RunTestMode = async (req, res) => {
       subject: replySubject,
       template: replyHtmlBody,
       templateId: selectedTemplate._id,
-      service: useGeneralTemplate ? "General" : service,
-      stepType: "Initial Email",
+      service: useGeneralTemplate ? 'General' : service,
+      stepType: 'Initial Email',
     };
 
     const sendResult = await sendEmailModule(
@@ -2627,19 +2640,19 @@ export const RunTestMode = async (req, res) => {
 
     if (!sendResult?.success) {
       addStep({
-        stepKey: "reply-email-send",
-        stepName: "Reply Email Send",
-        status: "failed",
-        message: "Reply email failed through selected connection.",
-        issue: "sendEmailModule returned false.",
+        stepKey: 'reply-email-send',
+        stepName: 'Reply Email Send',
+        status: 'failed',
+        message: 'Reply email failed through selected connection.',
+        issue: 'sendEmailModule returned false.',
         location: String(initialEmailModule.connectionId),
-        suggestion: "Check selected connection tokens/SMTP credentials.",
+        suggestion: 'Check selected connection tokens/SMTP credentials.',
       });
 
       await saveRunLog({
-        status: "failed",
-        message: "Failed to send reply using selected connection.",
-        errorSummary: "sendEmailModule failed.",
+        status: 'failed',
+        message: 'Failed to send reply using selected connection.',
+        errorSummary: 'sendEmailModule failed.',
         userId,
         service,
         businessEmail,
@@ -2652,17 +2665,17 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: "Failed to send email through selected connection.",
+        message: 'Failed to send email through selected connection.',
       });
     }
 
     const replyEmail = await EmailModel.findById(sendResult.replyEmailId);
 
     addStep({
-      stepKey: "reply-email-send",
-      stepName: "Reply Email Send",
-      status: "success",
-      message: "Reply email sent using selected DB connection.",
+      stepKey: 'reply-email-send',
+      stepName: 'Reply Email Send',
+      status: 'success',
+      message: 'Reply email sent using selected DB connection.',
       location: businessEmail,
       meta: {
         replyEmailId: sendResult.replyEmailId,
@@ -2674,10 +2687,10 @@ export const RunTestMode = async (req, res) => {
     });
 
     addStep({
-      stepKey: "reply-email-save",
-      stepName: "Reply Email Save",
-      status: "success",
-      message: "Reply email saved in database by sendEmailModule.",
+      stepKey: 'reply-email-save',
+      stepName: 'Reply Email Save',
+      status: 'success',
+      message: 'Reply email saved in database by sendEmailModule.',
       location: String(replyEmail?._id || sendResult.replyEmailId),
     });
 
@@ -2689,7 +2702,7 @@ export const RunTestMode = async (req, res) => {
       emailId: parentSendInfo.messageId,
       parsedEmailObj: {
         from: {
-          value: [{ name: "Replex Engine", address: process.env.EMAIL_USER }],
+          value: [{ name: 'Replex Engine', address: process.env.EMAIL_USER }],
         },
         subject: parentSubject,
         text: parentTextBody,
@@ -2698,11 +2711,11 @@ export const RunTestMode = async (req, res) => {
     });
 
     addStep({
-      stepKey: "scenario-execution",
-      stepName: "Scenario Execution",
-      status: "success",
-      message: "Scenario executed successfully.",
-      location: "executeScenarios",
+      stepKey: 'scenario-execution',
+      stepName: 'Scenario Execution',
+      status: 'success',
+      message: 'Scenario executed successfully.',
+      location: 'executeScenarios',
     });
 
     const responsePayload = {
@@ -2713,7 +2726,7 @@ export const RunTestMode = async (req, res) => {
     };
 
     await saveRunLog({
-      status: "success",
+      status: 'success',
       message: `Test email created, reply sent to ${businessEmail} using selected connection, and scenario executed.`,
       userId,
       service,
@@ -2737,7 +2750,7 @@ export const RunTestMode = async (req, res) => {
       connectionId: initialEmailModule.connectionId,
     });
   } catch (err) {
-    console.error("Run Test Error:", err);
+    console.error('Run Test Error:', err);
 
     const {
       userId,
@@ -2748,19 +2761,19 @@ export const RunTestMode = async (req, res) => {
     } = req.body || {};
 
     addStep({
-      stepKey: "unexpected-error",
-      stepName: "Unexpected Error",
-      status: "failed",
-      message: "Run test failed due to unexpected error.",
+      stepKey: 'unexpected-error',
+      stepName: 'Unexpected Error',
+      status: 'failed',
+      message: 'Run test failed due to unexpected error.',
       issue: err.message,
-      location: "RunTestMode API",
-      suggestion: "Check backend logs and failed step details.",
+      location: 'RunTestMode API',
+      suggestion: 'Check backend logs and failed step details.',
     });
 
     if (userId) {
       await saveRunLog({
-        status: "failed",
-        message: "Failed to send test email or execute scenario.",
+        status: 'failed',
+        message: 'Failed to send test email or execute scenario.',
         errorSummary: err.message,
         errorDetails: {
           stack: err.stack,
@@ -2776,12 +2789,11 @@ export const RunTestMode = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to send test email or execute scenario.",
+      message: 'Failed to send test email or execute scenario.',
       error: err.message,
     });
   }
 };
-
 
 export const RunCustomTestMode = async (req, res) => {
   try {
@@ -3472,7 +3484,6 @@ export const getValidateEmail = async (req, res) => {
   }
 };
 
-
 export const getTestEmailData = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -3500,7 +3511,10 @@ export const getTestEmailData = async (req, res) => {
     console.log('🔍 Searching Zenith validation email...');
     const zenithEmail = await EmailModel.findOne({
       userId,
-      subject: { $regex: 'Replex Engine Forwarding Validation Test', $options: 'i' },
+      subject: {
+        $regex: 'Replex Engine Forwarding Validation Test',
+        $options: 'i',
+      },
       senderAddress: { $regex: process.env.EMAIL_USER, $options: 'i' },
     })
       .sort({ createdAt: -1 })
@@ -3638,23 +3652,16 @@ export const deleteConnectionById = async (req, res) => {
   }
 };
 
-
 export const updateConnectionById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const {
-      email,
-      name,
-      verified,
-      status,
-      smtp,
-    } = req.body;
+    const { email, name, verified, status, smtp } = req.body;
 
     if (!id) {
       return res.status(400).json({
         success: false,
-        message: "Connection ID is required.",
+        message: 'Connection ID is required.',
       });
     }
 
@@ -3663,7 +3670,7 @@ export const updateConnectionById = async (req, res) => {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: "Connection not found.",
+        message: 'Connection not found.',
       });
     }
 
@@ -3682,10 +3689,10 @@ export const updateConnectionById = async (req, res) => {
     }
 
     if (status !== undefined) {
-      if (!["active", "disconnected"].includes(status)) {
+      if (!['active', 'disconnected'].includes(status)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid status value.",
+          message: 'Invalid status value.',
         });
       }
 
@@ -3693,10 +3700,10 @@ export const updateConnectionById = async (req, res) => {
     }
 
     if (smtp !== undefined) {
-      if (existing.provider !== "smtp") {
+      if (existing.provider !== 'smtp') {
         return res.status(400).json({
           success: false,
-          message: "SMTP details can only be updated for SMTP connections.",
+          message: 'SMTP details can only be updated for SMTP connections.',
         });
       }
 
@@ -3713,29 +3720,28 @@ export const updateConnectionById = async (req, res) => {
         new: true,
         runValidators: true,
       }
-    ).select("-tokens -smtp.password");
+    ).select('-tokens -smtp.password');
 
     return res.status(200).json({
       success: true,
-      message: "Connection updated successfully.",
+      message: 'Connection updated successfully.',
       data: updatedConnection,
     });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "A connection with this email already exists for this user.",
+        message: 'A connection with this email already exists for this user.',
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error while updating connection.",
+      message: 'Internal server error while updating connection.',
       error: error.message,
     });
   }
 };
-
 
 export const sendTestEmail = async (req, res) => {
   try {
@@ -3750,7 +3756,7 @@ export const sendTestEmail = async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === "true",
+      secure: process.env.SMTP_SECURE === 'true',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -3758,9 +3764,10 @@ export const sendTestEmail = async (req, res) => {
     });
 
     const mailOptions = {
-      from: process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
+      from:
+        process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
       to: toEmail,
-      subject: "Replex Engine Test Email",
+      subject: 'Replex Engine Test Email',
       text: `Hello,
 
 This is a test email from Replex Engine to confirm that your mail forwarding is set up correctly.
@@ -3874,31 +3881,31 @@ export const verifyConnection = async (req, res) => {
         //   },
         //   tls: { rejectUnauthorized: false },
         // });
-const smtpPort = Number(connection.smtp.port || 587);
-console.log("SMTP CONFIG:", {
-  host: connection.smtp.host,
-  port: smtpPort,
-  secure: smtpPort === 465,
-  username: connection.smtp.username,
-  email: connection.email,
-});
+        const smtpPort = Number(connection.smtp.port || 587);
+        console.log('SMTP CONFIG:', {
+          host: connection.smtp.host,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          username: connection.smtp.username,
+          email: connection.email,
+        });
 
-const transporter = nodemailer.createTransport({
-  host: connection.smtp.host,
-  port: smtpPort,
-  secure: smtpPort === 465,
-  requireTLS: smtpPort === 587,
-  auth: {
-    user: connection.smtp.username || connection.email,
-    pass: connection.smtp.password,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-  connectionTimeout: 20000,
-  greetingTimeout: 20000,
-  socketTimeout: 30000,
-});
+        const transporter = nodemailer.createTransport({
+          host: connection.smtp.host,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          requireTLS: smtpPort === 587,
+          auth: {
+            user: connection.smtp.username || connection.email,
+            pass: connection.smtp.password,
+          },
+          tls: {
+            rejectUnauthorized: false,
+          },
+          connectionTimeout: 20000,
+          greetingTimeout: 20000,
+          socketTimeout: 30000,
+        });
         await transporter.verify();
         verified = true;
         console.log('✅ SMTP verification successful!');
