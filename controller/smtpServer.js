@@ -718,6 +718,31 @@ export const mailHookWebhook = async (req, res) => {
       return res.status(200).send('✅ Forwarding verified');
     }
 
+    /* ---------------- CHECK CUSTOMER REPLY FIRST ---------------- */
+    const savedAsReply = await saveIncomingReplyIfExists({
+      userId: user._id,
+      from: senderAddress,
+      to: mailhookAddress,
+      subject: parsed.subject,
+      body: parsed.text || '',
+      html: parsed.html || '',
+      emailId: parsed.messageId || '',
+      threadId: parsed.threadId || '',
+      inReplyTo: parsed.inReplyTo || '',
+      references: parsed.references || [],
+      attachments:
+        parsed.attachments?.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          size: a.size,
+        })) || [],
+    });
+
+    if (savedAsReply) {
+      console.log('💬 Customer reply saved — scenario skipped');
+      return res.status(200).send('Customer reply saved');
+    }
+
     /* ---------------- SAVE EMAIL ---------------- */
     const emailDoc = await EmailModel.create({
       userId: user._id,
@@ -739,7 +764,7 @@ export const mailHookWebhook = async (req, res) => {
 
     console.log('💾 Email saved:', emailDoc._id);
 
-    /* ---------------- EXECUTE SCENARIOS ---------------- */
+    // /* ---------------- EXECUTE SCENARIOS ---------------- */
     await executeScenarios({
       userId: user._id,
       from: senderAddress,
@@ -797,6 +822,44 @@ function extractFieldsFromEmail(emailObj = {}) {
   return fields;
 }
 
+export const saveIncomingReplyIfExists = async (emailData) => {
+  const { userId } = emailData;
+
+  const parentEmail = await EmailModel.findOne({
+    userId,
+    $or: [
+      emailData.threadId ? { threadId: emailData.threadId } : null,
+      emailData.inReplyTo ? { messageId: emailData.inReplyTo } : null,
+      emailData.references?.length
+        ? { messageId: { $in: emailData.references } }
+        : null,
+    ].filter(Boolean),
+  });
+
+  if (!parentEmail) return false;
+
+  await EmailModel.create({
+    userId,
+    senderAddress: emailData.from,
+    recipientAddress: emailData.to,
+    subject: emailData.subject,
+    textBody: emailData.body,
+    htmlBody: emailData.html || '',
+    date: new Date(),
+
+    direction: 'incoming',
+    threadId: emailData.threadId || parentEmail.threadId || null,
+    parentEmailId: parentEmail._id,
+
+    messageId: emailData.emailId,
+    inReplyTo: emailData.inReplyTo || '',
+    references: emailData.references || [],
+    attachments: emailData.attachments || [],
+  });
+
+  return true;
+};
+
 export const executeScenarios = async (emailData) => {
   try {
     console.log('=======================================');
@@ -851,39 +914,40 @@ export const executeScenarios = async (emailData) => {
 
           // const matches = branch.filter?.conditions?.length
           //   ? branch.filter.conditions.every((cond) => {
-            if (!branch.filter?.conditions?.length) {
-  console.log("OTHER: No branch conditions found — skipping to avoid replying to every email.");
-  continue;
-}
+          if (!branch.filter?.conditions?.length) {
+            console.log(
+              'OTHER: No branch conditions found — skipping to avoid replying to every email.'
+            );
+            continue;
+          }
 
-const matches = branch.filter.conditions.every((cond) => {
-                let fieldValue = '';
+          const matches = branch.filter.conditions.every((cond) => {
+            let fieldValue = '';
 
-                switch (cond.field?.toLowerCase()) {
-                  case 'subject':
-                    fieldValue = (subject || '').toLowerCase();
-                    break;
-                  case 'body':
-                    fieldValue = (body || '').toLowerCase();
-                    break;
-                  case 'from':
-                    fieldValue = (from || '').toLowerCase();
-                    break;
-                  default:
-                    return false;
-                }
-
-                const condValue = (cond.value || '').toLowerCase();
-
-                if (cond.operator === 'Contains')
-                  return fieldValue.includes(condValue);
-
-                if (['Equal to', 'Equals'].includes(cond.operator))
-                  return fieldValue === condValue;
-
+            switch (cond.field?.toLowerCase()) {
+              case 'subject':
+                fieldValue = (subject || '').toLowerCase();
+                break;
+              case 'body':
+                fieldValue = (body || '').toLowerCase();
+                break;
+              case 'from':
+                fieldValue = (from || '').toLowerCase();
+                break;
+              default:
                 return false;
-              })
-            
+            }
+
+            const condValue = (cond.value || '').toLowerCase();
+
+            if (cond.operator === 'Contains')
+              return fieldValue.includes(condValue);
+
+            if (['Equal to', 'Equals'].includes(cond.operator))
+              return fieldValue === condValue;
+
+            return false;
+          });
 
           if (!matches) {
             console.log('OTHER: Branch conditions did NOT match — skipping.');
@@ -1886,6 +1950,8 @@ export const sendEmailModule = async (
         subject: safeSubject,
         textBody: plainTextBody,
         htmlBody: emailBody,
+        direction: 'outgoing',
+        threadId: result?.data?.threadId || null,
         templateId: module.templateId || null,
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
@@ -1904,11 +1970,13 @@ export const sendEmailModule = async (
       });
 
       await sentDoc.save();
-      log('✅ Sent email saved in DB with ID:', sentDoc._id);
+      log(' Sent email saved in DB with ID:', sentDoc._id);
       return {
         success: true,
         replyEmailId: sentDoc._id,
         templateId: sentDoc.templateId || null,
+        threadId: sentDoc.threadId,
+
         service: sentDoc.service || '',
         stepType: sentDoc.stepType || 'initial',
       };
@@ -3195,26 +3263,26 @@ export const getEmailDataforUser = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "User ID is required",
+        message: 'User ID is required',
       });
     }
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid user ID format",
+        message: 'Invalid user ID format',
       });
     }
 
     const userEmails = await EmailModel.find({ userId })
-      .populate("userId", "name email")
-      .populate("templateId")
+      .populate('userId', 'name email')
+      .populate('templateId')
       .lean();
 
     if (!userEmails.length) {
       return res.status(404).json({
         success: false,
-        message: "No emails found for this user",
+        message: 'No emails found for this user',
       });
     }
 
@@ -3255,7 +3323,7 @@ export const getEmailDataforUser = async (req, res) => {
     if (!executedRootEmails.length) {
       return res.status(404).json({
         success: false,
-        message: "No scenario-executed emails found for this user",
+        message: 'No scenario-executed emails found for this user',
       });
     }
 
@@ -3268,11 +3336,11 @@ export const getEmailDataforUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching scenario-executed emails:", error);
+    console.error('Error fetching scenario-executed emails:', error);
 
     return res.status(500).json({
       success: false,
-      message: "Server error while fetching scenario-executed emails",
+      message: 'Server error while fetching scenario-executed emails',
       error: error.message,
     });
   }

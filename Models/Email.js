@@ -61,6 +61,24 @@ const emailSchema = new mongoose.Schema(
     verificationCode: { type: String, default: null },
     verificationUrl: { type: String, default: null },
     extraFields: { type: Object, default: {} },
+    threadId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    direction: {
+      type: String,
+      enum: ['incoming', 'outgoing'],
+      default: 'incoming',
+      index: true,
+    },
+
+    scenarioRunLogId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ScenarioRunLog',
+      default: null,
+    },
   },
   { timestamps: true }
 );
