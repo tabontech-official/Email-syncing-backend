@@ -46,12 +46,7 @@ import {
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
 import { authMiddleware } from '../middleware/authmiddleware.js';
-import {
-  addLeadDiscussion,
-  deleteMultipleLeads,
-  deleteSingleLead,
-  updateLeadStatus,
-} from '../controller/smtpServer.js';
+import { addLeadDiscussion, deleteMultipleLeads, deleteSingleLead, updateLeadStatus } from '../controller/smtpServer.js';
 
 const authRouter = express.Router();
 
@@ -65,16 +60,13 @@ authRouter.patch('/verify/:id', verifyUser);
 authRouter.post('/saveSmtpConnection', addSmtpConnection);
 authRouter.post('/organization/create', createOrganization);
 authRouter.get('/organization/get/:userId', getOrganizationByUserId);
-authRouter.post('/2fa/setup', setupTwoFactor);
-authRouter.post('/2fa/verify-setup', verifyTwoFactorSetup);
-authRouter.post('/2fa/disable', disableTwoFactor);
-authRouter.post('/2fa/verify-login', verifyLoginTwoFactor);
-authRouter.put('/change-password', updatePassword);
+authRouter.post("/2fa/setup", setupTwoFactor);
+authRouter.post("/2fa/verify-setup", verifyTwoFactorSetup);
+authRouter.post("/2fa/disable", disableTwoFactor);
+authRouter.post("/2fa/verify-login", verifyLoginTwoFactor);
+authRouter.put("/change-password", updatePassword);
 authRouter.get('/google', googleAuth);
-authRouter.patch('/lead-status/:emailId', updateLeadStatus);
-authRouter.post('/discussion/:emailId', addLeadDiscussion);
-authRouter.delete('/lead/:emailId', deleteSingleLead);
-authRouter.post('/leads/delete-many', deleteMultipleLeads);
+
 authRouter.get('/google/callback', googleAuthCallback);
 authRouter.put('/setup/:id', completeSetup);
 authRouter.get('/setup/:id', getSetupProgress);
@@ -118,6 +110,6 @@ authRouter.put(
   revokeProPlan
 );
 authRouter.post('/google-login', googleLogin);
-authRouter.post('/admin/login-as/:userId', authMiddleware, loginAsUserByAdmin);
+authRouter.post('/admin/login-as/:userId', authMiddleware,loginAsUserByAdmin);
 
 export default authRouter;

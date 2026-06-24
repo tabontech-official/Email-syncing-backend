@@ -79,7 +79,11 @@ const emailSchema = new mongoose.Schema(
   default: 'new_lead',
   index: true,
 },
-
+connectionId: {
+  type: mongoose.Schema.Types.ObjectId,
+  default: null,
+  index: true,
+},
 discussion: [
   {
     message: { type: String, required: true },

@@ -1708,7 +1708,9 @@ export const sendEmailModule = async (
   module,
   to,
   originalSubject,
-  parentEmailId
+  parentEmailId,
+    threadId = null,
+  parentMessageId = null
 ) => {
   const log = (...args) =>
     console.log(`[${new Date().toISOString()}]`, ...args);
@@ -1813,7 +1815,9 @@ export const sendEmailModule = async (
           `To: ${to}\r\n` +
           (cc ? `Cc: ${cc}\r\n` : '') +
           (bcc ? `Bcc: ${bcc}\r\n` : '') +
-          `Subject: ${safeSubject}\r\n` +
+          
+          (parentMessageId ? `In-Reply-To: ${parentMessageId}\r\n` : '') +
+(parentMessageId ? `References: ${parentMessageId}\r\n` : '') +
           'MIME-Version: 1.0\r\n' +
           'Content-Type: text/html; charset=UTF-8\r\n' +
           '\r\n' + // DOUBLE CRLF separates headers from body
@@ -1942,6 +1946,8 @@ export const sendEmailModule = async (
           bcc,
           subject: safeSubject,
           html: emailBody,
+           inReplyTo: parentMessageId || undefined,
+  references: parentMessageId ? [parentMessageId] : undefined,
         });
 
         log('✅ [SMTP] Email sent successfully!');
@@ -1969,8 +1975,11 @@ export const sendEmailModule = async (
         htmlBody: emailBody,
         direction: 'outgoing',
         messageId: sentProviderMessageId,
-        threadId: sentThreadId,
-        templateId: module.templateId || null,
+connectionId: module.connectionId,
+threadId: sentThreadId || threadId || parentMessageId || null,
+inReplyTo: parentMessageId || null,
+references: parentMessageId ? [parentMessageId] : [],        templateId: module.templateId || null,
+        
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
@@ -2134,12 +2143,77 @@ export const addLeadDiscussion = async (req, res) => {
       });
     }
 
-    const email = await EmailModel.findByIdAndUpdate(
+    const rootEmail = await EmailModel.findById(emailId);
+
+    if (!rootEmail) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    const lastOutgoingChild = await EmailModel.findOne({
+      parentEmailId: rootEmail._id,
+      direction: 'outgoing',
+    }).sort({ date: -1 });
+
+    if (!lastOutgoingChild) {
+      return res.status(400).json({
+        success: false,
+        message: 'No outgoing child email found for this lead',
+      });
+    }
+
+    if (!lastOutgoingChild.connectionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'connectionId missing on last outgoing email',
+      });
+    }
+
+    const customerEmail = lastOutgoingChild.recipientAddress;
+
+    if (!customerEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer email not found',
+      });
+    }
+
+    const subject = lastOutgoingChild.subject?.startsWith('Re:')
+      ? lastOutgoingChild.subject
+      : `Re: ${rootEmail.subject || 'Lead Inquiry'}`;
+
+    const cleanMessage = message.trim();
+
+    const sendResult = await sendEmailModule(
+      {
+        connectionId: lastOutgoingChild.connectionId,
+        subject,
+        template: `<div>${cleanMessage.replace(/\n/g, '<br/>')}</div>`,
+        service: lastOutgoingChild.service || rootEmail.service,
+        stepType: 'Manual Reply',
+      },
+      customerEmail,
+      rootEmail.subject,
+      rootEmail._id,
+      rootEmail.threadId || lastOutgoingChild.threadId || rootEmail.messageId,
+      lastOutgoingChild.messageId || rootEmail.messageId
+    );
+
+    if (!sendResult?.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email send failed',
+      });
+    }
+
+    const updatedEmail = await EmailModel.findByIdAndUpdate(
       emailId,
       {
         $push: {
           discussion: {
-            message: message.trim(),
+            message: cleanMessage,
             createdBy: userId || null,
           },
         },
@@ -2147,27 +2221,21 @@ export const addLeadDiscussion = async (req, res) => {
       { new: true }
     );
 
-    if (!email) {
-      return res.status(404).json({
-        success: false,
-        message: 'Email not found',
-      });
-    }
-
     return res.status(200).json({
       success: true,
-      message: 'Discussion added',
-      data: email,
+      message: 'Discussion added and email sent to customer',
+      data: updatedEmail,
+      sentEmail: sendResult,
     });
   } catch (error) {
     console.error('addLeadDiscussion error:', error);
     return res.status(500).json({
       success: false,
       message: 'Server error',
+      error: error.message,
     });
   }
 };
-
 
 // export const RunTestMode = async (req, res) => {
 //   try {
@@ -2652,6 +2720,7 @@ export const RunTestMode = async (req, res) => {
       service,
       stepType: 'shopify-test-parent',
       messageId: parentSendInfo.messageId,
+      threadId: parentSendInfo.messageId,
       date: new Date(),
       isForwarded: false,
       parentEmailId: null,

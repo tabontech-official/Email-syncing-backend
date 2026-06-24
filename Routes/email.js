@@ -1,7 +1,10 @@
 import express from 'express';
 import {
+  addLeadDiscussion,
   deleteAllConnections,
   deleteConnectionById,
+  deleteMultipleLeads,
+  deleteSingleLead,
   getConnectionById,
   getEmailDataforUser,
   getEmails,
@@ -16,6 +19,7 @@ import {
   RunTestMode,
   sendTestEmail,
   updateConnectionById,
+  updateLeadStatus,
   validateTestEmail,
   verifyConnection,
 } from '../controller/smtpServer.js';
@@ -52,4 +56,8 @@ emailRouter.get("/:id", getConnectionById);
 emailRouter.post("/test/custom", RunCustomTestMode);
 emailRouter.get("/email/latest/:userId", getLatestServiceEmail);
 emailRouter.put("/connection/:id", updateConnectionById);
+emailRouter.patch('/lead-status/:emailId', updateLeadStatus);
+emailRouter.post('/discussion/:emailId', addLeadDiscussion);
+emailRouter.delete('/lead/:emailId', deleteSingleLead);
+emailRouter.post('/leads/delete-many', deleteMultipleLeads);
 export default emailRouter;
