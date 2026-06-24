@@ -1985,7 +1985,7 @@ export const forgotPassword = async (req, res) => {
     });
 
     const mailOptions = {
-      from: `"Make Support" <${process.env.EMAIL_USER}>`,
+      from: `"Replex Engine : Reset your password" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Reset Your Password',
       html: `
