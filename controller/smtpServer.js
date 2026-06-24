@@ -825,18 +825,33 @@ function extractFieldsFromEmail(emailObj = {}) {
 export const saveIncomingReplyIfExists = async (emailData) => {
   const { userId } = emailData;
 
+  const orConditions = [];
+
+  if (emailData.threadId) {
+    orConditions.push({ threadId: emailData.threadId });
+  }
+
+  if (emailData.inReplyTo) {
+    orConditions.push({ messageId: emailData.inReplyTo });
+  }
+
+  if (emailData.references && emailData.references.length > 0) {
+    orConditions.push({ messageId: { $in: emailData.references } });
+  }
+
+  if (orConditions.length === 0) {
+    console.log('ℹ️ No reply identifiers found — not a customer reply');
+    return false;
+  }
+
   const parentEmail = await EmailModel.findOne({
     userId,
-    $or: [
-      emailData.threadId ? { threadId: emailData.threadId } : null,
-      emailData.inReplyTo ? { messageId: emailData.inReplyTo } : null,
-      emailData.references?.length
-        ? { messageId: { $in: emailData.references } }
-        : null,
-    ].filter(Boolean),
+    $or: orConditions,
   });
 
-  if (!parentEmail) return false;
+  if (!parentEmail) {
+    return false;
+  }
 
   await EmailModel.create({
     userId,
@@ -846,11 +861,9 @@ export const saveIncomingReplyIfExists = async (emailData) => {
     textBody: emailData.body,
     htmlBody: emailData.html || '',
     date: new Date(),
-
     direction: 'incoming',
     threadId: emailData.threadId || parentEmail.threadId || null,
     parentEmailId: parentEmail._id,
-
     messageId: emailData.emailId,
     inReplyTo: emailData.inReplyTo || '',
     references: emailData.references || [],
