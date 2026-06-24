@@ -1790,7 +1790,8 @@ export const sendEmailModule = async (
       (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
 
     let sentOk = false;
-
+let sentThreadId = null;
+let sentProviderMessageId = null;
     // =====================================================================
     // ------------------------ 📧 GMAIL PROVIDER ---------------------------
     // =====================================================================
@@ -1838,6 +1839,8 @@ export const sendEmailModule = async (
         log('✅ [GMAIL] Message sent successfully!');
         log('📨 Gmail Message ID:', result.data.id);
         sentOk = true;
+        sentThreadId = result.data.threadId;
+        sentProviderMessageId = result.data.id;
       } catch (err) {
         log('❌ [GMAIL] Send Error:', err.response?.data || err.message);
       }
@@ -1943,6 +1946,7 @@ export const sendEmailModule = async (
 
         log('✅ [SMTP] Email sent successfully!');
         log('📨 Message ID:', info.messageId);
+        sentProviderMessageId = info.messageId || null;
         sentOk = true;
       } catch (err) {
         log('❌ [SMTP] Send Error:', err.message);
@@ -1964,7 +1968,8 @@ export const sendEmailModule = async (
         textBody: plainTextBody,
         htmlBody: emailBody,
         direction: 'outgoing',
-        threadId: result?.data?.threadId || null,
+messageId: sentProviderMessageId,
+threadId: sentThreadId,
         templateId: module.templateId || null,
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
