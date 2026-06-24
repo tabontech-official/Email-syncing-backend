@@ -849,8 +849,14 @@ export const executeScenarios = async (emailData) => {
           console.log(`OTHER Branch ID: ${branch.id}`);
           console.log(`Conditions: ${branch.filter?.conditions?.length}`);
 
-          const matches = branch.filter?.conditions?.length
-            ? branch.filter.conditions.every((cond) => {
+          // const matches = branch.filter?.conditions?.length
+          //   ? branch.filter.conditions.every((cond) => {
+            if (!branch.filter?.conditions?.length) {
+  console.log("OTHER: No branch conditions found — skipping to avoid replying to every email.");
+  continue;
+}
+
+const matches = branch.filter.conditions.every((cond) => {
                 let fieldValue = '';
 
                 switch (cond.field?.toLowerCase()) {
@@ -877,7 +883,7 @@ export const executeScenarios = async (emailData) => {
 
                 return false;
               })
-            : true;
+            
 
           if (!matches) {
             console.log('OTHER: Branch conditions did NOT match — skipping.');
@@ -2326,7 +2332,7 @@ export const RunTestMode = async (req, res) => {
 
     const storeUrl = `https://${storeSlug}.myshopify.com`;
 
-    const parentSubject = `FW: Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
+    const parentSubject = `Shopify Partner Directory: New Service Inquiry from ${dummyCustomer} to ${partnerName}`;
     const parentTextBody = helpDescription || 'No description provided.';
 
     const parentHtmlBody = `
@@ -3107,6 +3113,81 @@ export const getEmailsForUsers = async (req, res) => {
   }
 };
 
+// export const getEmailDataforUser = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'User ID is required',
+//       });
+//     }
+
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid user ID format',
+//       });
+//     }
+
+//     // 1️⃣ Get all emails for this user
+//     const userEmails = await EmailModel.find({ userId })
+//       .populate('userId', 'name email')
+//       .populate('templateId')
+//       .lean();
+
+//     if (!userEmails.length) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'No emails found for this user',
+//       });
+//     }
+
+//     // 2️⃣ Create a lookup map for quick access
+//     const emailMap = {};
+//     userEmails.forEach(
+//       (email) => (emailMap[email._id] = { ...email, children: [] })
+//     );
+
+//     // 3️⃣ Build the tree (root → replies)
+//     const rootEmails = [];
+//     userEmails.forEach((email) => {
+//       if (email.parentEmailId && emailMap[email.parentEmailId]) {
+//         emailMap[email.parentEmailId].children.push(emailMap[email._id]);
+//       } else {
+//         rootEmails.push(emailMap[email._id]);
+//       }
+//     });
+
+//     // 4️⃣ Fetch automation statuses for all emails
+//     const emailIds = userEmails.map((e) => e._id);
+//     const statuses = await AutomationStatusModel.find({
+//       emailId: { $in: emailIds },
+//     })
+//       .populate('scenarioId', 'name description')
+//       .lean();
+
+//     // 5️⃣ Return full user email hierarchy
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         userId,
+//         totalEmails: userEmails.length,
+//         rootEmails, // 👈 parent emails (with nested replies)
+//         statuses, // 👈 all automation statuses for this user’s emails
+//       },
+//     });
+//   } catch (error) {
+//     console.error('Error fetching emails for user:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Server error while fetching emails for user',
+//       error: error.message,
+//     });
+//   }
+// };
+
 export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -3114,69 +3195,84 @@ export const getEmailDataforUser = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: 'User ID is required',
+        message: "User ID is required",
       });
     }
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format',
+        message: "Invalid user ID format",
       });
     }
 
-    // 1️⃣ Get all emails for this user
     const userEmails = await EmailModel.find({ userId })
-      .populate('userId', 'name email')
-      .populate('templateId')
+      .populate("userId", "name email")
+      .populate("templateId")
       .lean();
 
     if (!userEmails.length) {
       return res.status(404).json({
         success: false,
-        message: 'No emails found for this user',
+        message: "No emails found for this user",
       });
     }
 
-    // 2️⃣ Create a lookup map for quick access
     const emailMap = {};
-    userEmails.forEach(
-      (email) => (emailMap[email._id] = { ...email, children: [] })
-    );
 
-    // 3️⃣ Build the tree (root → replies)
-    const rootEmails = [];
     userEmails.forEach((email) => {
-      if (email.parentEmailId && emailMap[email.parentEmailId]) {
-        emailMap[email.parentEmailId].children.push(emailMap[email._id]);
+      emailMap[email._id.toString()] = {
+        ...email,
+        children: [],
+      };
+    });
+
+    const rootEmails = [];
+
+    userEmails.forEach((email) => {
+      const emailId = email._id.toString();
+      const parentId = email.parentEmailId?.toString();
+
+      if (parentId && emailMap[parentId]) {
+        emailMap[parentId].children.push(emailMap[emailId]);
       } else {
-        rootEmails.push(emailMap[email._id]);
+        rootEmails.push(emailMap[emailId]);
       }
     });
 
-    // 4️⃣ Fetch automation statuses for all emails
-    const emailIds = userEmails.map((e) => e._id);
-    const statuses = await AutomationStatusModel.find({
-      emailId: { $in: emailIds },
-    })
-      .populate('scenarioId', 'name description')
-      .lean();
+    // Only emails where automation/scenario actually replied/executed
+    const executedRootEmails = rootEmails.filter((email) => {
+      return email.children?.some((child) => {
+        return (
+          child.templateId ||
+          child.isForwarded === true ||
+          child.stepType ||
+          child.service
+        );
+      });
+    });
 
-    // 5️⃣ Return full user email hierarchy
-    res.status(200).json({
+    if (!executedRootEmails.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No scenario-executed emails found for this user",
+      });
+    }
+
+    return res.status(200).json({
       success: true,
       data: {
         userId,
-        totalEmails: userEmails.length,
-        rootEmails, // 👈 parent emails (with nested replies)
-        statuses, // 👈 all automation statuses for this user’s emails
+        totalEmails: executedRootEmails.length,
+        rootEmails: executedRootEmails,
       },
     });
   } catch (error) {
-    console.error('Error fetching emails for user:', error);
-    res.status(500).json({
+    console.error("Error fetching scenario-executed emails:", error);
+
+    return res.status(500).json({
       success: false,
-      message: 'Server error while fetching emails for user',
+      message: "Server error while fetching scenario-executed emails",
       error: error.message,
     });
   }

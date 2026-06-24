@@ -30,6 +30,7 @@ import SalesRouter from './Routes/talkToSales.js';
 import scenarioRunLogRouter from './Routes/scenarioRunLog.js';
 import landingPageRouter from './Routes/landingPageRoutes.js';
 import scriptRouter from './Routes/scriptRoutes.js';
+import productPageRouter from './Routes/productPage.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -70,6 +71,7 @@ app.use("/admin/scripts", scriptRouter);
 app.use('/mailhookcard', mailhookRouter);
 app.use("/scenario-run-log", scenarioRunLogRouter);
 app.use("/api/landing-page", landingPageRouter);
+app.use("/api/product-page", productPageRouter);
 
 (async () => {
   try {
