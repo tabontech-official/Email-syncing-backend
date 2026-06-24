@@ -1790,8 +1790,8 @@ export const sendEmailModule = async (
       (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
 
     let sentOk = false;
-let sentThreadId = null;
-let sentProviderMessageId = null;
+    let sentThreadId = null;
+    let sentProviderMessageId = null;
     // =====================================================================
     // ------------------------ 📧 GMAIL PROVIDER ---------------------------
     // =====================================================================
@@ -1968,8 +1968,8 @@ let sentProviderMessageId = null;
         textBody: plainTextBody,
         htmlBody: emailBody,
         direction: 'outgoing',
-messageId: sentProviderMessageId,
-threadId: sentThreadId,
+        messageId: sentProviderMessageId,
+        threadId: sentThreadId,
         templateId: module.templateId || null,
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
@@ -2011,6 +2011,163 @@ threadId: sentThreadId,
     console.error('🔥 [sendEmailModule] Fatal Error:', outerErr);
   }
 };
+
+
+export const updateLeadStatus = async (req, res) => {
+  try {
+    const { emailId } = req.params;
+    const { leadStatus } = req.body;
+
+    const allowedStatuses = ['new_lead', 'secured', 'closed'];
+
+    if (!allowedStatuses.includes(leadStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid lead status',
+      });
+    }
+
+    const email = await EmailModel.findByIdAndUpdate(
+      emailId,
+      { leadStatus },
+      { new: true }
+    );
+
+    if (!email) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lead status updated',
+      data: email,
+    });
+  } catch (error) {
+    console.error('updateLeadStatus error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+    });
+  }
+};
+
+
+export const deleteSingleLead = async (req, res) => {
+  try {
+    const { emailId } = req.params;
+
+    const email = await EmailModel.findByIdAndUpdate(
+      emailId,
+      { isDeleted: true },
+      { new: true }
+    );
+
+    if (!email) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lead deleted',
+    });
+  } catch (error) {
+    console.error('deleteSingleLead error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+    });
+  }
+};
+
+
+export const deleteMultipleLeads = async (req, res) => {
+  try {
+    const { emailIds } = req.body;
+
+    if (!Array.isArray(emailIds) || emailIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'emailIds array is required',
+      });
+    }
+
+    const validIds = emailIds.filter((id) =>
+      mongoose.Types.ObjectId.isValid(id)
+    );
+
+    await EmailModel.updateMany(
+      { _id: { $in: validIds } },
+      { isDeleted: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Selected leads deleted',
+    });
+  } catch (error) {
+    console.error('deleteMultipleLeads error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+    });
+  }
+};
+
+
+
+
+export const addLeadDiscussion = async (req, res) => {
+  try {
+    const { emailId } = req.params;
+    const { message, userId } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message is required',
+      });
+    }
+
+    const email = await EmailModel.findByIdAndUpdate(
+      emailId,
+      {
+        $push: {
+          discussion: {
+            message: message.trim(),
+            createdBy: userId || null,
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!email) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Discussion added',
+      data: email,
+    });
+  } catch (error) {
+    console.error('addLeadDiscussion error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+    });
+  }
+};
+
 
 // export const RunTestMode = async (req, res) => {
 //   try {

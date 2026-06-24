@@ -73,6 +73,33 @@ const emailSchema = new mongoose.Schema(
       default: 'incoming',
       index: true,
     },
+    leadStatus: {
+  type: String,
+  enum: ['new_lead', 'secured', 'closed'],
+  default: 'new_lead',
+  index: true,
+},
+
+discussion: [
+  {
+    message: { type: String, required: true },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+],
+
+isDeleted: {
+  type: Boolean,
+  default: false,
+  index: true,
+},
 
     scenarioRunLogId: {
       type: mongoose.Schema.Types.ObjectId,
