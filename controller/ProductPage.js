@@ -1,4 +1,4 @@
-import ProductPage from "../Models/ProductPage.js";
+import ProductPage from "../Models/productPage.js";
 
 const defaultProductContent = {
   logoText: "Replex Engine",
