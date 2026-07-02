@@ -1,233 +1,391 @@
+// import { google } from 'googleapis';
+// import { executeScenarios } from '../controller/smtpServer.js';
+// import { ConnectionModel } from '../Models/Connection.js';
+// import { EmailModel } from '../Models/Email.js';
+
+// // ------------------------------
+// // BODY EXTRACTOR (FIXED)
+// // ------------------------------
+// const extractBody = (payload) => {
+//   try {
+//     const parts = payload.payload?.parts || [];
+
+//     // text/plain first
+//     const textPart = parts.find((p) => p.mimeType === 'text/plain');
+//     if (textPart?.body?.data) {
+//       return Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+//     }
+
+//     // html fallback
+//     const htmlPart = parts.find((p) => p.mimeType === 'text/html');
+//     if (htmlPart?.body?.data) {
+//       return Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
+//     }
+
+//     return payload.snippet || '';
+//   } catch (err) {
+//     return payload.snippet || '';
+//   }
+// };
+
+// // ------------------------------
+// // MAIN FUNCTION
+// // ------------------------------
+// const getHeader = (name) =>
+//   headers.find((h) => h.name === name)?.value || '';
+
+// // ADD THIS
+// const from = getHeader('From');
+// const to = getHeader('To');
+// const cc = getHeader('Cc');
+// const bcc = getHeader('Bcc');
+// const subject = getHeader('Subject');
+// const date = getHeader('Date');
+// const messageIdHeader = getHeader('Message-ID');
+// const inReplyTo = getHeader('In-Reply-To');
+// const references = getHeader('References');
+
+// export async function processGmailEmail(emailAddress, historyId) {
+//   try {
+//     // 1. CONNECTION
+//     const connection = await ConnectionModel.findOne({
+//       email: emailAddress,
+//       provider: 'gmail',
+//     });
+
+//     if (!connection) {
+//       console.log('❌ No connection found for:', emailAddress);
+//       return;
+//     }
+
+//     // 2. OAUTH SETUP
+//     const oauth2Client = new google.auth.OAuth2(
+//       process.env.GOOGLE_CLIENT_ID,
+//       process.env.GOOGLE_CLIENT_SECRET,
+//       process.env.GOOGLE_REDIRECT_URI
+//     );
+
+//     oauth2Client.setCredentials(connection.tokens);
+
+//     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+//     // 3. HISTORY FETCH
+//     const history = await gmail.users.history.list({
+//       userId: 'me',
+//       startHistoryId: connection.gmailWatch?.historyId || historyId,
+//       historyTypes: ['messageAdded'],
+//     });
+
+//     const histories = history.data.history || [];
+//     const messages = histories.flatMap((h) => h.messages || []);
+
+//     if (!messages.length) {
+//       console.log('ℹ️ No new emails found');
+//       return;
+//     }
+
+//     // 4. PROCESS EMAILS
+//     for (const msg of messages) {
+//       try {
+//         if (!msg?.id) continue;
+
+//         // DUPLICATE CHECK
+//         const exists = await EmailModel.findOne({
+//           messageId: msg.id,
+//           direction: 'incoming',
+//         });
+
+//         if (exists) {
+//           console.log('⚠️ Duplicate skipped:', msg.id);
+//           continue;
+//         }
+
+//         // FETCH MESSAGE (ONLY ONCE — FIXED)
+//         const email = await gmail.users.messages.get({
+//           userId: 'me',
+//           id: msg.id,
+//         });
+
+//         const payload = email.data;
+//         const headers = payload.payload?.headers || [];
+
+//         const getHeader = (name) =>
+//           headers.find((h) => h.name === name)?.value || '';
+
+//         // BODY FIXED
+//         const body = extractBody(payload);
+
+//         const normalizedEmail = {
+//           emailId: msg.id,
+//           from: getHeader('From'),
+//           subject: getHeader('Subject'),
+//           body,
+//           parsedEmailObj: payload,
+//         };
+
+//         console.log('📩 Processing Email:', normalizedEmail.subject);
+
+//         // 5. SAVE EMAIL (INCOMING)
+//         const parentEmail = await EmailModel.create({
+//           userId: connection.userId,
+//           messageId: normalizedEmail.emailId,
+//           from: normalizedEmail.from,
+//           subject: normalizedEmail.subject,
+//           body: body,
+//           snippet: payload.snippet,
+//           htmlBody:
+//             payload.payload?.parts
+//               ?.find((p) => p.mimeType === 'text/html')
+//               ?.body?.data
+//               ? Buffer.from(
+//                   payload.payload.parts.find(
+//                     (p) => p.mimeType === 'text/html'
+//                   ).body.data,
+//                   'base64'
+//                 ).toString('utf-8')
+//               : null,
+//           threadId: payload.threadId || null,
+//           direction: 'incoming',
+//           role: 'parent',
+//           connectionId: connection._id,
+//         });
+
+//         // 6. RUN SCENARIOS
+//         await executeScenarios({
+//           userId: connection.userId,
+//           from: normalizedEmail.from,
+//           subject: normalizedEmail.subject,
+//           body: body,
+//           emailId: parentEmail._id,
+//           parsedEmailObj: normalizedEmail.parsedEmailObj,
+//         });
+//       } catch (err) {
+//         console.log('❌ Error processing message:', msg.id, err.message);
+//       }
+//     }
+
+//     // 7. UPDATE HISTORY ID
+//     if (history?.data?.historyId) {
+//       await ConnectionModel.updateOne(
+//         { _id: connection._id },
+//         {
+//           $set: {
+//             'gmailWatch.historyId': history.data.historyId,
+//           },
+//         }
+//       );
+//     }
+
+//     console.log('✅ Gmail processing complete');
+//   } catch (err) {
+//     console.log('🔥 processGmailEmail fatal error:', err.message);
+//   }
+// }
+
 import { google } from 'googleapis';
-
 import { executeScenarios } from '../controller/smtpServer.js';
-
 import { ConnectionModel } from '../Models/Connection.js';
+import { EmailModel } from '../Models/Email.js';
 
-
-
-export async function processGmailEmail(emailAddress, historyId) {
-
+// ------------------------------
+// BODY EXTRACTOR (SAFE)
+// ------------------------------
+const extractBody = (payload) => {
   try {
+    const parts = payload.payload?.parts || [];
 
-    // 1. Find connection
-
-    const connection = await ConnectionModel.findOne({
-
-      email: emailAddress,
-
-      provider: 'gmail',
-
-    });
-
-
-
-    if (!connection) {
-
-      console.log('❌ No connection found for:', emailAddress);
-
-      return;
-
+    const textPart = parts.find((p) => p.mimeType === 'text/plain');
+    if (textPart?.body?.data) {
+      return Buffer.from(textPart.body.data, 'base64').toString('utf-8');
     }
 
+    const htmlPart = parts.find((p) => p.mimeType === 'text/html');
+    if (htmlPart?.body?.data) {
+      return Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
+    }
 
+    return payload.snippet || '';
+  } catch (err) {
+    return payload.snippet || '';
+  }
+};
 
-    // 2. Setup OAuth
+// ------------------------------
+// MAIN FUNCTION
+// ------------------------------
+export async function processGmailEmail(emailAddress, historyId) {
+  try {
+    // 1. CONNECTION
+    const connection = await ConnectionModel.findOne({
+      email: emailAddress,
+      provider: 'gmail',
+    });
 
+    if (!connection) {
+      console.log('❌ No connection found for:', emailAddress);
+      return;
+    }
+
+    // 2. OAUTH
     const oauth2Client = new google.auth.OAuth2(
-
       process.env.GOOGLE_CLIENT_ID,
-
       process.env.GOOGLE_CLIENT_SECRET,
-
       process.env.GOOGLE_REDIRECT_URI
-
     );
-
-
 
     oauth2Client.setCredentials(connection.tokens);
 
-
-
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-
-
-    // 3. Fetch Gmail history safely
-
+    // 3. HISTORY
     const history = await gmail.users.history.list({
-
       userId: 'me',
-
       startHistoryId: connection.gmailWatch?.historyId || historyId,
-
       historyTypes: ['messageAdded'],
-
     });
 
-
-
     const histories = history.data.history || [];
-
-
-
-    const messages = histories.flatMap(h => h.messages || []);
-
-
+    const messages = histories.flatMap((h) => h.messages || []);
 
     if (!messages.length) {
-
       console.log('ℹ️ No new emails found');
-
       return;
-
     }
 
-
-
-    // 4. Prevent duplicate processing (in-memory safeguard)
-
-    const processed = new Set();
-
-
-
-    // 5. Process each email
-
+    // 4. PROCESS EMAILS
     for (const msg of messages) {
-
       try {
-
         if (!msg?.id) continue;
 
-
-
-        // duplicate protection
-
-        if (processed.has(msg.id)) continue;
-
-        processed.add(msg.id);
-
-
-
-        const email = await gmail.users.messages.get({
-
-          userId: 'me',
-
-          id: msg.id,
-
+        // DUPLICATE CHECK
+        const exists = await EmailModel.findOne({
+          messageId: msg.id,
+          direction: 'incoming',
         });
 
+        if (exists) {
+          console.log('⚠️ Duplicate skipped:', msg.id);
+          continue;
+        }
 
+        // FETCH EMAIL
+        const email = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+        });
 
         const payload = email.data;
 
-
-
+        // ------------------------------
+        // HEADERS SAFE EXTRACTION
+        // ------------------------------
         const headers = payload.payload?.headers || [];
 
-
-
         const getHeader = (name) =>
-
           headers.find((h) => h.name === name)?.value || '';
 
+        const from = getHeader('From');
+        const to = getHeader('To');
+        const cc = getHeader('Cc');
+        const bcc = getHeader('Bcc');
+        const subject = getHeader('Subject');
+        const date = getHeader('Date');
+        const messageIdHeader = getHeader('Message-ID');
+        const inReplyTo = getHeader('In-Reply-To');
+        const references = getHeader('References');
 
+        const body = extractBody(payload);
 
-        // 6. Better body extraction
-
-        const body =
-
-          payload.snippet ||
-
-          payload.payload?.body?.data ||
-
-          '';
-
-
-
+        // ------------------------------
+        // NORMALIZED EMAIL
+        // ------------------------------
         const normalizedEmail = {
-
           emailId: msg.id,
-
-          from: getHeader('From'),
-
-          subject: getHeader('Subject'),
-
+          from,
+          to,
+          cc,
+          bcc,
+          subject,
+          date,
+          messageIdHeader,
+          inReplyTo,
+          references,
           body,
-
           parsedEmailObj: payload,
-
         };
 
+        console.log('📩 Processing Email:', subject);
 
-
-        console.log('📩 Processing Email:', normalizedEmail.subject);
-
-
-
-        // 7. RUN YOUR EXISTING ENGINE
-
-        await executeScenarios({
-
+        // ------------------------------
+        // SAVE EMAIL
+        // ------------------------------
+        const parentEmail = await EmailModel.create({
           userId: connection.userId,
 
-          from: normalizedEmail.from,
+          messageId: normalizedEmail.emailId,
 
-          subject: normalizedEmail.subject,
+          senderAddress: from,
+          recipientAddress: to,
 
-          body: normalizedEmail.body,
+          cc: cc ? cc.split(',') : [],
+          bcc: bcc ? bcc.split(',') : [],
 
-          emailId: normalizedEmail.emailId,
+          subject: subject,
+          textBody: body,
 
-          parsedEmailObj: normalizedEmail.parsedEmailObj,
+          htmlBody:
+            payload.payload?.parts
+              ?.find((p) => p.mimeType === 'text/html')
+              ?.body?.data
+              ? Buffer.from(
+                  payload.payload.parts.find(
+                    (p) => p.mimeType === 'text/html'
+                  ).body.data,
+                  'base64'
+                ).toString('utf-8')
+              : null,
 
+          threadId: payload.threadId || null,
+
+          inReplyTo: inReplyTo || null,
+          references: references ? references.split(' ') : [],
+
+          direction: 'incoming',
+
+          connectionId: connection._id,
         });
 
-
-
+        // ------------------------------
+        // SCENARIO ENGINE
+        // ------------------------------
+        await executeScenarios({
+          userId: connection.userId,
+          from,
+          to,
+          subject,
+          body,
+          emailId: parentEmail._id,
+          parsedEmailObj: payload,
+        });
       } catch (err) {
-
         console.log('❌ Error processing message:', msg.id, err.message);
-
       }
-
     }
 
-
-
-    // 8. Update historyId safely
-
-    if (historyId) {
-
+    // 5. UPDATE HISTORY ID
+    if (history?.data?.historyId) {
       await ConnectionModel.updateOne(
-
         { _id: connection._id },
-
         {
-
           $set: {
-
-            'gmailWatch.historyId': historyId,
-
+            'gmailWatch.historyId': history.data.historyId,
           },
-
         }
-
       );
-
     }
-
-
 
     console.log('✅ Gmail processing complete');
-
-
-
   } catch (err) {
-
     console.log('🔥 processGmailEmail fatal error:', err.message);
-
   }
-
 }

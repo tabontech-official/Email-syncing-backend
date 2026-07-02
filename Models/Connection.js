@@ -18,7 +18,7 @@ const connectionSchema = new mongoose.Schema(
     tokens: { type: Object },
     verified: {
       type: Boolean,
-      default:false
+      default: false,
     },
     smtp: {
       host: { type: String },
@@ -26,11 +26,11 @@ const connectionSchema = new mongoose.Schema(
       username: { type: String },
       password: { type: String },
     },
-gmailWatch: {
-  historyId: { type: String },
-  expiration: { type: String },
-  watchEnabledAt: { type: Date },
-},
+    gmailWatch: {
+      historyId: { type: String },
+      expiration: { type: String },
+      watchEnabledAt: { type: Date },
+    },
     status: {
       type: String,
       enum: ['active', 'disconnected'],

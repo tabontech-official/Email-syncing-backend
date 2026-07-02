@@ -1709,7 +1709,7 @@ export const sendEmailModule = async (
   to,
   originalSubject,
   parentEmailId,
-    threadId = null,
+  threadId = null,
   parentMessageId = null
 ) => {
   const log = (...args) =>
@@ -1815,9 +1815,8 @@ export const sendEmailModule = async (
           `To: ${to}\r\n` +
           (cc ? `Cc: ${cc}\r\n` : '') +
           (bcc ? `Bcc: ${bcc}\r\n` : '') +
-          
           (parentMessageId ? `In-Reply-To: ${parentMessageId}\r\n` : '') +
-(parentMessageId ? `References: ${parentMessageId}\r\n` : '') +
+          (parentMessageId ? `References: ${parentMessageId}\r\n` : '') +
           'MIME-Version: 1.0\r\n' +
           'Content-Type: text/html; charset=UTF-8\r\n' +
           '\r\n' + // DOUBLE CRLF separates headers from body
@@ -1946,8 +1945,8 @@ export const sendEmailModule = async (
           bcc,
           subject: safeSubject,
           html: emailBody,
-           inReplyTo: parentMessageId || undefined,
-  references: parentMessageId ? [parentMessageId] : undefined,
+          inReplyTo: parentMessageId || undefined,
+          references: parentMessageId ? [parentMessageId] : undefined,
         });
 
         log('✅ [SMTP] Email sent successfully!');
@@ -1975,11 +1974,12 @@ export const sendEmailModule = async (
         htmlBody: emailBody,
         direction: 'outgoing',
         messageId: sentProviderMessageId,
-connectionId: module.connectionId,
-threadId: sentThreadId || threadId || parentMessageId || null,
-inReplyTo: parentMessageId || null,
-references: parentMessageId ? [parentMessageId] : [],        templateId: module.templateId || null,
-        
+        connectionId: module.connectionId,
+        threadId: sentThreadId || threadId || parentMessageId || null,
+        inReplyTo: parentMessageId || null,
+        references: parentMessageId ? [parentMessageId] : [],
+        templateId: module.templateId || null,
+
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
@@ -2020,7 +2020,6 @@ references: parentMessageId ? [parentMessageId] : [],        templateId: module.
     console.error('🔥 [sendEmailModule] Fatal Error:', outerErr);
   }
 };
-
 
 export const updateLeadStatus = async (req, res) => {
   try {
@@ -2063,7 +2062,6 @@ export const updateLeadStatus = async (req, res) => {
   }
 };
 
-
 export const deleteSingleLead = async (req, res) => {
   try {
     const { emailId } = req.params;
@@ -2093,7 +2091,6 @@ export const deleteSingleLead = async (req, res) => {
     });
   }
 };
-
 
 export const deleteMultipleLeads = async (req, res) => {
   try {
@@ -2127,9 +2124,6 @@ export const deleteMultipleLeads = async (req, res) => {
     });
   }
 };
-
-
-
 
 export const addLeadDiscussion = async (req, res) => {
   const log = (...args) =>
@@ -3643,13 +3637,6 @@ export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID is required',
-      });
-    }
-
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
@@ -3669,61 +3656,44 @@ export const getEmailDataforUser = async (req, res) => {
       });
     }
 
-    const emailMap = {};
-
-    userEmails.forEach((email) => {
-      emailMap[email._id.toString()] = {
-        ...email,
-        children: [],
-      };
+    // ✅ FIXED ROOT LOGIC
+    const rootEmails = userEmails.filter((email) => {
+      return (
+        email.direction === 'incoming' &&
+        !email.parentEmailId
+      );
     });
 
-    const rootEmails = [];
-
-    userEmails.forEach((email) => {
-      const emailId = email._id.toString();
-      const parentId = email.parentEmailId?.toString();
-
-      if (parentId && emailMap[parentId]) {
-        emailMap[parentId].children.push(emailMap[emailId]);
-      } else {
-        rootEmails.push(emailMap[emailId]);
-      }
-    });
-
-    // Only emails where automation/scenario actually replied/executed
-    const executedRootEmails = rootEmails.filter((email) => {
-      return email.children?.some((child) => {
+    // attach conversations
+    const emailsWithThreads = rootEmails.map((root) => {
+      const thread = userEmails.filter((e) => {
         return (
-          child.templateId ||
-          child.isForwarded === true ||
-          child.stepType ||
-          child.service
+          e.parentEmailId?.toString() === root._id.toString() ||
+          e._id.toString() === root._id.toString()
         );
       });
-    });
 
-    if (!executedRootEmails.length) {
-      return res.status(404).json({
-        success: false,
-        message: 'No scenario-executed emails found for this user',
-      });
-    }
+      return {
+        ...root,
+        conversation: thread.sort(
+          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+        ),
+      };
+    });
 
     return res.status(200).json({
       success: true,
       data: {
         userId,
-        totalEmails: executedRootEmails.length,
-        rootEmails: executedRootEmails,
+        totalThreads: emailsWithThreads.length,
+        threads: emailsWithThreads,
       },
     });
-  } catch (error) {
-    console.error('Error fetching scenario-executed emails:', error);
 
+  } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Server error while fetching scenario-executed emails',
+      message: 'Server error',
       error: error.message,
     });
   }

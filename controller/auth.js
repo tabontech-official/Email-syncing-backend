@@ -1126,6 +1126,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
+
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
   CLIENT_SECRET,
@@ -1156,59 +1157,176 @@ export const googleAuth = (req, res) => {
 
   res.redirect(authUrl);
 };
+// export const googleAuthCallback = async (req, res) => {
+//   const { code, state } = req.query;
+
+//   let userId, redirectPath;
+//   try {
+//     const parsedState = JSON.parse(state);
+//     userId = parsedState.userId;
+//     redirectPath = parsedState.redirect || 'connection'; // default if missing
+//   } catch (err) {
+//     return res.status(400).send('Invalid state parameter');
+//   }
+
+//   try {
+//     const oauth2Client = new google.auth.OAuth2(
+//       CLIENT_ID,
+//       CLIENT_SECRET,
+//       REDIRECT_URI
+//     );
+
+//     const { tokens } = await oauth2Client.getToken(code);
+//     oauth2Client.setCredentials(tokens);
+//     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+//     const watchResponse = await gmail.users.watch({
+//       userId: 'me',
+//       requestBody: {
+//         topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
+//         labelIds: ['INBOX'],
+//       },
+//     });
+//     connection.gmailWatch = {
+//       historyId: watchResponse.data.historyId,
+//       expiration: watchResponse.data.expiration,
+//     };
+
+//     await connection.save();
+//     if (!tokens.refresh_token) {
+//       return res.redirect(
+//         `${FRONTEND_URL}/${redirectPath}?status=no_refresh_token`
+//       );
+//     }
+
+//     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+//     const response = await peopleApi.people.get({
+//       resourceName: 'people/me',
+//       personFields: 'emailAddresses,names',
+//     });
+
+//     const userEmail = response.data.emailAddresses?.[0]?.value;
+//     const userName = response.data.names?.[0]?.displayName || '';
+
+//     if (!userEmail)
+//       return res.status(400).send('No email found in Google profile');
+
+//     let connection = await ConnectionModel.findOne({
+//       userId,
+//       email: userEmail,
+//     });
+
+//     if (!connection) {
+//       connection = new ConnectionModel({
+//         userId,
+//         provider: 'gmail',
+//         email: userEmail,
+//         name: userName,
+//         tokens,
+//         status: 'active',
+//         createdAt: new Date(),
+//       });
+//     } else {
+//       connection.tokens = tokens;
+//       connection.status = 'active';
+//       connection.lastConnected = new Date();
+//     }
+
+//     await connection.save();
+
+//     return res.redirect(
+//       `${FRONTEND_URL}/${redirectPath}?google-auth-success=true&connectionId=${connection._id}`
+//     );
+//   } catch (error) {
+//     console.error('❌ Error during Google auth callback:', error);
+//     return res.redirect(`${FRONTEND_URL}/${redirectPath}?status=error`);
+//   }
+// };
+
 export const googleAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
+  console.log('🚀 [STEP 1] OAuth callback hit');
+  console.log('📩 Code received:', !!code);
+  console.log('📦 State raw:', state);
+
   let userId, redirectPath;
+
+  // -------------------------------
+  // STATE PARSE
+  // -------------------------------
   try {
     const parsedState = JSON.parse(state);
+
+    console.log('📦 [STEP 2] Parsed state:', parsedState);
+
     userId = parsedState.userId;
-    redirectPath = parsedState.redirect || 'connection'; // default if missing
+    redirectPath = parsedState.redirect || 'connection';
+
+    console.log('👤 User ID:', userId);
+    console.log('🔁 Redirect path:', redirectPath);
   } catch (err) {
+    console.log('❌ [STATE ERROR]', err.message);
     return res.status(400).send('Invalid state parameter');
   }
 
   try {
+    // -------------------------------
+    // OAUTH CLIENT INIT
+    // -------------------------------
+    console.log('🔐 [STEP 3] Creating OAuth client');
+
     const oauth2Client = new google.auth.OAuth2(
       CLIENT_ID,
       CLIENT_SECRET,
       REDIRECT_URI
     );
 
+    console.log('🔐 CLIENT_ID:', CLIENT_ID);
+    console.log('🔐 REDIRECT_URI:', REDIRECT_URI);
+
+    // -------------------------------
+    // TOKEN EXCHANGE
+    // -------------------------------
+    console.log('🔄 [STEP 4] Exchanging code for tokens...');
+
     const { tokens } = await oauth2Client.getToken(code);
+
+    console.log('🎟️ Tokens received:');
+    console.log('   access_token:', !!tokens.access_token);
+    console.log('   refresh_token:', !!tokens.refresh_token);
+
     oauth2Client.setCredentials(tokens);
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    const watchResponse = await gmail.users.watch({
-      userId: 'me',
-      requestBody: {
-        topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
-        labelIds: ['INBOX'],
-      },
-    });
-    connection.gmailWatch = {
-      historyId: watchResponse.data.historyId,
-      expiration: watchResponse.data.expiration,
-    };
-
-    await connection.save();
-    if (!tokens.refresh_token) {
-      return res.redirect(
-        `${FRONTEND_URL}/${redirectPath}?status=no_refresh_token`
-      );
-    }
+    // -------------------------------
+    // PEOPLE API
+    // -------------------------------
+    console.log('👤 [STEP 5] Fetching Google profile...');
 
     const peopleApi = google.people({ version: 'v1', auth: oauth2Client });
+
     const response = await peopleApi.people.get({
       resourceName: 'people/me',
       personFields: 'emailAddresses,names',
     });
 
+    console.log('📨 People API response:', response.data);
+
     const userEmail = response.data.emailAddresses?.[0]?.value;
     const userName = response.data.names?.[0]?.displayName || '';
 
-    if (!userEmail)
+    console.log('📧 Email:', userEmail);
+    console.log('👤 Name:', userName);
+
+    if (!userEmail) {
+      console.log('❌ No email found');
       return res.status(400).send('No email found in Google profile');
+    }
+
+    // -------------------------------
+    // CONNECTION FIND / CREATE
+    // -------------------------------
+    console.log('🗄️ [STEP 6] Finding connection');
 
     let connection = await ConnectionModel.findOne({
       userId,
@@ -1216,6 +1334,8 @@ export const googleAuthCallback = async (req, res) => {
     });
 
     if (!connection) {
+      console.log('🆕 Creating new connection');
+
       connection = new ConnectionModel({
         userId,
         provider: 'gmail',
@@ -1226,6 +1346,8 @@ export const googleAuthCallback = async (req, res) => {
         createdAt: new Date(),
       });
     } else {
+      console.log('♻️ Updating existing connection');
+
       connection.tokens = tokens;
       connection.status = 'active';
       connection.lastConnected = new Date();
@@ -1233,12 +1355,50 @@ export const googleAuthCallback = async (req, res) => {
 
     await connection.save();
 
+    console.log('💾 Connection saved:', connection._id);
+
+    // -------------------------------
+    // GMAIL WATCH
+    // -------------------------------
+    console.log('📡 [STEP 7] Starting Gmail watch');
+
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
+        labelIds: ['INBOX'],
+      },
+    });
+
+    console.log('📡 Watch response FULL:', watchResponse.data);
+
+    connection.gmailWatch = {
+      historyId: watchResponse.data.historyId,
+      expiration: watchResponse.data.expiration,
+    };
+
+    await connection.save();
+
+    console.log('✅ Gmail watch saved');
+
+    // -------------------------------
+    // SUCCESS REDIRECT
+    // -------------------------------
+    console.log('🎉 SUCCESS - Redirecting user');
+
     return res.redirect(
-      `${FRONTEND_URL}/${redirectPath}?google-auth-success=true&connectionId=${connection._id}`
+      `${process.env.FRONTEND_URL}/${redirectPath}?google-auth-success=true&connectionId=${connection._id}`
     );
   } catch (error) {
-    console.error('❌ Error during Google auth callback:', error);
-    return res.redirect(`${FRONTEND_URL}/${redirectPath}?status=error`);
+    console.log('❌ [FATAL ERROR]');
+    console.log('Message:', error.message);
+    console.log('Full error:', error);
+
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/${redirectPath}?status=error`
+    );
   }
 };
 
@@ -1786,7 +1946,9 @@ export const addSmtpConnection = async (req, res) => {
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
-const FRONTEND_URL = process.env.FRONTEND_URL;
+// const FRONTEND_URL = process.env.FRONTEND_URL;
+const FRONTEND_URL = 'http://localhost:3006';
+
 const oauthConfig = {
   client: {
     id: MICROSOFT_CLIENT_ID,
