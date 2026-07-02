@@ -1367,7 +1367,7 @@ export const googleAuthCallback = async (req, res) => {
     const watchResponse = await gmail.users.watch({
       userId: 'me',
       requestBody: {
-        topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
+        topicName: 'projects/replex-engine/topics/gmail-notifications',
         labelIds: ['INBOX'],
       },
     });
