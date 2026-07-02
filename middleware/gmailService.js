@@ -53,8 +53,22 @@ export async function processGmailEmail(emailAddress, historyId) {
 
 console.log("CLIENT_ID:", process.env.GOOGLE_CLIENT_ID);
 console.log("CLIENT_SECRET:", process.env.GOOGLE_CLIENT_SECRET ? "SET" : "MISSING");
-console.log("REDIRECT_URI:", process.env.GOOGLE_REDIRECT_URI);    oauth2Client.setCredentials(connection.tokens);
-
+console.log("REDIRECT_URI:", process.env.GOOGLE_REDIRECT_URI); 
+  //  oauth2Client.setCredentials(connection.tokens);
+  console.log("🧪 RAW TOKENS TYPE:", typeof connection.tokens);
+console.log("🧪 RAW TOKENS:", connection.tokens);
+console.log("🧪 HAS REFRESH:", !!connection.tokens?.refresh_token);
+const safeTokens = JSON.parse(JSON.stringify(connection.tokens));
+if (!connection.tokens?.refresh_token) {
+  throw new Error("❌ refresh_token missing in DB → re-auth required");
+}
+oauth2Client.setCredentials({
+  access_token: safeTokens.access_token,
+  refresh_token: safeTokens.refresh_token,
+  scope: safeTokens.scope,
+  token_type: safeTokens.token_type,
+  expiry_date: safeTokens.expiry_date,
+});
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
     // 3. HISTORY
@@ -206,6 +220,7 @@ console.log("REDIRECT_URI:", process.env.GOOGLE_REDIRECT_URI);    oauth2Client.s
 
     console.log('✅ Gmail processing complete');
   } catch (err) {
-    console.log('🔥 processGmailEmail fatal error:', err.message);
+  console.log("🔥 GMAIL API ERROR:", err.response?.data || err.message);
+  throw err;
   }
 }
