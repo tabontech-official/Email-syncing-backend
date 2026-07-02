@@ -19,10 +19,8 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
 import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 import mongoose from 'mongoose';
-import speakeasy from "speakeasy";
-import QRCode from "qrcode";
-
-
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 
 export const defaultServices = [
   'General',
@@ -66,7 +64,7 @@ const welcomeEmailTemplate = (user) => `
       </h2>
 
       <p style="color:#374151;font-size:15px">
-        Hi <strong>${user.fullName || "there"}</strong>,
+        Hi <strong>${user.fullName || 'there'}</strong>,
       </p>
 
       <p style="color:#374151;font-size:15px">
@@ -88,7 +86,7 @@ const welcomeEmailTemplate = (user) => `
         border:1px dashed #d1d5db;
         word-break:break-all;
       ">
-        ${user.mailhook || "N/A"}
+        ${user.mailhook || 'N/A'}
       </div>
 
       <p style="margin-top:20px;color:#374151;font-size:15px">
@@ -119,12 +117,12 @@ const welcomeEmailTemplate = (user) => `
 `;
 
 const welcomeEmailText = (user) => `
-Hi ${user.fullName || "there"},
+Hi ${user.fullName || 'there'},
 
 Your Replex Engine account has been successfully created.
 
 Your unique Mailhook is:
-${user.mailhook || "N/A"}
+${user.mailhook || 'N/A'}
 
 Use this address to forward your emails and start building automation workflows.
 
@@ -136,13 +134,13 @@ https://replexengine.com
 
 export const welComeEmail = async ({ to, subject, html, text }) => {
   if (!to) {
-    throw new Error("Recipient email is required");
+    throw new Error('Recipient email is required');
   }
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === "true",
+    secure: process.env.SMTP_SECURE === 'true',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
@@ -150,7 +148,8 @@ export const welComeEmail = async ({ to, subject, html, text }) => {
   });
 
   return transporter.sendMail({
-    from: process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
+    from:
+      process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
     to,
     subject,
     html,
@@ -166,7 +165,7 @@ export const sendWelcomeEmail = async ({ to, fullName, mailhook }) => {
 
   return welComeEmail({
     to,
-    subject: "Welcome to Replex Engine",
+    subject: 'Welcome to Replex Engine',
     html: welcomeEmailTemplate(user),
     text: welcomeEmailText(user),
   });
@@ -358,7 +357,7 @@ export const signUp = async (req, res) => {
         mailhook: savedUser.mailhook,
       });
     } catch (emailError) {
-      console.error("Welcome email failed:", emailError.message);
+      console.error('Welcome email failed:', emailError.message);
     }
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
 
@@ -409,40 +408,39 @@ export const signUp = async (req, res) => {
 //   }
 // };
 
-
 export const signIn = async (req, res) => {
   try {
-    console.log("=======================================");
-    console.log("🔐 [signIn] Login request received");
-    console.log("📩 Request body:", {
+    console.log('=======================================');
+    console.log('🔐 [signIn] Login request received');
+    console.log('📩 Request body:', {
       email: req.body?.email,
       hasPassword: Boolean(req.body?.password),
     });
-    console.log("=======================================");
+    console.log('=======================================');
 
     const { email, password } = req.body;
 
     if (!email || !password) {
-      console.warn("⚠️ [signIn] Missing email or password");
+      console.warn('⚠️ [signIn] Missing email or password');
       return res.status(400).json({
         success: false,
-        error: "Email and password are required",
+        error: 'Email and password are required',
       });
     }
 
-    console.log("🔎 [signIn] Searching user by email:", email);
+    console.log('🔎 [signIn] Searching user by email:', email);
 
     const user = await authModel.findOne({ email });
 
     if (!user) {
-      console.warn("❌ [signIn] User does not exist:", email);
+      console.warn('❌ [signIn] User does not exist:', email);
       return res.status(404).json({
         success: false,
-        error: "User does not exist",
+        error: 'User does not exist',
       });
     }
 
-    console.log("✅ [signIn] User found:", {
+    console.log('✅ [signIn] User found:', {
       userId: user._id,
       email: user.email,
       role: user.role,
@@ -450,37 +448,41 @@ export const signIn = async (req, res) => {
       hasTwoFactorSecret: Boolean(user.twoFactorSecret),
     });
 
-    console.log("🔑 [signIn] Comparing password...");
+    console.log('🔑 [signIn] Comparing password...');
 
     const isMatch = await user.comparePassword(password);
 
     if (!isMatch) {
-      console.warn("❌ [signIn] Password does not match for:", email);
+      console.warn('❌ [signIn] Password does not match for:', email);
       return res.status(400).json({
         success: false,
-        error: "Password does not match",
+        error: 'Password does not match',
       });
     }
 
-    console.log("✅ [signIn] Password matched successfully");
+    console.log('✅ [signIn] Password matched successfully');
 
     if (!user.guideStatus?.sidebar) {
-      console.log("🧭 [signIn] guideStatus missing. Initializing default guideStatus...");
+      console.log(
+        '🧭 [signIn] guideStatus missing. Initializing default guideStatus...'
+      );
 
       user.guideStatus = {
         sidebar: { completed: false, step: 1 },
         navbar: { completed: false, step: 0 },
       };
     } else {
-      console.log("✅ [signIn] guideStatus already exists:", user.guideStatus);
+      console.log('✅ [signIn] guideStatus already exists:', user.guideStatus);
     }
 
     if (user.twoFactorEnabled) {
-      console.log("🛡️ [signIn] 2FA is enabled. Login token will NOT be issued yet.");
+      console.log(
+        '🛡️ [signIn] 2FA is enabled. Login token will NOT be issued yet.'
+      );
 
       await user.save();
 
-      console.log("📤 [signIn] Sending requiresTwoFactor response:", {
+      console.log('📤 [signIn] Sending requiresTwoFactor response:', {
         userId: user._id,
         requiresTwoFactor: true,
       });
@@ -489,35 +491,35 @@ export const signIn = async (req, res) => {
         success: true,
         requiresTwoFactor: true,
         userId: user._id,
-        message: "Two-step authentication code required",
+        message: 'Two-step authentication code required',
       });
     }
 
-    console.log("🟢 [signIn] 2FA not enabled. Proceeding with normal login...");
+    console.log('🟢 [signIn] 2FA not enabled. Proceeding with normal login...');
 
     user.lastLogin = new Date();
     await user.save();
 
-    console.log("💾 [signIn] lastLogin updated:", user.lastLogin);
+    console.log('💾 [signIn] lastLogin updated:', user.lastLogin);
 
     const token = createToken({ _id: user._id, role: user.role });
 
-    console.log("🎫 [signIn] JWT token created successfully");
-    console.log("✅ [signIn] Login completed for:", {
+    console.log('🎫 [signIn] JWT token created successfully');
+    console.log('✅ [signIn] Login completed for:', {
       userId: user._id,
       email: user.email,
       role: user.role,
     });
-    console.log("=======================================");
+    console.log('=======================================');
 
     return res.status(200).json({
       success: true,
-      message: "Successfully logged in",
+      message: 'Successfully logged in',
       token,
       data: user,
     });
   } catch (error) {
-    console.error("🔥 [signIn] Error during login:", error);
+    console.error('🔥 [signIn] Error during login:', error);
     return res.status(500).json({
       success: false,
       error: error.message,
@@ -893,7 +895,6 @@ export const getSetupProgress = async (req, res) => {
 //   }
 // };
 
-
 export const createOrganization = async (req, res) => {
   try {
     const {
@@ -1121,11 +1122,9 @@ export const skipAllSteps = async (req, res) => {
 // const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
-
 
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
@@ -1141,7 +1140,6 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.profile',
   'https://mail.google.com/',
 ];
-
 
 export const googleAuth = (req, res) => {
   const { userId, redirect } = req.query;
@@ -1179,7 +1177,21 @@ export const googleAuthCallback = async (req, res) => {
 
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        topicName: 'projects/email-syncing-472610/topics/gmail-notifications',
+        labelIds: ['INBOX'],
+      },
+    });
+    connection.gmailWatch = {
+      historyId: watchResponse.data.historyId,
+      expiration: watchResponse.data.expiration,
+    };
+
+    await connection.save();
     if (!tokens.refresh_token) {
       return res.redirect(
         `${FRONTEND_URL}/${redirectPath}?status=no_refresh_token`
@@ -1234,18 +1246,18 @@ export const googleLogin = async (req, res) => {
   try {
     const { credential } = req.body;
     if (!credential) {
-      return res.status(400).json({ error: "Google token missing" });
+      return res.status(400).json({ error: 'Google token missing' });
     }
 
     const client = new google.auth.OAuth2(CLIENT_ID);
     const ticket = await client.verifyIdToken({
       idToken: credential,
-      audience: CLIENT_ID, 
+      audience: CLIENT_ID,
     });
     const payload = ticket.getPayload();
     const email = payload.email;
-    const fullName = payload.name || "Google User";
-    
+    const fullName = payload.name || 'Google User';
+
     let user = await authModel.findOne({ email });
 
     // Helper to generate token
@@ -1269,13 +1281,13 @@ export const googleLogin = async (req, res) => {
       fullName,
       email,
       password: await bcrypt.hash(Date.now().toString() + Math.random(), 10), // random password
-      country: "Unknown",
+      country: 'Unknown',
       PartnerLink: '',
-      isVerified: true // automatically verified since it's from Google
+      isVerified: true, // automatically verified since it's from Google
     });
 
     const savedUser = await user.save();
-    
+
     await OrganizationModel.create({
       userId: savedUser._id,
       organizationName: fullName || 'My Organization',
@@ -1321,7 +1333,14 @@ export const googleLogin = async (req, res) => {
           platform: 'other',
           service: 'General',
           name: `General - ${emailName}`,
-          type: idx === 0 ? 'initial' : idx === 1 ? 'first' : idx === 2 ? 'second' : 'third',
+          type:
+            idx === 0
+              ? 'initial'
+              : idx === 1
+                ? 'first'
+                : idx === 2
+                  ? 'second'
+                  : 'third',
           conditions: [],
           content: `This is the ${emailName.toUpperCase()} template for General service. You can edit this content.`,
           active: true,
@@ -1337,22 +1356,30 @@ export const googleLogin = async (req, res) => {
       description: '',
       type: 'shopify',
       scenarioActive: false,
-      routerBranches: [{
-        id: Date.now(),
-        hasModule: false,
-        condition: null,
-        modules: [{
-          id: `${Date.now()}_1`,
-          app: { name: 'Initial Email', color: 'bg-red-500', icon: 'Gmail' },
-          type: 'Send an Email',
-          template: 'Initial Email',
-          delayValue: 5,
-          delayUnit: 'seconds',
-          emailType: 'Gmail',
+      routerBranches: [
+        {
+          id: Date.now(),
+          hasModule: false,
+          condition: null,
+          modules: [
+            {
+              id: `${Date.now()}_1`,
+              app: {
+                name: 'Initial Email',
+                color: 'bg-red-500',
+                icon: 'Gmail',
+              },
+              type: 'Send an Email',
+              template: 'Initial Email',
+              delayValue: 5,
+              delayUnit: 'seconds',
+              emailType: 'Gmail',
+              filter: { conditions: [] },
+            },
+          ],
           filter: { conditions: [] },
-        }],
-        filter: { conditions: [] },
-      }],
+        },
+      ],
     };
     await scenarioModel.create(defaultScenario);
 
@@ -1363,7 +1390,7 @@ export const googleLogin = async (req, res) => {
         mailhook: savedUser.mailhook,
       });
     } catch (e) {
-      console.log("Welcome email error:", e);
+      console.log('Welcome email error:', e);
     }
 
     const token = createToken({ _id: savedUser._id, role: savedUser.role });
@@ -1374,7 +1401,9 @@ export const googleLogin = async (req, res) => {
     });
   } catch (error) {
     console.error('Google login error:', error);
-    return res.status(500).json({ error: "Failed to authenticate with Google" });
+    return res
+      .status(500)
+      .json({ error: 'Failed to authenticate with Google' });
   }
 };
 
@@ -1431,7 +1460,6 @@ export const getConnections = async (req, res) => {
   }
 };
 
-
 export const setupTwoFactor = async (req, res) => {
   try {
     const { userId } = req.body;
@@ -1439,7 +1467,7 @@ export const setupTwoFactor = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId is required",
+        message: 'userId is required',
       });
     }
 
@@ -1448,13 +1476,13 @@ export const setupTwoFactor = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
     const secret = speakeasy.generateSecret({
       name: `Replex Engine (${user.email})`,
-      issuer: "Replex Engine",
+      issuer: 'Replex Engine',
     });
 
     user.twoFactorTempSecret = secret.base32;
@@ -1464,20 +1492,19 @@ export const setupTwoFactor = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "2FA setup initialized",
+      message: '2FA setup initialized',
       qrCodeUrl,
       manualKey: secret.base32,
     });
   } catch (error) {
-    console.error("setupTwoFactor error:", error);
+    console.error('setupTwoFactor error:', error);
     return res.status(500).json({
       success: false,
-      message: "Failed to setup 2FA",
+      message: 'Failed to setup 2FA',
       error: error.message,
     });
   }
 };
-
 
 export const verifyTwoFactorSetup = async (req, res) => {
   try {
@@ -1486,7 +1513,7 @@ export const verifyTwoFactorSetup = async (req, res) => {
     if (!userId || !token) {
       return res.status(400).json({
         success: false,
-        message: "userId and token are required",
+        message: 'userId and token are required',
       });
     }
 
@@ -1495,13 +1522,13 @@ export const verifyTwoFactorSetup = async (req, res) => {
     if (!user || !user.twoFactorTempSecret) {
       return res.status(404).json({
         success: false,
-        message: "2FA setup not found",
+        message: '2FA setup not found',
       });
     }
 
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorTempSecret,
-      encoding: "base32",
+      encoding: 'base32',
       token,
       window: 1,
     });
@@ -1509,7 +1536,7 @@ export const verifyTwoFactorSetup = async (req, res) => {
     if (!verified) {
       return res.status(400).json({
         success: false,
-        message: "Invalid authentication code",
+        message: 'Invalid authentication code',
       });
     }
 
@@ -1521,16 +1548,16 @@ export const verifyTwoFactorSetup = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Two-step authentication enabled successfully",
+      message: 'Two-step authentication enabled successfully',
       data: {
         twoFactorEnabled: user.twoFactorEnabled,
       },
     });
   } catch (error) {
-    console.error("verifyTwoFactorSetup error:", error);
+    console.error('verifyTwoFactorSetup error:', error);
     return res.status(500).json({
       success: false,
-      message: "Failed to verify 2FA setup",
+      message: 'Failed to verify 2FA setup',
       error: error.message,
     });
   }
@@ -1543,7 +1570,7 @@ export const disableTwoFactor = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId is required",
+        message: 'userId is required',
       });
     }
 
@@ -1552,27 +1579,27 @@ export const disableTwoFactor = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
     if (!user.twoFactorEnabled) {
       return res.status(400).json({
         success: false,
-        message: "Two-step authentication is already disabled",
+        message: 'Two-step authentication is already disabled',
       });
     }
 
     if (!token) {
       return res.status(400).json({
         success: false,
-        message: "Authentication code is required",
+        message: 'Authentication code is required',
       });
     }
 
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
-      encoding: "base32",
+      encoding: 'base32',
       token,
       window: 1,
     });
@@ -1580,7 +1607,7 @@ export const disableTwoFactor = async (req, res) => {
     if (!verified) {
       return res.status(400).json({
         success: false,
-        message: "Invalid authentication code",
+        message: 'Invalid authentication code',
       });
     }
 
@@ -1592,18 +1619,17 @@ export const disableTwoFactor = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Two-step authentication disabled successfully",
+      message: 'Two-step authentication disabled successfully',
     });
   } catch (error) {
-    console.error("disableTwoFactor error:", error);
+    console.error('disableTwoFactor error:', error);
     return res.status(500).json({
       success: false,
-      message: "Failed to disable 2FA",
+      message: 'Failed to disable 2FA',
       error: error.message,
     });
   }
 };
-
 
 export const verifyLoginTwoFactor = async (req, res) => {
   try {
@@ -1612,7 +1638,7 @@ export const verifyLoginTwoFactor = async (req, res) => {
     if (!userId || !token) {
       return res.status(400).json({
         success: false,
-        message: "userId and token are required",
+        message: 'userId and token are required',
       });
     }
 
@@ -1621,13 +1647,13 @@ export const verifyLoginTwoFactor = async (req, res) => {
     if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
       return res.status(400).json({
         success: false,
-        message: "2FA is not enabled for this account",
+        message: '2FA is not enabled for this account',
       });
     }
 
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
-      encoding: "base32",
+      encoding: 'base32',
       token,
       window: 1,
     });
@@ -1635,7 +1661,7 @@ export const verifyLoginTwoFactor = async (req, res) => {
     if (!verified) {
       return res.status(400).json({
         success: false,
-        message: "Invalid authentication code",
+        message: 'Invalid authentication code',
       });
     }
 
@@ -1649,21 +1675,19 @@ export const verifyLoginTwoFactor = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Successfully logged in",
+      message: 'Successfully logged in',
       token: loginToken,
       data: user,
     });
   } catch (error) {
-    console.error("verifyLoginTwoFactor error:", error);
+    console.error('verifyLoginTwoFactor error:', error);
     return res.status(500).json({
       success: false,
-      message: "Failed to verify login 2FA",
+      message: 'Failed to verify login 2FA',
       error: error.message,
     });
   }
 };
-
-
 
 export const updatePassword = async (req, res) => {
   try {
@@ -1672,23 +1696,23 @@ export const updatePassword = async (req, res) => {
     if (!userId || !currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: "userId, currentPassword and newPassword are required",
+        message: 'userId, currentPassword and newPassword are required',
       });
     }
 
     if (newPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        message: "New password must be at least 8 characters",
+        message: 'New password must be at least 8 characters',
       });
     }
 
-    const user = await authModel.findById(userId).select("+password");
+    const user = await authModel.findById(userId).select('+password');
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
@@ -1697,7 +1721,7 @@ export const updatePassword = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({
         success: false,
-        message: "Current password is incorrect",
+        message: 'Current password is incorrect',
       });
     }
 
@@ -1706,7 +1730,7 @@ export const updatePassword = async (req, res) => {
     if (samePassword) {
       return res.status(400).json({
         success: false,
-        message: "New password cannot be same as current password",
+        message: 'New password cannot be same as current password',
       });
     }
 
@@ -1717,13 +1741,13 @@ export const updatePassword = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Password updated successfully",
+      message: 'Password updated successfully',
     });
   } catch (error) {
-    console.error("updatePassword error:", error);
+    console.error('updatePassword error:', error);
     return res.status(500).json({
       success: false,
-      message: "Failed to update password",
+      message: 'Failed to update password',
       error: error.message,
     });
   }
@@ -2627,10 +2651,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
         `
       ).lean(),
 
-      TemplateModel.find(
-        {},
-        'userId name service type active platform'
-      ).lean(),
+      TemplateModel.find({}, 'userId name service type active platform').lean(),
     ]);
 
     const normalizeId = (id) => (id ? String(id) : null);
@@ -2664,9 +2685,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
     const userSummary = filteredUsers.map((user) => {
       const userIdStr = String(user._id);
 
-      let userEmails = emails.filter(
-        (e) => String(e.userId) === userIdStr
-      );
+      let userEmails = emails.filter((e) => String(e.userId) === userIdStr);
 
       let userTemplates = templates.filter(
         (t) => String(t.userId) === userIdStr
@@ -2722,8 +2741,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
           matchedTemplate: detectedTemplate?.name || '—',
           serviceDetected:
             email.service || detectedTemplate?.service || 'Unknown',
-          stepType:
-            email.stepType || detectedTemplate?.type || 'initial',
+          stepType: email.stepType || detectedTemplate?.type || 'initial',
           detectedPlatform,
           date: email.createdAt,
           parentEmailId: email.parentEmailId || null,
@@ -2740,8 +2758,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
 
         if (detectedTemplate) {
           const key = String(detectedTemplate._id);
-          templateUsageMap[key] =
-            (templateUsageMap[key] || 0) + 1;
+          templateUsageMap[key] = (templateUsageMap[key] || 0) + 1;
         }
       });
 
@@ -2751,8 +2768,7 @@ export const getEmailTrackingForAdmin = async (req, res) => {
       const templatesByService = {};
 
       userTemplates.forEach((tpl) => {
-        const usageCount =
-          templateUsageMap[String(tpl._id)] || 0;
+        const usageCount = templateUsageMap[String(tpl._id)] || 0;
 
         if (usageCount > 0) {
           if (!templatesByService[tpl.service]) {
@@ -2924,14 +2940,14 @@ export const getTemplateUsageForAdmin = async (req, res) => {
       totalUsedTemplates: Object.keys(globalUsageMap).length,
       mostUsedTemplate: mostUsedTemplate
         ? {
-          name: mostUsedTemplate.name,
-          service: mostUsedTemplate.service,
-          type: mostUsedTemplate.type,
-          usageCount: maxUsage,
-          usagePercentage: totalEmails
-            ? ((maxUsage / totalEmails) * 100).toFixed(2)
-            : 0,
-        }
+            name: mostUsedTemplate.name,
+            service: mostUsedTemplate.service,
+            type: mostUsedTemplate.type,
+            usageCount: maxUsage,
+            usagePercentage: totalEmails
+              ? ((maxUsage / totalEmails) * 100).toFixed(2)
+              : 0,
+          }
         : null,
     };
 
@@ -2985,7 +3001,6 @@ export const updateAiStatus = async (req, res) => {
   }
 };
 
-
 // export const deleteUser = async (req, res) => {
 //   try {
 //     const { id } = req.params;
@@ -2998,31 +3013,29 @@ export const updateAiStatus = async (req, res) => {
 //   }
 // };
 
-
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid user id" });
+      return res.status(400).json({ error: 'Invalid user id' });
     }
 
     const user = await authModel.findById(id);
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     await Promise.all([
       TemplateModel.deleteMany({ userId: id }),
       ConnectionModel.deleteMany({ userId: id }),
-
     ]);
 
     await authModel.findByIdAndDelete(id);
 
     res.status(200).json({
-      message: "User and related data deleted successfully",
+      message: 'User and related data deleted successfully',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3035,7 +3048,7 @@ export const bulkDeleteUsers = async (req, res) => {
 
     await authModel.deleteMany({ _id: { $in: ids } });
 
-    res.send({ message: "Users deleted" });
+    res.send({ message: 'Users deleted' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -3051,7 +3064,7 @@ export const giveProPlan = async (req, res) => {
     if (!duration || duration <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid duration",
+        message: 'Invalid duration',
       });
     }
 
@@ -3060,7 +3073,7 @@ export const giveProPlan = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
@@ -3081,8 +3094,8 @@ export const giveProPlan = async (req, res) => {
 
     user.subscription = {
       ...user.subscription,
-      plan: "pro",
-      status: "active",
+      plan: 'pro',
+      status: 'active',
       currentPeriodStart: now,
       currentPeriodEnd: endDate,
     };
@@ -3097,7 +3110,7 @@ export const giveProPlan = async (req, res) => {
       try {
         await sendProPlanActivatedEmail({
           to: user.email,
-          name: user.fullName || user.name || "there",
+          name: user.fullName || user.name || 'there',
           durationInDays: duration,
           startDate,
           endDate,
@@ -3105,10 +3118,10 @@ export const giveProPlan = async (req, res) => {
 
         emailSent = true;
       } catch (emailError) {
-        console.error("Pro plan activation email failed:", emailError.message);
+        console.error('Pro plan activation email failed:', emailError.message);
       }
     } else {
-      console.warn("Pro assigned but user email is missing:", user._id);
+      console.warn('Pro assigned but user email is missing:', user._id);
     }
 
     return res.status(200).json({
@@ -3129,16 +3142,15 @@ export const giveProPlan = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Give Pro Plan Error:", error);
+    console.error('Give Pro Plan Error:', error);
 
     return res.status(500).json({
       success: false,
-      message: "Error while assigning Pro plan",
+      message: 'Error while assigning Pro plan',
       error: error.message,
     });
   }
 };
-
 
 export const revokeProPlan = async (req, res) => {
   try {
@@ -3149,19 +3161,19 @@ export const revokeProPlan = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
-    if (user.subscription?.plan === "free") {
+    if (user.subscription?.plan === 'free') {
       return res.status(400).json({
         success: false,
-        message: "User is already on FREE plan",
+        message: 'User is already on FREE plan',
       });
     }
 
     const previousSubscription = {
-      plan: user.subscription?.plan || "pro",
+      plan: user.subscription?.plan || 'pro',
       status: user.subscription?.status || null,
       currentPeriodStart: user.subscription?.currentPeriodStart || null,
       currentPeriodEnd: user.subscription?.currentPeriodEnd || null,
@@ -3169,8 +3181,8 @@ export const revokeProPlan = async (req, res) => {
 
     user.subscription = {
       ...user.subscription,
-      plan: "free",
-      status: "inactive",
+      plan: 'free',
+      status: 'inactive',
       currentPeriodStart: null,
       currentPeriodEnd: null,
     };
@@ -3185,22 +3197,22 @@ export const revokeProPlan = async (req, res) => {
       try {
         await sendProPlanRevokedEmail({
           to: user.email,
-          name: user.fullName || user.name || "there",
-          previousPlan: previousSubscription.plan || "Pro",
+          name: user.fullName || user.name || 'there',
+          previousPlan: previousSubscription.plan || 'Pro',
           previousEndDate: previousSubscription.currentPeriodEnd,
         });
 
         emailSent = true;
       } catch (emailError) {
-        console.error("Pro plan revoke email failed:", emailError.message);
+        console.error('Pro plan revoke email failed:', emailError.message);
       }
     } else {
-      console.warn("Pro revoked but user email is missing:", user._id);
+      console.warn('Pro revoked but user email is missing:', user._id);
     }
 
     return res.status(200).json({
       success: true,
-      message: "User downgraded to FREE plan",
+      message: 'User downgraded to FREE plan',
       emailSent,
       previousSubscription,
       user: {
@@ -3213,16 +3225,15 @@ export const revokeProPlan = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Revoke Pro Plan Error:", error);
+    console.error('Revoke Pro Plan Error:', error);
 
     return res.status(500).json({
       success: false,
-      message: "Error while revoking Pro plan",
+      message: 'Error while revoking Pro plan',
       error: error.message,
     });
   }
 };
-
 
 export const deleteConnectionByAdmin = async (req, res) => {
   try {
@@ -3230,7 +3241,7 @@ export const deleteConnectionByAdmin = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
-        error: "Invalid connection id",
+        error: 'Invalid connection id',
       });
     }
 
@@ -3238,14 +3249,14 @@ export const deleteConnectionByAdmin = async (req, res) => {
 
     if (!connection) {
       return res.status(404).json({
-        error: "Connection not found",
+        error: 'Connection not found',
       });
     }
 
     await ConnectionModel.findByIdAndDelete(id);
 
     return res.status(200).json({
-      message: "Connection deleted successfully",
+      message: 'Connection deleted successfully',
     });
   } catch (error) {
     return res.status(500).json({
@@ -3260,14 +3271,14 @@ export const updateConnectionById = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
-        error: "Invalid connection id",
+        error: 'Invalid connection id',
       });
     }
 
     const connection = await ConnectionModel.findById(id);
     if (!connection) {
       return res.status(404).json({
-        error: "Connection not found",
+        error: 'Connection not found',
       });
     }
 
@@ -3281,9 +3292,13 @@ export const updateConnectionById = async (req, res) => {
       if (email !== undefined) updateData.email = email;
       if (smtp !== undefined && typeof smtp === 'object') {
         updateData.smtp = {
-          host: smtp.host !== undefined ? smtp.host : (connection.smtp?.host),
-          port: smtp.port !== undefined ? Number(smtp.port) : (connection.smtp?.port),
-          username: smtp.username !== undefined ? smtp.username : (connection.smtp?.username),
+          host: smtp.host !== undefined ? smtp.host : connection.smtp?.host,
+          port:
+            smtp.port !== undefined ? Number(smtp.port) : connection.smtp?.port,
+          username:
+            smtp.username !== undefined
+              ? smtp.username
+              : connection.smtp?.username,
         };
         if (smtp.password !== undefined && smtp.password !== '') {
           updateData.smtp.password = smtp.password;
@@ -3310,10 +3325,10 @@ export const updateConnectionById = async (req, res) => {
       connection: returnedConnection,
     });
   } catch (error) {
-    console.error("Error updating connection:", error);
+    console.error('Error updating connection:', error);
     if (error.code === 11000) {
       return res.status(409).json({
-        error: "A connection with this email already exists for this user.",
+        error: 'A connection with this email already exists for this user.',
       });
     }
     return res.status(500).json({
@@ -3322,53 +3337,57 @@ export const updateConnectionById = async (req, res) => {
   }
 };
 
-
 export const loginAsUserByAdmin = async (req, res) => {
   try {
-    console.log("====================================");
-    console.log("🔥 [loginAsUserByAdmin] API HIT");
-    console.log("📌 params:", req.params);
-    console.log("📌 userId param:", req.params.userId);
-    console.log("📌 req.user:", req.user);
-    console.log("📌 req.headers.authorization:", req.headers.authorization);
-    console.log("====================================");
+    console.log('====================================');
+    console.log('🔥 [loginAsUserByAdmin] API HIT');
+    console.log('📌 params:', req.params);
+    console.log('📌 userId param:', req.params.userId);
+    console.log('📌 req.user:', req.user);
+    console.log('📌 req.headers.authorization:', req.headers.authorization);
+    console.log('====================================');
 
     if (!req.user) {
-      console.log("❌ req.user missing. Middleware did not set req.user");
+      console.log('❌ req.user missing. Middleware did not set req.user');
       return res.status(401).json({
         success: false,
-        message: "Unauthorized: req.user missing",
+        message: 'Unauthorized: req.user missing',
       });
     }
 
-    console.log("👤 Current requester:", {
+    console.log('👤 Current requester:', {
       id: req.user._id,
       role: req.user.role,
     });
 
-    if (req.user.role !== "admin") {
-      console.log("❌ Not admin:", req.user.role);
+    if (req.user.role !== 'admin') {
+      console.log('❌ Not admin:', req.user.role);
       return res.status(403).json({
         success: false,
-        message: "Only admin allowed",
+        message: 'Only admin allowed',
       });
     }
 
-    console.log("✅ Admin verified");
+    console.log('✅ Admin verified');
 
     const user = await authModel.findById(req.params.userId);
 
-    console.log("🔎 Target user found:", user ? {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-    } : null);
+    console.log(
+      '🔎 Target user found:',
+      user
+        ? {
+            id: user._id,
+            email: user.email,
+            role: user.role,
+          }
+        : null
+    );
 
     if (!user) {
-      console.log("❌ Target user not found:", req.params.userId);
+      console.log('❌ Target user not found:', req.params.userId);
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found',
       });
     }
 
@@ -3379,25 +3398,25 @@ export const loginAsUserByAdmin = async (req, res) => {
       adminId: req.user._id,
     };
 
-    console.log("🎫 Creating impersonation token payload:", tokenPayload);
+    console.log('🎫 Creating impersonation token payload:', tokenPayload);
 
     const token = createToken(tokenPayload);
 
-    console.log("✅ Impersonation token created");
-    console.log("====================================");
+    console.log('✅ Impersonation token created');
+    console.log('====================================');
 
     return res.json({
       success: true,
-      message: "Logged in as user successfully",
+      message: 'Logged in as user successfully',
       token,
       data: user,
     });
   } catch (error) {
-    console.error("🔥 [loginAsUserByAdmin] ERROR:", error);
+    console.error('🔥 [loginAsUserByAdmin] ERROR:', error);
 
     return res.status(500).json({
       success: false,
-      message: "Server error in loginAsUserByAdmin",
+      message: 'Server error in loginAsUserByAdmin',
       error: error.message,
     });
   }
