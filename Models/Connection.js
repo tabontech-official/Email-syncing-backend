@@ -26,7 +26,11 @@ const connectionSchema = new mongoose.Schema(
       username: { type: String },
       password: { type: String },
     },
-
+gmailWatch: {
+  historyId: { type: String },
+  expiration: { type: String },
+  watchEnabledAt: { type: Date },
+},
     status: {
       type: String,
       enum: ['active', 'disconnected'],

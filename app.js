@@ -7,7 +7,7 @@ import morgan from 'morgan';
 import authRouter from './Routes/auth.js';
 import productRouter from './Routes/product.js';
 import orderRouter from './Routes/order.js';
-import Connect from './connection/connect.js'; 
+import Connect from './connection/connect.js';
 import setupSwagger from './swaggerConfig.js';
 import { productSubscriptionExpiration } from './controller/scheduleFunction.js';
 import promoRouter from './Routes/promotion.js';
@@ -31,16 +31,17 @@ import scenarioRunLogRouter from './Routes/scenarioRunLog.js';
 import landingPageRouter from './Routes/landingPageRoutes.js';
 import scriptRouter from './Routes/scriptRoutes.js';
 import productPageRouter from './Routes/productPage.js';
+import { gmailWebhook } from './middleware/gmailWebhook.js';
 const app = express();
 setupSwagger(app);
 Connect();
 
-startDelayWorker()
+startDelayWorker();
 financeScheduler.start();
 // ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
 app.post(
-  "/stripe/webhook",
-  express.raw({ type: "application/json" }),
+  '/stripe/webhook',
+  express.raw({ type: 'application/json' }),
   stripeWebhook
 );
 app.use(bodyParser.json());
@@ -52,7 +53,7 @@ app.use(compression());
 app.use(cors());
 
 app.use('/uploads', express.static('uploads'));
-app.use(express.json({limit:"5000000mb"}));
+app.use(express.json({ limit: '5000000mb' }));
 app.use('/auth', authRouter);
 app.use('/stripe', stripeRouter);
 app.use('/talk', SalesRouter);
@@ -67,38 +68,35 @@ app.use('/approval', approvalRouter);
 app.use('/template', templateRouter);
 app.use('/mailhook', emailRouter);
 app.use('/scenario', scenarioRouter);
-app.use("/admin/scripts", scriptRouter);
+app.use('/admin/scripts', scriptRouter);
 app.use('/mailhookcard', mailhookRouter);
-app.use("/scenario-run-log", scenarioRunLogRouter);
-app.use("/api/landing-page", landingPageRouter);
-app.use("/api/product-page", productPageRouter);
-
+app.use('/scenario-run-log', scenarioRunLogRouter);
+app.use('/api/landing-page', landingPageRouter);
+app.use('/api/product-page', productPageRouter);
+app.post('/gmail/webhook', gmailWebhook);
 (async () => {
   try {
     const indexes = await mailhookModel.collection.indexes();
-    const hasUnique = indexes.find((i) => i.name === "mailhook_1");
+    const hasUnique = indexes.find((i) => i.name === 'mailhook_1');
     if (hasUnique) {
-      await mailhookModel.collection.dropIndex("mailhook_1");
-      console.log("✅ Dropped unique index on mailhook field");
+      await mailhookModel.collection.dropIndex('mailhook_1');
+      console.log('✅ Dropped unique index on mailhook field');
     }
   } catch (err) {
-    console.log("No duplicate index to drop or already removed:", err.message);
+    console.log('No duplicate index to drop or already removed:', err.message);
   }
 })();
 app.use((req, res, next) => {
-  res.setTimeout(300000, () => {  
+  res.setTimeout(300000, () => {
     res.status(504).send('Request timed out');
   });
   next();
 });
 app.get('/', (req, res) => {
-  res.send('API is running...')
+  res.send('API is running...');
 });
 
-
-
 export default app;
-
 
 // {
 //   "version": 2,
