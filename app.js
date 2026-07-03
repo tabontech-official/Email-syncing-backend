@@ -32,6 +32,8 @@ import landingPageRouter from './Routes/landingPageRoutes.js';
 import scriptRouter from './Routes/scriptRoutes.js';
 import productPageRouter from './Routes/productPage.js';
 import { gmailWebhook } from './middleware/gmailWebhook.js';
+import connectionRouter from './Routes/connection.js';
+import { outlookWebhook } from './middleware/outlookWebhook.js';
 const app = express();
 setupSwagger(app);
 Connect();
@@ -73,7 +75,10 @@ app.use('/mailhookcard', mailhookRouter);
 app.use('/scenario-run-log', scenarioRunLogRouter);
 app.use('/api/landing-page', landingPageRouter);
 app.use('/api/product-page', productPageRouter);
-app.post('/gmail/webhook', gmailWebhook);
+app.use('/api/connection', connectionRouter);
+app.use('/api/connection', connectionRouter);
+
+app.post('/outlook/webhook', outlookWebhook);
 (async () => {
   try {
     const indexes = await mailhookModel.collection.indexes();

@@ -9,12 +9,19 @@ const connectionSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ['gmail', 'outlook', 'smtp'],
+      // enum: ['gmail', 'outlook', 'smtp','microsoft','imap'],
       required: true,
     },
+    subProvider: { type: String }, 
+
     email: { type: String, required: true },
     name: { type: String },
-
+outlookSubscription: {
+  id: { type: String },
+  resource: { type: String },
+  expirationDateTime: { type: String },
+  clientState: { type: String },
+},
     tokens: { type: Object },
     verified: {
       type: Boolean,

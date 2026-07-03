@@ -1947,6 +1947,9 @@ const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
 // const FRONTEND_URL = process.env.FRONTEND_URL;
+
+
+
 const FRONTEND_URL = 'http://localhost:3006';
 
 const oauthConfig = {
@@ -2143,41 +2146,181 @@ export const startOutlookOAuth = (req, res) => {
   res.redirect(authorizationUri);
 };
 
+// export const outlookOAuthCallback = async (req, res) => {
+//   const { code, state } = req.query;
+
+//   let userId, redirectPath;
+//   try {
+//     const parsed = JSON.parse(state);
+//     userId = parsed.userId;
+//     redirectPath = parsed.redirect || 'connection';
+//   } catch (err) {
+//     return res.status(400).send('Invalid state parameter');
+//   }
+
+//   try {
+//     const tokenParams = {
+//       code,
+//       redirect_uri: MICROSOFT_REDIRECT_URI,
+//       scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
+//     };
+
+//     const accessToken = await client.getToken(tokenParams);
+
+//     const userInfoRes = await fetch(
+//       'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
+//       {
+//         headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
+//       }
+//     );
+//     const user = await userInfoRes.json();
+
+//     const userEmail =
+//       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
+//     const userName = user.displayName || '';
+
+//     if (!userEmail)
+//       return res.status(400).send('No email found from Microsoft account');
+
+//     let connection = await ConnectionModel.findOne({
+//       userId,
+//       email: userEmail,
+//     });
+
+//     if (!connection) {
+//       connection = new ConnectionModel({
+//         userId,
+//         provider: 'outlook',
+//         email: userEmail,
+//         name: userName,
+//         tokens: accessToken.token,
+//         status: 'active',
+//         createdAt: new Date(),
+//       });
+//     } else {
+//       connection.tokens = accessToken.token;
+//       connection.status = 'active';
+//       connection.lastConnected = new Date();
+//     }
+
+//     await connection.save();
+// const subscriptionRes = await fetch(
+//   'https://graph.microsoft.com/v1.0/subscriptions',
+//   {
+//     method: 'POST',
+//     headers: {
+//       Authorization: `Bearer ${accessToken.token.access_token}`,
+//       'Content-Type': 'application/json',
+//     },
+//     body: JSON.stringify({
+//       changeType: 'created',
+//       notificationUrl: `${process.env.BACKEND_URL}/api/outlook/webhook`,
+//       resource: "me/mailFolders('Inbox')/messages",
+//       expirationDateTime: new Date(
+//         Date.now() + 2 * 24 * 60 * 60 * 1000
+//       ).toISOString(),
+//       clientState: process.env.MS_CLIENT_STATE,
+//     }),
+//   }
+// );
+
+// const subscriptionData = await subscriptionRes.json();
+
+// if (!subscriptionRes.ok) {
+//   console.log('❌ Outlook subscription error:', subscriptionData);
+//   throw new Error('Failed to create Outlook subscription');
+// }
+
+// connection.outlookSubscription = {
+//   id: subscriptionData.id,
+//   resource: subscriptionData.resource,
+//   expirationDateTime: subscriptionData.expirationDateTime,
+//   clientState: subscriptionData.clientState,
+// };
+
+// await connection.save();
+
+// console.log('✅ Outlook subscription saved:', subscriptionData.id);
+//     return res.redirect(
+//       `${FRONTEND_URL}/${redirectPath}?outlook-auth-success=true&connectionId=${connection._id}`
+//     );
+//   } catch (err) {
+//     res.redirect(`${FRONTEND_URL}/connection?status=error`);
+//   }
+// };
+
 export const outlookOAuthCallback = async (req, res) => {
   const { code, state } = req.query;
 
+  console.log('📩 [OUTLOOK CALLBACK HIT]');
+  console.log('🔐 code exists:', !!code);
+  console.log('📦 raw state:', state);
+
   let userId, redirectPath;
+
   try {
     const parsed = JSON.parse(state);
+
+    console.log('📦 parsed state:', parsed);
+
     userId = parsed.userId;
     redirectPath = parsed.redirect || 'connection';
+
+    console.log('👤 userId:', userId);
+    console.log('🔁 redirectPath:', redirectPath);
   } catch (err) {
+    console.log('❌ STATE PARSE ERROR:', err.message);
     return res.status(400).send('Invalid state parameter');
   }
 
   try {
+    console.log('🔄 [STEP 1] Token exchange starting...');
+    console.log('🌐 redirect_uri:', MICROSOFT_REDIRECT_URI);
+
     const tokenParams = {
       code,
       redirect_uri: MICROSOFT_REDIRECT_URI,
-      scope: 'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
+      scope:
+        'openid profile offline_access Mail.Read Mail.Send Mail.ReadWrite',
     };
 
     const accessToken = await client.getToken(tokenParams);
 
+    console.log('🎟️ [TOKEN RECEIVED]');
+    console.log('access_token exists:', !!accessToken.token.access_token);
+    console.log('refresh_token exists:', !!accessToken.token.refresh_token);
+
+    // ---------------- USER INFO ----------------
+    console.log('👤 [STEP 2] Fetching Microsoft profile...');
+
     const userInfoRes = await fetch(
       'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
       {
-        headers: { Authorization: `Bearer ${accessToken.token.access_token}` },
+        headers: {
+          Authorization: `Bearer ${accessToken.token.access_token}`,
+        },
       }
     );
+
     const user = await userInfoRes.json();
+
+    console.log('📨 [PROFILE RESPONSE]:', user);
 
     const userEmail =
       user.mail || user.userPrincipalName || `${user.id}@unknown.microsoft.com`;
+
     const userName = user.displayName || '';
 
-    if (!userEmail)
+    console.log('📧 Email:', userEmail);
+    console.log('👤 Name:', userName);
+
+    if (!userEmail) {
+      console.log('❌ No email found');
       return res.status(400).send('No email found from Microsoft account');
+    }
+
+    // ---------------- DB SAVE ----------------
+    console.log('🗄️ [STEP 3] Saving connection...');
 
     let connection = await ConnectionModel.findOne({
       userId,
@@ -2185,6 +2328,8 @@ export const outlookOAuthCallback = async (req, res) => {
     });
 
     if (!connection) {
+      console.log('🆕 Creating new connection');
+
       connection = new ConnectionModel({
         userId,
         provider: 'outlook',
@@ -2195,6 +2340,8 @@ export const outlookOAuthCallback = async (req, res) => {
         createdAt: new Date(),
       });
     } else {
+      console.log('♻️ Updating existing connection');
+
       connection.tokens = accessToken.token;
       connection.status = 'active';
       connection.lastConnected = new Date();
@@ -2202,13 +2349,72 @@ export const outlookOAuthCallback = async (req, res) => {
 
     await connection.save();
 
+    console.log('💾 Connection saved:', connection._id);
+
+    // ---------------- SUBSCRIPTION ----------------
+    console.log('📡 [STEP 4] Creating Outlook subscription...');
+
+    console.log('🌐 BACKEND_URL:', process.env.BACKEND_URL);
+    console.log('🔐 CLIENT_STATE:', process.env.MS_CLIENT_STATE);
+
+    const subscriptionRes = await fetch(
+      'https://graph.microsoft.com/v1.0/subscriptions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken.token.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          changeType: 'created',
+          notificationUrl: `${process.env.BACKEND_URL}/api/outlook/webhook`,
+          resource: "me/mailFolders('Inbox')/messages",
+          expirationDateTime: new Date(
+            Date.now() + 2 * 24 * 60 * 60 * 1000
+          ).toISOString(),
+          clientState: process.env.MS_CLIENT_STATE,
+        }),
+      }
+    );
+
+    const subscriptionData = await subscriptionRes.json();
+
+    console.log('📡 Subscription response:', subscriptionData);
+
+    if (!subscriptionRes.ok) {
+      console.log('❌ SUBSCRIPTION FAILED');
+      throw new Error(JSON.stringify(subscriptionData));
+    }
+
+    connection.outlookSubscription = {
+      id: subscriptionData.id,
+      resource: subscriptionData.resource,
+      expirationDateTime: subscriptionData.expirationDateTime,
+      clientState: subscriptionData.clientState,
+    };
+
+    await connection.save();
+
+    console.log('✅ Subscription saved successfully');
+    console.log('🆔 Subscription ID:', subscriptionData.id);
+
+    // ---------------- SUCCESS REDIRECT ----------------
+    console.log('🎉 SUCCESS - Redirecting user');
+
     return res.redirect(
       `${FRONTEND_URL}/${redirectPath}?outlook-auth-success=true&connectionId=${connection._id}`
     );
   } catch (err) {
-    res.redirect(`${FRONTEND_URL}/connection?status=error`);
+    console.log('❌ [FATAL ERROR]');
+    console.log('Message:', err.message);
+    console.log('Stack:', err.stack);
+
+    return res.redirect(
+      `${FRONTEND_URL}/connection?status=error`
+    );
   }
 };
+
 
 export const forgotPassword = async (req, res) => {
   try {
@@ -3583,3 +3789,6 @@ export const loginAsUserByAdmin = async (req, res) => {
     });
   }
 };
+
+
+
