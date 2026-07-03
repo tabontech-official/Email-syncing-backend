@@ -77,6 +77,7 @@ app.use('/api/landing-page', landingPageRouter);
 app.use('/api/product-page', productPageRouter);
 app.use('/api/connection', connectionRouter);
 app.use('/api/connection', connectionRouter);
+app.post('/gmail/webhook', gmailWebhook);
 
 app.post('/outlook/webhook', outlookWebhook);
 (async () => {
