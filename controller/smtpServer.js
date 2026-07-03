@@ -2135,7 +2135,7 @@ export const addLeadDiscussion = async (req, res) => {
   };
 
   const extractCustomerEmailFromBody = (email) => {
-    const source = `${email.textBody || ''} ${email.htmlBody || ''}`;
+    const source = `${email?.textBody || ''} ${email?.htmlBody || ''}`;
 
     const matches = source.match(
       /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
@@ -2156,92 +2156,70 @@ export const addLeadDiscussion = async (req, res) => {
 
   try {
     const { emailId } = req.params;
-    const { message, userId } = req.body;
+    const { message, userId, connectionId: manualConnectionId } = req.body;
 
-    log('API called');
-    log('Params:', { emailId });
-    log('Body:', {
-      userId,
-      hasMessage: !!message,
-      messageLength: message?.length || 0,
-    });
+    log('API called', { emailId, userId });
 
-    if (!message || !message.trim()) {
-      log('Validation failed: message is empty');
+    if (!message?.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Message is required',
       });
     }
 
+    // -------------------------------
+    // ROOT EMAIL
+    // -------------------------------
     const rootEmail = await EmailModel.findById(emailId);
 
-    log(
-      'Root email found:',
-      rootEmail
-        ? {
-            id: rootEmail._id,
-            userId: rootEmail.userId,
-            senderAddress: rootEmail.senderAddress,
-            recipientAddress: rootEmail.recipientAddress,
-            subject: rootEmail.subject,
-            messageId: rootEmail.messageId,
-            threadId: rootEmail.threadId,
-          }
-        : null
-    );
-
     if (!rootEmail) {
-      log('Root email not found');
       return res.status(404).json({
         success: false,
         message: 'Email not found',
       });
     }
 
+    // -------------------------------
+    // SMART CHILD DETECTION
+    // -------------------------------
     const lastOutgoingChild = await EmailModel.findOne({
-      parentEmailId: {
-        $in: [rootEmail._id, rootEmail._id.toString()],
-      },
+      $or: [
+        { parentEmailId: rootEmail._id },
+        { parentEmailId: rootEmail._id?.toString() },
+        { threadId: rootEmail.threadId },
+        { messageId: rootEmail.messageId },
+      ],
       direction: 'outgoing',
     }).sort({ date: -1 });
 
-    log(
-      'Last outgoing child:',
-      lastOutgoingChild
-        ? {
-            id: lastOutgoingChild._id,
-            senderAddress: lastOutgoingChild.senderAddress,
-            recipientAddress: lastOutgoingChild.recipientAddress,
-            subject: lastOutgoingChild.subject,
-            messageId: lastOutgoingChild.messageId,
-            threadId: lastOutgoingChild.threadId,
-            connectionId: lastOutgoingChild.connectionId,
-            date: lastOutgoingChild.date,
-          }
-        : null
-    );
+    log('Last outgoing child found:', !!lastOutgoingChild);
 
-    if (!lastOutgoingChild) {
-      log('No outgoing child found');
-      return res.status(400).json({
+    // -------------------------------
+    // NO CHILD → ASK USER CONNECTION
+    // -------------------------------
+    if (!lastOutgoingChild && !manualConnectionId) {
+      const connections = await ConnectionModel.find({
+        userId: rootEmail.userId,
+        status: 'active',
+      }).select('_id email provider');
+
+      return res.status(200).json({
         success: false,
-        message: 'No outgoing child email found for this lead',
+        needConnectionSelection: true,
+        message: 'Select which email account to send reply from',
+        connections,
       });
     }
 
-    let connectionId = lastOutgoingChild.connectionId;
-
-    log('Initial connectionId from child:', connectionId || null);
+    // -------------------------------
+    // CONNECTION RESOLUTION
+    // -------------------------------
+    let connectionId =
+      manualConnectionId ||
+      lastOutgoingChild?.connectionId;
 
     if (!connectionId) {
-      const senderEmail = extractEmail(lastOutgoingChild.senderAddress);
-
-      log('connectionId missing. Matching connection by sender email:', {
-        senderAddress: lastOutgoingChild.senderAddress,
-        senderEmail,
-        rootUserId: rootEmail.userId,
-      });
+      const senderEmail = extractEmail(lastOutgoingChild?.senderAddress);
 
       const matchedConnection = await ConnectionModel.findOne({
         userId: rootEmail.userId,
@@ -2249,21 +2227,7 @@ export const addLeadDiscussion = async (req, res) => {
         status: 'active',
       });
 
-      log(
-        'Matched connection:',
-        matchedConnection
-          ? {
-              id: matchedConnection._id,
-              provider: matchedConnection.provider,
-              email: matchedConnection.email,
-              status: matchedConnection.status,
-              verified: matchedConnection.verified,
-            }
-          : null
-      );
-
       if (!matchedConnection) {
-        log('No active connection found for sender email');
         return res.status(400).json({
           success: false,
           message: `No active connection found for sender email: ${senderEmail}`,
@@ -2273,48 +2237,57 @@ export const addLeadDiscussion = async (req, res) => {
       connectionId = matchedConnection._id;
     }
 
+    if (!connectionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Connection is required to send email',
+      });
+    }
+
+    // -------------------------------
+    // CUSTOMER EMAIL RESOLUTION
+    // -------------------------------
     const customerEmail =
       extractEmail(rootEmail.senderAddress) ||
       extractCustomerEmailFromBody(rootEmail) ||
-      extractEmail(lastOutgoingChild.recipientAddress);
-
-    log('Customer email resolved:', customerEmail);
+      extractEmail(lastOutgoingChild?.recipientAddress);
 
     if (!customerEmail) {
-      log('Customer email missing');
       return res.status(400).json({
         success: false,
         message: 'Customer email not found',
       });
     }
 
-    const subject = lastOutgoingChild.subject?.startsWith('Re:')
+    // -------------------------------
+    // SUBJECT
+    // -------------------------------
+    const subject = lastOutgoingChild?.subject?.startsWith('Re:')
       ? lastOutgoingChild.subject
       : `Re: ${rootEmail.subject || 'Lead Inquiry'}`;
 
     const cleanMessage = message.trim();
 
     const threadId =
-      rootEmail.threadId || lastOutgoingChild.threadId || rootEmail.messageId;
+      rootEmail.threadId ||
+      lastOutgoingChild?.threadId ||
+      rootEmail.messageId;
 
-    const parentMessageId = lastOutgoingChild.messageId || rootEmail.messageId;
+    const parentMessageId =
+      lastOutgoingChild?.messageId || rootEmail.messageId;
 
+    // -------------------------------
+    // PAYLOAD
+    // -------------------------------
     const modulePayload = {
       connectionId,
       subject,
       template: `<div>${cleanMessage.replace(/\n/g, '<br/>')}</div>`,
-      service: lastOutgoingChild.service || rootEmail.service,
+      service: lastOutgoingChild?.service || rootEmail.service,
       stepType: 'Manual Reply',
     };
 
-    log('Prepared sendEmailModule payload:', {
-      modulePayload,
-      to: customerEmail,
-      originalSubject: rootEmail.subject,
-      parentEmailId: rootEmail._id,
-      threadId,
-      parentMessageId,
-    });
+    log('Sending email module...', modulePayload);
 
     const sendResult = await sendEmailModule(
       modulePayload,
@@ -2325,16 +2298,16 @@ export const addLeadDiscussion = async (req, res) => {
       parentMessageId
     );
 
-    log('sendEmailModule result:', sendResult);
-
     if (!sendResult?.success) {
-      log('Email send failed');
       return res.status(500).json({
         success: false,
         message: 'Email send failed',
       });
     }
 
+    // -------------------------------
+    // SAVE DISCUSSION
+    // -------------------------------
     const updatedEmail = await EmailModel.findByIdAndUpdate(
       emailId,
       {
@@ -2348,15 +2321,9 @@ export const addLeadDiscussion = async (req, res) => {
       { new: true }
     );
 
-    log('Discussion saved:', {
-      rootEmailId: updatedEmail?._id,
-      discussionCount: updatedEmail?.discussion?.length || 0,
-      sentReplyEmailId: sendResult.replyEmailId,
-    });
-
     return res.status(200).json({
       success: true,
-      message: 'Discussion added and email sent to customer',
+      message: 'Discussion added and email sent successfully',
       data: updatedEmail,
       sentEmail: sendResult,
     });

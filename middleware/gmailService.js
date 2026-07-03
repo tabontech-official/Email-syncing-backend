@@ -230,6 +230,7 @@ import { google } from 'googleapis';
 import { executeScenarios } from '../controller/smtpServer.js';
 import { ConnectionModel } from '../Models/Connection.js';
 import { EmailModel } from '../Models/Email.js';
+import { htmlToText } from "html-to-text";
 
 // ------------------------------
 // BODY EXTRACTOR (SAFE)
@@ -430,3 +431,140 @@ export async function processGmailEmail(emailAddress, historyId) {
     throw err;
   }
 }
+
+
+export const processOutlookEmail = async (notification, connection) => {
+  try {
+    console.log('🚨 PROCESS OUTLOOK EMAIL START');
+
+    // -------------------------
+    // MESSAGE ID EXTRACTION (ROBUST)
+    // -------------------------
+    let messageId =
+      notification.resourceData?.id ||
+      notification.resourceData?.["@odata.id"] ||
+      notification.resource;
+
+    if (messageId) {
+      messageId = messageId.split('/messages/').pop()?.split('/Messages/').pop();
+    }
+
+    console.log('🆔 messageId:', messageId);
+
+    if (!messageId) {
+      console.log('❌ No messageId found');
+      return;
+    }
+
+    // -------------------------
+    // TOKEN CHECK
+    // -------------------------
+    if (!connection?.tokens?.access_token) {
+      console.log('❌ Missing access token');
+      return;
+    }
+
+    // -------------------------
+    // 🔥 DUPLICATE CHECK (IMPORTANT FIX)
+    // -------------------------
+    const exists = await EmailModel.findOne({
+      messageId,
+      direction: "incoming",
+    });
+
+    if (exists) {
+      console.log('⚠️ Duplicate Outlook email skipped:', messageId);
+      return;
+    }
+
+    console.log('🧪 OUTLOOK TOKEN OK');
+
+    // -------------------------
+    // FETCH EMAIL FROM GRAPH
+    // -------------------------
+    const emailRes = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${messageId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${connection.tokens.access_token}`,
+        },
+      }
+    );
+
+    const email = await emailRes.json();
+
+    console.log('📡 Graph Status:', emailRes.status);
+
+    if (!emailRes.ok) {
+      console.log('❌ GRAPH ERROR:', email);
+      return;
+    }
+
+    // -------------------------
+    // SAFE BODY HANDLING
+    // -------------------------
+    let cleanBody = "";
+
+    try {
+      const rawHtml = email.body?.content || "";
+
+      cleanBody = htmlToText?.(rawHtml, {
+        wordwrap: 130,
+        ignoreImage: true,
+      }) || rawHtml; // fallback safe
+    } catch (err) {
+      console.log('⚠️ htmlToText failed, using raw body');
+      cleanBody = email.body?.content || "";
+    }
+
+    // -------------------------
+    // NORMALIZE EMAIL
+    // -------------------------
+    const from = email.from?.emailAddress?.address || "unknown";
+    const to =
+      email.toRecipients?.map(t => t.emailAddress?.address).join(",") || "";
+
+    const subject = email.subject || "(No Subject)";
+    const receivedDate = email.receivedDateTime || new Date().toISOString();
+
+    console.log('📧 Subject:', subject);
+    console.log('👤 From:', from);
+
+    // -------------------------
+    // SAVE EMAIL
+    // -------------------------
+    const savedEmail = await EmailModel.create({
+      userId: connection.userId,
+      messageId,
+      senderAddress: from,
+      recipientAddress: to,
+      subject,
+      textBody: cleanBody,
+      htmlBody: email.body?.content || "",
+      direction: "incoming",
+      connectionId: connection._id,
+      date: receivedDate,
+    });
+
+    console.log('💾 Email saved successfully:', savedEmail._id);
+
+    // -------------------------
+    // AUTOMATION ENGINE (SAFE CALL)
+    // -------------------------
+    await executeScenarios({
+      userId: connection.userId,
+      from,
+      to,
+      subject,
+      body: cleanBody,
+      emailId: savedEmail._id,   // IMPORTANT FIX (NOT messageId)
+      parsedEmailObj: email || {},
+    });
+
+    console.log('⚙️ Automation executed');
+
+  } catch (err) {
+    console.log('❌ PROCESS OUTLOOK EMAIL ERROR:', err.message);
+    console.log(err.stack);
+  }
+};

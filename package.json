@@ -48,6 +48,7 @@
     "google-auth-library": "^10.3.0",
     "googleapis": "^160.0.0",
     "helmet": "^7.1.0",
+    "html-to-text": "^10.0.0",
     "http-status": "^1.7.4",
     "https": "^1.0.0",
     "joi": "^17.13.3",
