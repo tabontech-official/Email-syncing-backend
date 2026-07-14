@@ -14,9 +14,21 @@ const authSchema = new mongoose.Schema(
       lowercase: true,
       match: [/\S+@\S+\.\S+/, 'Please use a valid email address'],
     },
+    // password: {
+    //   type: String,
+    //   minlength: [6, 'Password must be at least 6 characters long'],
+    // },
     password: {
       type: String,
-      minlength: [6, 'Password must be at least 6 characters long'],
+      required: true,
+      minlength: [8, 'Password must be at least 8 characters long'],
+      maxlength: [128, 'Password cannot exceed 128 characters'],
+      validate: {
+        validator: function (password) {
+          return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(password);
+        },
+        message: 'Password must contain uppercase, lowercase and number',
+      },
     },
     role: {
       type: String,
@@ -100,17 +112,17 @@ const authSchema = new mongoose.Schema(
       default: false,
     },
     twoFactorEnabled: {
-  type: Boolean,
-  default: false,
-},
-twoFactorSecret: {
-  type: String,
-  default: null,
-},
-twoFactorTempSecret: {
-  type: String,
-  default: null,
-},
+      type: Boolean,
+      default: false,
+    },
+    twoFactorSecret: {
+      type: String,
+      default: null,
+    },
+    twoFactorTempSecret: {
+      type: String,
+      default: null,
+    },
   },
 
   { timestamps: true }
