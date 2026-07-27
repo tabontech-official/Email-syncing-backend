@@ -17,6 +17,7 @@ import { validationModel } from '../Models/ValidationEmail.js';
 import { mailhookModel } from '../Models/MailhookSchema.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
+import { decrypt } from '../middleware/encryption.js';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // export const generateGeminiReply = async ({ from, subject, body }) => {
@@ -1735,7 +1736,10 @@ export const sendEmailModule = async (
       return;
     }
 
-    const connection = await ConnectionModel.findById(module.connectionId);
+    // const connection = await ConnectionModel.findById(module.connectionId);
+const connection = await ConnectionModel.findById(
+  module.connectionId
+).select('+smtp.password');
     if (!connection) {
       log('❌ Connection not found:', module.connectionId);
       return;
@@ -1753,11 +1757,12 @@ export const sendEmailModule = async (
     if (isPro && isAIActive) {
       log('🤖 PRO PLAN + AI ENABLED → Gemini generating email');
 
-      const aiReply = await generateGeminiReply({
-        from: to,
-        subject: originalSubject,
-        body: module.template || '',
-      });
+    const aiReply = await generateGeminiReply({
+  from: to,
+  subject: originalSubject,
+  body: module.template || '',
+  user,
+});
 
       module.template = aiReply; // 🔥 TEMPLATE REPLACED BY AI
     }
@@ -1797,57 +1802,115 @@ export const sendEmailModule = async (
     // =====================================================================
     // ------------------------ 📧 GMAIL PROVIDER ---------------------------
     // =====================================================================
-    if (connection.provider === 'gmail') {
-      try {
-        log('📨 Sending via Gmail API...');
+  if (connection.provider === 'gmail') {
+  let transporter = null;
 
-        const oauth2Client = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI
-        );
-        oauth2Client.setCredentials(connection.tokens);
-        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+  try {
+    log('📨 Sending through Gmail SMTP + App Password...');
 
-        // ✅ Correct MIME Format — DOUBLE CRLF before body!
-        const rawMessage =
-          `From: ${connection.email}\r\n` +
-          `To: ${to}\r\n` +
-          (cc ? `Cc: ${cc}\r\n` : '') +
-          (bcc ? `Bcc: ${bcc}\r\n` : '') +
-          (parentMessageId ? `In-Reply-To: ${parentMessageId}\r\n` : '') +
-          (parentMessageId ? `References: ${parentMessageId}\r\n` : '') +
-          'MIME-Version: 1.0\r\n' +
-          'Content-Type: text/html; charset=UTF-8\r\n' +
-          '\r\n' + // DOUBLE CRLF separates headers from body
-          emailBody +
-          '\r\n';
-
-        log('📄 Gmail MIME Raw Message (first 400 chars):');
-        log(rawMessage.slice(0, 400));
-
-        const raw = Buffer.from(rawMessage, 'utf8')
-          .toString('base64')
-          .replace(/\+/g, '-')
-          .replace(/\//g, '_')
-          .replace(/=+$/, '');
-
-        log('⚙️ Gmail payload prepared (base64 length):', raw.length);
-
-        const result = await gmail.users.messages.send({
-          userId: 'me',
-          requestBody: { raw },
-        });
-
-        log('✅ [GMAIL] Message sent successfully!');
-        log('📨 Gmail Message ID:', result.data.id);
-        sentOk = true;
-        sentThreadId = result.data.threadId;
-        sentProviderMessageId = result.data.id;
-      } catch (err) {
-        log('❌ [GMAIL] Send Error:', err.response?.data || err.message);
-      }
+    if (!connection.smtp?.password) {
+      throw new Error(
+        'Gmail App Password is missing. Please reconnect the Gmail account.'
+      );
     }
+
+    const decryptedAppPassword = decrypt(
+      connection.smtp.password
+    );
+
+    const smtpPort = Number(
+      connection.smtp?.port || 465
+    );
+
+    transporter = nodemailer.createTransport({
+      host:
+        connection.smtp?.host ||
+        'smtp.gmail.com',
+
+      port: smtpPort,
+
+      secure: smtpPort === 465,
+
+      auth: {
+        user:
+          connection.smtp?.username ||
+          connection.email,
+
+        pass: decryptedAppPassword,
+      },
+
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
+    });
+
+    await transporter.verify();
+
+    log('✅ Gmail SMTP connection verified.');
+
+    const info = await transporter.sendMail({
+      from: {
+        name:
+          connection.name ||
+          user?.fullName ||
+          user?.organizationName ||
+          'Email Sender',
+
+        address: connection.email,
+      },
+
+      to,
+
+      cc: cc || undefined,
+
+      bcc: bcc || undefined,
+
+      subject: safeSubject,
+
+      html: emailBody,
+
+      text: emailBody
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .trim(),
+
+      replyTo: connection.email,
+
+      inReplyTo:
+        parentMessageId || undefined,
+
+      references: parentMessageId
+        ? [parentMessageId]
+        : undefined,
+    });
+
+    log('✅ [GMAIL SMTP] Email sent successfully!');
+    log('📨 Message ID:', info.messageId);
+
+    sentOk = true;
+
+    sentProviderMessageId =
+      info.messageId || null;
+
+    sentThreadId =
+      threadId ||
+      parentMessageId ||
+      info.messageId ||
+      null;
+  } catch (err) {
+    log('❌ [GMAIL SMTP] Send Error:', {
+      message: err?.message,
+      code: err?.code,
+      response: err?.response,
+      responseCode: err?.responseCode,
+    });
+  } finally {
+    if (transporter) {
+      transporter.close();
+    }
+  }
+}
 
     // =====================================================================
     // ------------------------ 🟣 OUTLOOK PROVIDER -------------------------

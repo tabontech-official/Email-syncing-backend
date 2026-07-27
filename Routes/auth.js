@@ -47,6 +47,7 @@ import {
 import { cpUpload } from '../middleware/cloudinary.js';
 import { authMiddleware } from '../middleware/authmiddleware.js';
 import { addLeadDiscussion, deleteMultipleLeads, deleteSingleLead, updateLeadStatus } from '../controller/smtpServer.js';
+import { connectGmailWithAppPassword } from '../controller/gmailAppPasswordController.js';
 
 const authRouter = express.Router();
 
@@ -66,6 +67,10 @@ authRouter.post("/2fa/disable", disableTwoFactor);
 authRouter.post("/2fa/verify-login", verifyLoginTwoFactor);
 authRouter.put("/change-password", updatePassword);
 authRouter.get('/google', googleAuth);
+authRouter.post(
+  "/gmail/app-password",
+  connectGmailWithAppPassword
+);
 
 authRouter.get('/google/callback', googleAuthCallback);
 authRouter.put('/setup/:id', completeSetup);
