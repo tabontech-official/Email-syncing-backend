@@ -1,68 +1,7 @@
 import { scenarioModel } from "../Models/Scenario.js";
 import { ConnectionModel } from "../Models/Connection.js";
 import { authModel } from "../Models/auth.js";
-// export const addScenario = async (req, res) => {
-//   try {
-//     console.log("=======================================");
-//     console.log("📥 Incoming request to ADD SCENARIO");
-//     console.log("=======================================");
-
-//     // 🔹 Raw body log karo
-//     console.log("🔹 Raw Request Body:", JSON.stringify(req.body, null, 2));
-
-//     // 🔹 Specific fields ko separately log karo
-//     console.log("🔹 userId:", req.body.userId);
-//     console.log("🔹 name:", req.body.name);
-//     console.log("🔹 description:", req.body.description);
-//     console.log("🔹 type:", req.body.type);
-
-//     // 🔹 Router branches detail
-//     if (Array.isArray(req.body.routerBranches)) {
-//       console.log(`🔹 Total routerBranches: ${req.body.routerBranches.length}`);
-//       req.body.routerBranches.forEach((branch, bIndex) => {
-//         console.log(`  ➝ Branch[${bIndex}] id=${branch.id}, hasModule=${branch.hasModule}`);
-//         if (branch.filter) {
-//           console.log(`    └─ Filter Label: ${branch.filter.label}`);
-//           console.log(`    └─ Filter Conditions: ${JSON.stringify(branch.filter.conditions)}`);
-//           console.log(`    └─ Filter Template: ${branch.filter.template}`);
-//         }
-//         if (Array.isArray(branch.modules)) {
-//           console.log(`    └─ Total Modules: ${branch.modules.length}`);
-//           branch.modules.forEach((m, mIndex) => {
-//             console.log(`       • Module[${mIndex}] → id=${m.id}, type=${m.type}`);
-//             console.log(`         ├─ App: ${m.app?.name} (${m.app?.color})`);
-//             console.log(`         ├─ Description: ${m.description}`);
-//             console.log(`         ├─ ConnectionId: ${m.connectionId}`);
-//             console.log(`         ├─ Delay: ${m.delayValue ?? "N/A"} ${m.delayUnit ?? ""}`);
-//             if (m.filter) {
-//               console.log(`         ├─ Filter Label: ${m.filter.label}`);
-//               console.log(`         ├─ Filter Conditions: ${JSON.stringify(m.filter.conditions)}`);
-//               console.log(`         └─ Filter Template: ${m.filter.template}`);
-//             }
-//           });
-//         }
-//       });
-//     } else {
-//       console.log("⚠️ No routerBranches found in request body!");
-//     }
-
-//     // 🔹 Create and save
-//     const scenario = new scenarioModel(req.body);
-//     console.log("🛠 Saving scenario to DB...");
-//     await scenario.save();
-//     console.log("✅ Scenario successfully saved!");
-//     console.log("Saved Scenario Document:", JSON.stringify(scenario, null, 2));
-//     console.log("=======================================");
-
-//     res.status(201).json(scenario);
-//   } catch (error) {
-//     console.log("=======================================");
-//     console.error("❌ Error in addScenario:", error);
-//     console.log("=======================================");
-//     res.status(400).json({ error: error.message });
-//   }
-// };
-
+import mongoose from "mongoose";
 
 export const addScenario = async (req, res) => {
   try {
@@ -100,34 +39,43 @@ export const getSingleScenario = async (req, res) => {
 
 
 
+
 // export const updateScenario = async (req, res) => {
 //   try {
 //     const routerBranches = req.body.routerBranches || [];
 
+//     // Collect all connection IDs from non-delay modules
 //     const connectionIds = [];
+//     let missingConnectionFound = false;
+
 //     routerBranches.forEach((branch) => {
 //       (branch.modules || []).forEach((m) => {
 //         const appName = m.app?.name?.toLowerCase?.() || "";
+
+//         // ✅ Only check non-delay modules (ignore "Delay" type)
 //         const isEmailModule =
 //           appName.includes("email") ||
 //           appName.includes("gmail") ||
 //           appName.includes("follow") ||
 //           appName.includes("initial");
 
-//         const connId =
-//           typeof m.connectionId === "string"
-//             ? m.connectionId.trim()
-//             : m.connectionId?.toString?.().trim();
+//         if (isEmailModule) {
+//           const connId =
+//             typeof m.connectionId === "string"
+//               ? m.connectionId.trim()
+//               : m.connectionId?.toString?.().trim();
 
-//         if (isEmailModule && connId) {
-//           connectionIds.push(connId);
+//           if (!connId) {
+//             // 🚫 Missing connection
+//             missingConnectionFound = true;
+//           } else {
+//             connectionIds.push(connId);
+//           }
 //         }
 //       });
 //     });
 
-
-//     let missingConnectionFound = false;
-
+//     // ✅ Validate that all connectionIds exist and are active
 //     if (connectionIds.length > 0) {
 //       const validConnections = await ConnectionModel.find({
 //         _id: { $in: connectionIds },
@@ -135,17 +83,16 @@ export const getSingleScenario = async (req, res) => {
 //       }).select("_id");
 
 //       const validIds = validConnections.map((c) => c._id.toString());
-
-//       const invalidIds = connectionIds.filter(
-//         (id) => !validIds.includes(id)
-//       );
+//       const invalidIds = connectionIds.filter((id) => !validIds.includes(id));
 
 //       if (invalidIds.length > 0) {
+//         console.warn("⚠️ Found inactive or invalid connections:", invalidIds);
 //         missingConnectionFound = true;
 //       }
-//     } else {
-//       missingConnectionFound = true;
 //     }
+
+//     // ✅ Determine active state — inactive if any missing/inactive connection
+//     const scenarioActive = !missingConnectionFound;
 
 //     const updateData = {
 //       name: req.body.name,
@@ -174,7 +121,7 @@ export const getSingleScenario = async (req, res) => {
 //           emailType: m.emailType || "",
 //         })),
 //       })),
-//       scenarioActive: !missingConnectionFound,
+//       scenarioActive, // ✅ final calculated active state
 //     };
 
 //     const updated = await scenarioModel.findByIdAndUpdate(
@@ -190,122 +137,410 @@ export const getSingleScenario = async (req, res) => {
 //       });
 //     }
 
-  
-//     res.status(200).json({ success: true, updated });
+//     res.status(200).json({
+//       success: true,
+//       message: scenarioActive
+//         ? "Scenario updated and active."
+//         : "Scenario updated but deactivated due to missing/inactive connections.",
+//       scenarioActive,
+//       updated,
+//     });
 //   } catch (error) {
 //     console.error("[updateScenario] Error:", error);
 //     res.status(400).json({ success: false, message: error.message });
 //   }
 // };
 
+
+
 export const updateScenario = async (req, res) => {
   try {
-    const routerBranches = req.body.routerBranches || [];
+    const routerBranches = Array.isArray(req.body.routerBranches)
+      ? req.body.routerBranches
+      : [];
 
-    // Collect all connection IDs from non-delay modules
+    const incomingLead = req.body.incomingLead || {};
+
+    /*
+     * Normalize incoming lead connection ID.
+     * connectionId frontend se string, ObjectId ya array ki form mein aa sakti hai.
+     */
+    const rawIncomingConnectionId = Array.isArray(incomingLead.connectionId)
+      ? incomingLead.connectionId[0]
+      : incomingLead.connectionId;
+
+    const incomingConnectionId =
+      typeof rawIncomingConnectionId === "string"
+        ? rawIncomingConnectionId.trim()
+        : rawIncomingConnectionId?.toString?.().trim() || "";
+
+    const incomingSubjectFilter =
+      typeof incomingLead.subjectFilter === "string"
+        ? incomingLead.subjectFilter.trim()
+        : "";
+
+    /*
+     * Saari email connections collect karenge.
+     */
     const connectionIds = [];
     let missingConnectionFound = false;
 
+    /*
+     * Incoming Leads trigger validation.
+     *
+     * Agar trigger enabled hai, subject filter diya hua hai,
+     * ya incomingLead object frontend se configure hokar aaya hai,
+     * to connection required hogi.
+     */
+    const incomingLeadConfigured = Boolean(
+      incomingLead.enabled ||
+        incomingConnectionId ||
+        incomingSubjectFilter
+    );
+
+    if (incomingLeadConfigured) {
+      if (!incomingConnectionId) {
+        missingConnectionFound = true;
+      } else {
+        connectionIds.push(incomingConnectionId);
+      }
+    }
+
+    /*
+     * Router modules ki connections validate karein.
+     */
     routerBranches.forEach((branch) => {
-      (branch.modules || []).forEach((m) => {
-        const appName = m.app?.name?.toLowerCase?.() || "";
+      const modules = Array.isArray(branch.modules)
+        ? branch.modules
+        : [];
 
-        // ✅ Only check non-delay modules (ignore "Delay" type)
+      modules.forEach((module) => {
+        const appName =
+          typeof module.app?.name === "string"
+            ? module.app.name.toLowerCase()
+            : "";
+
+        const moduleType =
+          typeof module.type === "string"
+            ? module.type.toLowerCase()
+            : "";
+
+        const isDelayModule =
+          appName.includes("delay") ||
+          moduleType.includes("delay");
+
         const isEmailModule =
-          appName.includes("email") ||
-          appName.includes("gmail") ||
-          appName.includes("follow") ||
-          appName.includes("initial");
+          !isDelayModule &&
+          (
+            appName.includes("email") ||
+            appName.includes("gmail") ||
+            appName.includes("follow") ||
+            appName.includes("initial") ||
+            moduleType.includes("email") ||
+            moduleType.includes("gmail")
+          );
 
-        if (isEmailModule) {
-          const connId =
-            typeof m.connectionId === "string"
-              ? m.connectionId.trim()
-              : m.connectionId?.toString?.().trim();
+        if (!isEmailModule) {
+          return;
+        }
 
-          if (!connId) {
-            // 🚫 Missing connection
-            missingConnectionFound = true;
-          } else {
-            connectionIds.push(connId);
-          }
+        const rawConnectionId = Array.isArray(module.connectionId)
+          ? module.connectionId[0]
+          : module.connectionId;
+
+        const connectionId =
+          typeof rawConnectionId === "string"
+            ? rawConnectionId.trim()
+            : rawConnectionId?.toString?.().trim() || "";
+
+        if (!connectionId) {
+          missingConnectionFound = true;
+        } else {
+          connectionIds.push(connectionId);
         }
       });
     });
 
-    // ✅ Validate that all connectionIds exist and are active
-    if (connectionIds.length > 0) {
+    /*
+     * Duplicate IDs hata dein.
+     */
+    const uniqueConnectionIds = [...new Set(connectionIds)];
+
+    /*
+     * MongoDB ObjectId format validate karein.
+     */
+    const invalidFormatIds = uniqueConnectionIds.filter(
+      (connectionId) => !mongoose.Types.ObjectId.isValid(connectionId)
+    );
+
+    if (invalidFormatIds.length > 0) {
+      console.warn(
+        "[updateScenario] Invalid connection ID format:",
+        invalidFormatIds
+      );
+
+      missingConnectionFound = true;
+    }
+
+    const validFormatConnectionIds = uniqueConnectionIds.filter(
+      (connectionId) => mongoose.Types.ObjectId.isValid(connectionId)
+    );
+
+    /*
+     * Check karein ke connections database mein mojood aur active hain.
+     */
+    if (validFormatConnectionIds.length > 0) {
       const validConnections = await ConnectionModel.find({
-        _id: { $in: connectionIds },
+        _id: {
+          $in: validFormatConnectionIds,
+        },
         status: "active",
       }).select("_id");
 
-      const validIds = validConnections.map((c) => c._id.toString());
-      const invalidIds = connectionIds.filter((id) => !validIds.includes(id));
+      const validConnectionIds = new Set(
+        validConnections.map((connection) =>
+          connection._id.toString()
+        )
+      );
 
-      if (invalidIds.length > 0) {
-        console.warn("⚠️ Found inactive or invalid connections:", invalidIds);
+      const inactiveOrMissingIds =
+        validFormatConnectionIds.filter(
+          (connectionId) =>
+            !validConnectionIds.has(connectionId)
+        );
+
+      if (inactiveOrMissingIds.length > 0) {
+        console.warn(
+          "[updateScenario] Inactive or missing connections:",
+          inactiveOrMissingIds
+        );
+
         missingConnectionFound = true;
       }
     }
 
-    // ✅ Determine active state — inactive if any missing/inactive connection
+    /*
+     * Scenario tab active hoga jab koi required connection
+     * missing ya inactive na ho.
+     */
     const scenarioActive = !missingConnectionFound;
 
-    const updateData = {
-      name: req.body.name,
-      description: req.body.description,
-      type: req.body.type,
-      routerBranches: routerBranches.map((branch) => ({
-        id: branch.id,
-        hasModule: branch.hasModule,
-        condition: branch.condition,
-        filter: branch.filter || { conditions: [] },
-        modules: (branch.modules || []).map((m) => ({
-          id: m.id,
-          type: m.type || "",
-          description: m.description || "",
-          subject: m.subject || "",
-          cc: Array.isArray(m.cc) ? m.cc : [],
-          bcc: Array.isArray(m.bcc) ? m.bcc : [],
-          connectionId: Array.isArray(m.connectionId)
-            ? m.connectionId[0]
-            : m.connectionId || "",
-          template: m.template || "",
-          delayValue: m.delayValue || null,
-          delayUnit: m.delayUnit || null,
-          app: m.app || { name: "", color: "", icon: "" },
-          filter: m.filter || { conditions: [] },
-          emailType: m.emailType || "",
-        })),
-      })),
-      scenarioActive, // ✅ final calculated active state
-    };
-
-    const updated = await scenarioModel.findByIdAndUpdate(
-      req.params.id,
-      { $set: updateData },
-      { new: true, runValidators: false }
+    /*
+     * Incoming lead enabled tab hoga jab connection aur
+     * subject filter dono available hon.
+     *
+     * Agar aap subject filter optional rakhna chahte hain to
+     * yahan se incomingSubjectFilter condition remove kar dein.
+     */
+    const incomingLeadEnabled = Boolean(
+      incomingConnectionId &&
+        incomingSubjectFilter &&
+        !invalidFormatIds.includes(incomingConnectionId)
     );
 
-    if (!updated) {
+    const updateData = {
+      name:
+        typeof req.body.name === "string"
+          ? req.body.name.trim()
+          : "",
+
+      description:
+        typeof req.body.description === "string"
+          ? req.body.description
+          : "",
+
+      type: req.body.type || "other",
+
+      incomingLead: {
+        app: {
+          name: incomingLead.app?.name || "Gmail",
+          color: incomingLead.app?.color || "",
+          icon: incomingLead.app?.icon || "",
+        },
+
+        connectionId: incomingConnectionId || null,
+
+        subjectFilter: incomingSubjectFilter,
+
+        pollInterval:
+          Number(incomingLead.pollInterval) > 0
+            ? Number(incomingLead.pollInterval)
+            : 60,
+
+        enabled: incomingLeadEnabled,
+      },
+
+      routerBranches: routerBranches.map((branch) => ({
+        id: branch.id,
+
+        hasModule: Boolean(branch.hasModule),
+
+        condition:
+          typeof branch.condition === "string"
+            ? branch.condition
+            : null,
+
+        filter: {
+          label: branch.filter?.label || "",
+
+          conditions: Array.isArray(
+            branch.filter?.conditions
+          )
+            ? branch.filter.conditions.map((condition) => ({
+                field: condition.field || "",
+                operator: condition.operator || "",
+                value: condition.value || "",
+                join: ["AND", "OR"].includes(condition.join)
+                  ? condition.join
+                  : null,
+              }))
+            : [],
+
+          template: branch.filter?.template || "",
+        },
+
+        modules: Array.isArray(branch.modules)
+          ? branch.modules.map((module) => {
+              const rawModuleConnectionId = Array.isArray(
+                module.connectionId
+              )
+                ? module.connectionId[0]
+                : module.connectionId;
+
+              const moduleConnectionId =
+                typeof rawModuleConnectionId === "string"
+                  ? rawModuleConnectionId.trim()
+                  : rawModuleConnectionId
+                      ?.toString?.()
+                      .trim() || "";
+
+              return {
+                id: module.id,
+
+                type: module.type || "",
+
+                description: module.description || "",
+
+                subject: module.subject || "",
+
+                to: module.to || "",
+
+                cc: Array.isArray(module.cc)
+                  ? module.cc.filter(Boolean)
+                  : [],
+
+                bcc: Array.isArray(module.bcc)
+                  ? module.bcc.filter(Boolean)
+                  : [],
+
+                connectionId: moduleConnectionId,
+
+                template: module.template || "",
+
+                delayValue:
+                  module.delayValue !== undefined &&
+                  module.delayValue !== null &&
+                  module.delayValue !== ""
+                    ? Number(module.delayValue)
+                    : null,
+
+                delayUnit: module.delayUnit || null,
+
+                app: {
+                  name: module.app?.name || "",
+                  color: module.app?.color || "",
+                  icon: module.app?.icon || "",
+                },
+
+                position: {
+                  x:
+                    Number.isFinite(
+                      Number(module.position?.x)
+                    )
+                      ? Number(module.position.x)
+                      : 200,
+
+                  y:
+                    Number.isFinite(
+                      Number(module.position?.y)
+                    )
+                      ? Number(module.position.y)
+                      : 200,
+                },
+
+                filter: {
+                  label: module.filter?.label || "",
+
+                  conditions: Array.isArray(
+                    module.filter?.conditions
+                  )
+                    ? module.filter.conditions.map(
+                        (condition) => ({
+                          field: condition.field || "",
+                          operator:
+                            condition.operator || "",
+                          value: condition.value || "",
+                          join: ["AND", "OR"].includes(
+                            condition.join
+                          )
+                            ? condition.join
+                            : null,
+                        })
+                      )
+                    : [],
+
+                  template:
+                    module.filter?.template || "",
+                },
+
+                emailType: module.emailType || "",
+              };
+            })
+          : [],
+      })),
+
+      scenarioActive,
+    };
+
+    const updatedScenario =
+      await scenarioModel.findByIdAndUpdate(
+        req.params.id,
+        {
+          $set: updateData,
+        },
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
+
+    if (!updatedScenario) {
       return res.status(404).json({
         success: false,
-        message: "Scenario not found",
+        message: "Scenario not found.",
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
+
       message: scenarioActive
-        ? "Scenario updated and active."
-        : "Scenario updated but deactivated due to missing/inactive connections.",
+        ? "Scenario updated and activated successfully."
+        : "Scenario updated but deactivated because one or more connections are missing, invalid, or inactive.",
+
       scenarioActive,
-      updated,
+
+      updated: updatedScenario,
     });
   } catch (error) {
     console.error("[updateScenario] Error:", error);
-    res.status(400).json({ success: false, message: error.message });
+
+    return res.status(400).json({
+      success: false,
+      message:
+        error?.message ||
+        "Unable to update scenario.",
+    });
   }
 };
 

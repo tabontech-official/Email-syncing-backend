@@ -56,7 +56,7 @@
     "js-yaml": "^4.1.0",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
-    "mailparser": "^3.7.4",
+    "mailparser": "^3.9.14",
     "moment": "^2.30.1",
     "mongodb": "^6.8.0",
     "mongoose": "^8.5.3",

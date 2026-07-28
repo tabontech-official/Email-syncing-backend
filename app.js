@@ -34,12 +34,13 @@ import productPageRouter from './Routes/productPage.js';
 import { gmailWebhook } from './middleware/gmailWebhook.js';
 import connectionRouter from './Routes/connection.js';
 import { outlookWebhook } from './middleware/outlookWebhook.js';
+import { startAllGmailListeners } from './middleware/gmailImapListener.js';
 const app = express();
 setupSwagger(app);
-Connect();
+// Connect();
 
-startDelayWorker();
-financeScheduler.start();
+// startDelayWorker();
+// financeScheduler.start();
 // ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
 app.post(
   '/stripe/webhook',
@@ -76,7 +77,6 @@ app.use('/scenario-run-log', scenarioRunLogRouter);
 app.use('/api/landing-page', landingPageRouter);
 app.use('/api/product-page', productPageRouter);
 app.use('/api/connection', connectionRouter);
-app.use('/api/connection', connectionRouter);
 app.post('/gmail/webhook', gmailWebhook);
 
 app.post('/outlook/webhook', outlookWebhook);
@@ -101,6 +101,105 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => {
   res.send('API is running...');
 });
+
+
+const initializeApplication = async () => {
+  try {
+    console.log('========================================');
+    console.log('Starting application services...');
+    console.log('========================================');
+
+    /*
+     * Database must connect before Gmail listeners
+     * are loaded from the Connection collection.
+     */
+    console.log('Connecting to database...');
+
+    await Connect();
+
+    console.log('Database connected successfully');
+
+    /*
+     * Start delayed scenario worker.
+     */
+    console.log('Starting delay worker...');
+
+    startDelayWorker();
+
+    console.log('Delay worker started');
+
+    /*
+     * Start finance scheduler.
+     */
+    console.log('Starting finance scheduler...');
+
+    financeScheduler.start();
+
+    console.log('Finance scheduler started');
+
+    /*
+     * Restore real-time Gmail IMAP listeners
+     * for all active Gmail connections.
+     */
+    console.log('Starting active Gmail listeners...');
+
+    const gmailListenerResults =
+      await startAllGmailListeners();
+
+    const successfulListeners =
+      gmailListenerResults.filter(
+        (result) => result.success
+      );
+
+    const failedListeners =
+      gmailListenerResults.filter(
+        (result) => !result.success
+      );
+
+    console.log(
+      `Gmail listeners initialized: ${successfulListeners.length} successful, ${failedListeners.length} failed`
+    );
+
+    if (failedListeners.length > 0) {
+      console.error(
+        'Some Gmail listeners failed to start:',
+        failedListeners.map((result) => ({
+          connectionId:
+            result.connectionId,
+          email:
+            result.email,
+          error:
+            result.error,
+        }))
+      );
+    }
+
+    console.log('========================================');
+    console.log('Application services initialized');
+    console.log('========================================');
+  } catch (error) {
+    console.error(
+      'Application initialization failed:',
+      {
+        name: error?.name,
+        code: error?.code,
+        message: error?.message,
+        stack:
+          process.env.NODE_ENV ===
+          'development'
+            ? error?.stack
+            : undefined,
+      }
+    );
+
+    /*
+     * Do not continue when database initialization fails.
+     */
+    process.exit(1);
+  }
+};
+
+initializeApplication();
 
 export default app;
 

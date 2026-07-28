@@ -55,6 +55,39 @@ const BranchSchema = new mongoose.Schema({
   },
 });
 
+
+const IncomingLeadSchema = new mongoose.Schema(
+  {
+    app: {
+      name: { type: String, default: "Gmail" },
+      color: { type: String, default: "" },
+      icon: { type: String, default: "" },
+    },
+
+    connectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Connection",
+      default: null,
+    },
+
+    subjectFilter: {
+      type: String,
+      default: "",
+    },
+
+    pollInterval: {
+      type: Number,
+      default: 60,
+    },
+
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  { _id: false }
+);
+
 const ScenarioSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -65,6 +98,21 @@ const ScenarioSchema = new mongoose.Schema(
       enum: ["other", "shopify"],
       default: "other",
     },
+       incomingLead: {
+      type: IncomingLeadSchema,
+      default: () => ({
+        app: {
+          name: "Gmail",
+          color: "",
+          icon: "",
+        },
+        connectionId: null,
+        subjectFilter: "",
+        pollInterval: 60,
+        enabled: false,
+      }),
+    },
+
     routerBranches: [BranchSchema],
     scenarioActive:{
       type:Boolean,
