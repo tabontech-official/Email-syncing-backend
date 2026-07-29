@@ -36,123 +36,6 @@ export const getSingleScenario = async (req, res) => {
 
 
 
-
-
-
-
-// export const updateScenario = async (req, res) => {
-//   try {
-//     const routerBranches = req.body.routerBranches || [];
-
-//     // Collect all connection IDs from non-delay modules
-//     const connectionIds = [];
-//     let missingConnectionFound = false;
-
-//     routerBranches.forEach((branch) => {
-//       (branch.modules || []).forEach((m) => {
-//         const appName = m.app?.name?.toLowerCase?.() || "";
-
-//         // ✅ Only check non-delay modules (ignore "Delay" type)
-//         const isEmailModule =
-//           appName.includes("email") ||
-//           appName.includes("gmail") ||
-//           appName.includes("follow") ||
-//           appName.includes("initial");
-
-//         if (isEmailModule) {
-//           const connId =
-//             typeof m.connectionId === "string"
-//               ? m.connectionId.trim()
-//               : m.connectionId?.toString?.().trim();
-
-//           if (!connId) {
-//             // 🚫 Missing connection
-//             missingConnectionFound = true;
-//           } else {
-//             connectionIds.push(connId);
-//           }
-//         }
-//       });
-//     });
-
-//     // ✅ Validate that all connectionIds exist and are active
-//     if (connectionIds.length > 0) {
-//       const validConnections = await ConnectionModel.find({
-//         _id: { $in: connectionIds },
-//         status: "active",
-//       }).select("_id");
-
-//       const validIds = validConnections.map((c) => c._id.toString());
-//       const invalidIds = connectionIds.filter((id) => !validIds.includes(id));
-
-//       if (invalidIds.length > 0) {
-//         console.warn("⚠️ Found inactive or invalid connections:", invalidIds);
-//         missingConnectionFound = true;
-//       }
-//     }
-
-//     // ✅ Determine active state — inactive if any missing/inactive connection
-//     const scenarioActive = !missingConnectionFound;
-
-//     const updateData = {
-//       name: req.body.name,
-//       description: req.body.description,
-//       type: req.body.type,
-//       routerBranches: routerBranches.map((branch) => ({
-//         id: branch.id,
-//         hasModule: branch.hasModule,
-//         condition: branch.condition,
-//         filter: branch.filter || { conditions: [] },
-//         modules: (branch.modules || []).map((m) => ({
-//           id: m.id,
-//           type: m.type || "",
-//           description: m.description || "",
-//           subject: m.subject || "",
-//           cc: Array.isArray(m.cc) ? m.cc : [],
-//           bcc: Array.isArray(m.bcc) ? m.bcc : [],
-//           connectionId: Array.isArray(m.connectionId)
-//             ? m.connectionId[0]
-//             : m.connectionId || "",
-//           template: m.template || "",
-//           delayValue: m.delayValue || null,
-//           delayUnit: m.delayUnit || null,
-//           app: m.app || { name: "", color: "", icon: "" },
-//           filter: m.filter || { conditions: [] },
-//           emailType: m.emailType || "",
-//         })),
-//       })),
-//       scenarioActive, // ✅ final calculated active state
-//     };
-
-//     const updated = await scenarioModel.findByIdAndUpdate(
-//       req.params.id,
-//       { $set: updateData },
-//       { new: true, runValidators: false }
-//     );
-
-//     if (!updated) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Scenario not found",
-//       });
-//     }
-
-//     res.status(200).json({
-//       success: true,
-//       message: scenarioActive
-//         ? "Scenario updated and active."
-//         : "Scenario updated but deactivated due to missing/inactive connections.",
-//       scenarioActive,
-//       updated,
-//     });
-//   } catch (error) {
-//     console.error("[updateScenario] Error:", error);
-//     res.status(400).json({ success: false, message: error.message });
-//   }
-// };
-
-
-
 export const updateScenario = async (req, res) => {
   try {
     const routerBranches = Array.isArray(req.body.routerBranches)
@@ -499,6 +382,8 @@ export const updateScenario = async (req, res) => {
           : [],
       })),
 
+      rfNodes: Array.isArray(req.body.rfNodes) ? req.body.rfNodes : [],
+      rfEdges: Array.isArray(req.body.rfEdges) ? req.body.rfEdges : [],
       scenarioActive,
     };
 

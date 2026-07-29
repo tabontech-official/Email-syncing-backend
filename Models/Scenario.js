@@ -114,6 +114,8 @@ const ScenarioSchema = new mongoose.Schema(
     },
 
     routerBranches: [BranchSchema],
+    rfNodes: { type: mongoose.Schema.Types.Mixed, default: [] },
+    rfEdges: { type: mongoose.Schema.Types.Mixed, default: [] },
     scenarioActive:{
       type:Boolean,
       default:false
