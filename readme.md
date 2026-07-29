@@ -1,81 +1,105 @@
-# Node.js MongoDB Boilerplate
+# Zenith Email Syncing & Automation Backend API
 
-This is a boilerplate for building a Node.js API with MongoDB, using modern ES modules and a clean architecture. It includes basic setup for environment variables, database connection, API routing, and Swagger documentation.
+A RESTful Node.js & Express API backend powered by MongoDB for handling automated email syncing, lead routing, IMAP/SMTP connection management, AI-driven auto-responses, webhooks, and scenario execution tracking.
 
-## Features
+---
 
-- **Express.js**: Fast and minimalist web framework for Node.js.
-- **MongoDB**: NoSQL database integration using Mongoose.
-- **ES Modules**: Modern JavaScript features using ES6+ syntax.
-- **Environment Variables**: Configuration with `.env` files.
-- **Swagger UI**: API documentation with Swagger.
-- **Nodemon**: Automatic server restarting for development.
-- **Prettier & ESLint**: Code formatting and linting using Airbnb's style guide.
-- **AWS SDK**: Integration for uploading files to AWS S3.
+## 🚀 Features & Modules
 
-## Folder Structure
+- **Authentication & User Management**: User registration, login, JWT token auth, password reset, OAuth Google/Microsoft integration, role-based permissions.
+- **Email Syncing & Processing Engine**:
+  - IMAP/SMTP polling via `imapflow` and `nodemailer`
+  - Real-time Mailhook webhooks processing (`/mailhook`)
+  - Email thread tracking, customer reply ingestion, and auto-attachment mapping
+- **Scenario Workflows & Rules Engine**: Custom condition routing, Shopify lead matching, delay nodes, and execution logging (`/scenario`, `/scenariorunlog`).
+- **Response Templates System**: CRUD operations for Shopify Partner Directory and custom email response templates (`/template`).
+- **AI Auto-Response Engine**: Google Gemini (`@google/generative-ai`) & OpenAI integration for dynamic lead email response generation.
+- **Connections Management**: Configuration for OAuth tokens, custom SMTP/IMAP servers, and status validation (`/connection`).
+- **Payment & Subscriptions**: Stripe billing webhook integration (`/stripe`).
 
-.
-├── config
-│ ├── config.js # Environment variable configuration
-│ └── swaggerConfig.js # Swagger configuration
-├── connection
-│ └── connect.js # MongoDB connection setup
-├── controller # Controllers for handling business logic
-├── Models # Mongoose models
-├── node_modules
-├── Routes # API routes
-├── .env # Environment variables (gitignored)
-├── .env-sample # Sample environment file
-├── .eslintrc.json # ESLint configuration
-├── .gitignore # Files and directories to ignore in Git
-├── .prettierrc # Prettier configuration
-├── api.http # HTTP requests for testing
-├── app.js # Main application entry point
-├── index.js # Index file to start the server
-├── package.json # Project dependencies and scripts
-├── swagger.yml # Swagger documentation in YAML
-└── vercel.json # Vercel deployment configuration
+---
 
-## Getting Started
+## 🛠️ Tech Stack
 
-### Prerequisites
+- **Runtime & Framework**: Node.js (ES Modules), Express.js
+- **Database**: MongoDB with Mongoose ORM
+- **Email Protocols**: `imapflow`, `nodemailer`, `mailparser`, `smtp-server`
+- **AI Integrations**: `@google/generative-ai`, `openai`
+- **Authentication & Security**: JSON Web Tokens (`jsonwebtoken`), `bcryptjs`, `helmet`, `cors`
+- **API Documentation**: Swagger UI Express (`swagger-ui-express`, `swagger-jsdoc`)
+- **Deployment**: Vercel Serverless (`vercel.json`)
 
-Make sure you have Node.js installed (version 18.x or later) and MongoDB running on your local machine or accessible via a cloud service like MongoDB Atlas.
+---
+
+## 📁 Directory Structure
+
+```
+Email-syncing-backend/
+├── Models/                 # Mongoose schemas (User, Scenario, Template, Connection, Email)
+├── Routes/                 # Express route handlers
+│   ├── Scenario.js
+│   ├── auth.js
+│   ├── connection.js
+│   ├── email.js
+│   ├── mailhook.js
+│   ├── scenarioRunLog.js
+│   ├── stripe.js
+│   └── template.js
+├── controller/             # Business logic & route controllers
+├── middleware/             # Auth, error handling, validation middlewares
+├── utils/                  # Helper functions, email parsers, AI engines
+├── config/                 # Database connection & third-party API configs
+├── app.js                  # Express app setup
+├── index.js                # Server entry point
+├── vercel.json             # Vercel deployment configuration
+├── package.json
+└── README.md
+```
+
+---
+
+## 💻 Getting Started
+
+### Environment Variables
+
+Create a `.env` file in the root directory based on `env-sample`:
+
+```env
+PORT=5000
+MONGODB_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/dbname
+JWT_SECRET=your_jwt_secret_key
+OPENAI_API_KEY=your_openai_key
+GEMINI_API_KEY=your_gemini_key
+STRIPE_SECRET_KEY=your_stripe_secret_key
+```
 
 ### Installation
 
-1. **Clone the repository**:
-
+1. **Install dependencies**:
    ```bash
-   git clone https://github.com/your-username/node-mongo-boilerplate.git
-   cd node-mongo-boilerplate
-
-   Install dependencies:
+   npm install
    ```
 
-bash
+2. **Run in development mode**:
+   ```bash
+   npm run dev
+   ```
 
-npm install
+3. **Run in production mode**:
+   ```bash
+   npm start
+   ```
+   The backend server will start listening on `http://localhost:5000`.
 
-Set up environment variables:
+---
 
-Copy the .env-sample to .env and fill in the necessary environment variables.
+## 🌐 API Documentation
 
-bash
+Swagger API documentation is available when running the server at:
+- `http://localhost:5000/api-docs`
 
-cp .env-sample .env
+---
 
-Update the .env file with your MongoDB URI and any other required variables:
+## 📜 License
 
-plaintext
-
-    DB_URI=mongodb://localhost:27017/your-db-name
-    PORT=5000
-    JWT_SECRET=your_jwt_secret
-    AWS_ACCESS_KEY_ID=your_aws_access_key
-    AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-    AWS_BUCKET_NAME=your_s3_bucket_name
-
-Running the Application
-nodemon
+This project is licensed under the MIT License.
