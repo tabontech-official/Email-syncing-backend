@@ -1876,6 +1876,12 @@ const connection = await ConnectionModel.findById(
       connection.smtp.password
     );
 
+    if (!decryptedAppPassword || (connection.smtp.password.includes(":") && decryptedAppPassword === connection.smtp.password)) {
+      throw new Error(
+        'Gmail App Password decryption failed due to invalid encryption key. Please reconnect your Gmail account on the Connections page.'
+      );
+    }
+
     const smtpPort = Number(
       connection.smtp?.port || 465
     );
