@@ -13,7 +13,7 @@ export const getCompanyProfile = async (req, res) => {
       });
     }
 
-    let profile = await CompanyProfileModel.findOne({ userId }).lean();
+    let profile = await CompanyProfileModel.findOne({ userId }).lean()
 
     if (!profile) {
       // Return empty default structure if profile does not exist yet
