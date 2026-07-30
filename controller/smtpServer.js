@@ -824,38 +824,90 @@ function extractFieldsFromEmail(emailObj = {}) {
 }
 
 export const saveIncomingReplyIfExists = async (emailData) => {
+  console.log('\n=======================================');
+  console.log('🔍 Checking if incoming email is a Customer Reply (strictly via messageId / threadId)...');
+  console.log('📩 From:', emailData.from);
+  console.log('📩 To:', emailData.to);
+  console.log('📩 Subject:', emailData.subject);
+  console.log('📩 threadId:', emailData.threadId || 'none');
+  console.log('📩 inReplyTo:', emailData.inReplyTo || 'none');
+  console.log('📩 references:', emailData.references || []);
+
   const { userId } = emailData;
+
+  const userObjId = mongoose.Types.ObjectId.isValid(userId)
+    ? new mongoose.Types.ObjectId(userId)
+    : userId;
 
   const orConditions = [];
 
+  const cleanId = (str = '') => String(str).replace(/^<|>$/g, '').trim();
+
+  // 1. Thread ID matching
   if (emailData.threadId) {
     orConditions.push({ threadId: emailData.threadId });
   }
 
+  // 2. In-Reply-To Message-ID matching
   if (emailData.inReplyTo) {
-    orConditions.push({ messageId: emailData.inReplyTo });
+    const rawReplyTo = emailData.inReplyTo;
+    const cleanedReplyTo = cleanId(rawReplyTo);
+    if (cleanedReplyTo) {
+      orConditions.push({ messageId: rawReplyTo });
+      orConditions.push({ messageId: cleanedReplyTo });
+      orConditions.push({ messageId: `<${cleanedReplyTo}>` });
+    }
   }
 
-  if (emailData.references && emailData.references.length > 0) {
-    orConditions.push({ messageId: { $in: emailData.references } });
+  // 3. References Message-ID matching
+  const rawRefs = Array.isArray(emailData.references)
+    ? emailData.references
+    : typeof emailData.references === 'string'
+    ? [emailData.references]
+    : [];
+
+  if (rawRefs.length > 0) {
+    const refs = rawRefs.flatMap((r) => {
+      const c = cleanId(r);
+      return c ? [r, c, `<${c}>`] : [r];
+    });
+    if (refs.length > 0) {
+      orConditions.push({ messageId: { $in: refs } });
+    }
   }
 
   if (orConditions.length === 0) {
-    console.log('ℹ️ No reply identifiers found — not a customer reply');
+    console.log('ℹ️ No messageId, inReplyTo, or threadId found — not a customer reply.');
+    console.log('=======================================\n');
     return false;
   }
 
   const parentEmail = await EmailModel.findOne({
-    userId,
+    $or: [{ userId: userId }, { userId: userObjId }],
     $or: orConditions,
-  });
+  }).sort({ createdAt: -1 });
 
   if (!parentEmail) {
+    console.log('ℹ️ Parent email thread not found for incoming reply.');
+    console.log('=======================================\n');
     return false;
   }
 
-  await EmailModel.create({
-    userId,
+  console.log(`📍 Matched Parent Email [ID: ${parentEmail._id}] Subject: "${parentEmail.subject}"`);
+
+  // Trace back to the ultimate root email
+  let ultimateRoot = parentEmail;
+  while (ultimateRoot.parentEmailId) {
+    const p = await EmailModel.findById(ultimateRoot.parentEmailId);
+    if (!p) break;
+    ultimateRoot = p;
+  }
+
+  console.log(`🌱 Ultimate Root Lead Email [ID: ${ultimateRoot._id}]`);
+
+  const newReply = await EmailModel.create({
+    userId: parentEmail.userId || userId,
+    connectionId: emailData.connectionId || parentEmail.connectionId || null,
     senderAddress: emailData.from,
     recipientAddress: emailData.to,
     subject: emailData.subject,
@@ -863,13 +915,19 @@ export const saveIncomingReplyIfExists = async (emailData) => {
     htmlBody: emailData.html || '',
     date: new Date(),
     direction: 'incoming',
-    threadId: emailData.threadId || parentEmail.threadId || null,
-    parentEmailId: parentEmail._id,
+    threadId: emailData.threadId || ultimateRoot.threadId || parentEmail.threadId || null,
+    parentEmailId: ultimateRoot._id,
     messageId: emailData.emailId,
     inReplyTo: emailData.inReplyTo || '',
     references: emailData.references || [],
     attachments: emailData.attachments || [],
+    notes: 'Customer reply saved and attached to root lead thread',
   });
+
+  console.log('🎉 SUCCESS: Customer reply saved in DB!');
+  console.log(`  💾 New Reply ID: ${newReply._id}`);
+  console.log(`  🔗 Linked to Root Thread ID: ${ultimateRoot._id}`);
+  console.log('=======================================\n');
 
   return true;
 };
@@ -4808,50 +4866,126 @@ export const getEmailsForUsers = async (req, res) => {
 export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
+    console.log('\n=======================================');
+    console.log(`📥 GET /mailhook/getAllEmailsData Triggered for User ID: ${userId}`);
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
+      console.log(`❌ Invalid user ID format: ${userId}`);
       return res.status(400).json({
         success: false,
         message: 'Invalid user ID format',
       });
     }
 
-    const userEmails = await EmailModel.find({ userId })
+    const userObjId = new mongoose.Types.ObjectId(userId);
+
+    // 1. Fetch user account details
+    const userDoc = await authModel.findById(userId).select('email mailhook').lean();
+    console.log(`👤 User Account:`, userDoc ? { email: userDoc.email, mailhook: userDoc.mailhook } : 'Not found');
+
+    // 2. Fetch all connections associated with this user
+    const userConnections = await ConnectionModel.find({
+      $or: [{ userId: userId }, { userId: userObjId }],
+    }).select('_id email provider').lean();
+
+    const connIds = userConnections.map((c) => c._id);
+    const userEmailAddresses = [
+      userDoc?.email,
+      userDoc?.mailhook,
+      ...userConnections.map((c) => c.email),
+    ].filter(Boolean);
+
+    console.log(`🔌 User Connections (${userConnections.length}):`, userConnections.map(c => `${c.provider}: ${c.email}`));
+    console.log(`✉️ Search Target Addresses:`, userEmailAddresses);
+
+    // 3. Build comprehensive query matching ANY user criteria (userId, connectionId, recipientAddress, senderAddress)
+    const queryConditions = [
+      { userId: userId },
+      { userId: userObjId },
+      ...(connIds.length ? [{ connectionId: { $in: connIds } }] : []),
+    ];
+
+    userEmailAddresses.forEach((addr) => {
+      if (addr && typeof addr === 'string') {
+        const cleanAddr = addr.trim();
+        if (cleanAddr) {
+          queryConditions.push({ recipientAddress: { $regex: cleanAddr, $options: 'i' } });
+          queryConditions.push({ senderAddress: { $regex: cleanAddr, $options: 'i' } });
+        }
+      }
+    });
+
+    const userEmails = await EmailModel.find({ $or: queryConditions })
       .populate('userId', 'name email')
       .populate('templateId')
+      .sort({ createdAt: -1 })
       .lean();
 
+    console.log(`📄 Total Raw Emails Fetched from DB: ${userEmails.length}`);
+
     if (!userEmails.length) {
-      return res.status(404).json({
-        success: false,
-        message: 'No emails found for this user',
+      console.log(`ℹ️ 0 emails found in DB for user ${userId}`);
+      console.log('=======================================\n');
+      return res.status(200).json({
+        success: true,
+        data: {
+          userId,
+          totalThreads: 0,
+          threads: [],
+        },
       });
     }
 
-    // ✅ FIXED ROOT LOGIC
-    const rootEmails = userEmails.filter((email) => {
-      return (
-        email.direction === 'incoming' &&
-        !email.parentEmailId
-      );
+    // 4. Return ALL emails: identify root emails or fallback to all top-level emails without discarding any email
+    let rootEmails = userEmails.filter((email) => {
+      const hasNoParent =
+        !email.parentEmailId ||
+        email.parentEmailId === null ||
+        email.parentEmailId === undefined ||
+        email.parentEmailId === '';
+      return hasNoParent;
     });
 
-    // attach conversations
+    if (!rootEmails.length) {
+      rootEmails = userEmails;
+    }
+
+    console.log(`🌱 Root Lead Threads Identified: ${rootEmails.length}`);
+
+    // Attach thread conversation items (strictly direct child replies or outgoing thread items)
     const emailsWithThreads = rootEmails.map((root) => {
+      const rootIdStr = root._id.toString();
+
       const thread = userEmails.filter((e) => {
-        return (
-          e.parentEmailId?.toString() === root._id.toString() ||
-          e._id.toString() === root._id.toString()
-        );
+        const eIdStr = e._id.toString();
+        const eParentStr = e.parentEmailId ? e.parentEmailId.toString() : '';
+
+        // 1. Root email itself
+        if (eIdStr === rootIdStr) return true;
+
+        // 2. Direct child reply (incoming customer reply or outgoing scenario reply)
+        if (eParentStr === rootIdStr) return true;
+
+        // 3. Matching threadId for child/reply emails
+        if (root.threadId && e.threadId && root.threadId === e.threadId && eParentStr) {
+          return true;
+        }
+
+        return false;
       });
+
+      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${thread.length} message(s)`);
 
       return {
         ...root,
         conversation: thread.sort(
-          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+          (a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt)
         ),
       };
     });
+
+    console.log(`✅ Returning ${emailsWithThreads.length} Thread(s) to Inbox UI`);
+    console.log('=======================================\n');
 
     return res.status(200).json({
       success: true,
@@ -4863,6 +4997,7 @@ export const getEmailDataforUser = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('❌ Error fetching emails for user:', error);
     return res.status(500).json({
       success: false,
       message: 'Server error',
@@ -4870,6 +5005,8 @@ export const getEmailDataforUser = async (req, res) => {
     });
   }
 };
+
+ 
 
 export const deleteAllConnections = async (req, res) => {
   try {
@@ -4884,6 +5021,35 @@ export const deleteAllConnections = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete connections.',
+      error: error.message,
+    });
+  }
+};
+
+export const clearAllEmailsAndConnections = async (req, res) => {
+  try {
+    console.log('\n=======================================');
+    console.log('🧹 CLEARING ALL EMAILS & CONNECTIONS DB...');
+    const emailResult = await EmailModel.deleteMany({});
+    const connResult = await ConnectionModel.deleteMany({});
+    const statusResult = await AutomationStatusModel.deleteMany({});
+    console.log(`✅ Cleared ${emailResult.deletedCount} Email record(s)`);
+    console.log(`✅ Cleared ${connResult.deletedCount} Connection record(s)`);
+    console.log(`✅ Cleared ${statusResult.deletedCount} AutomationStatus record(s)`);
+    console.log('=======================================\n');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Emails, Connections, and Automation Status DB cleared successfully.',
+      emailsDeleted: emailResult.deletedCount,
+      connectionsDeleted: connResult.deletedCount,
+      automationStatusesDeleted: statusResult.deletedCount,
+    });
+  } catch (error) {
+    console.error('❌ [clearAllEmailsAndConnections] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear DB.',
       error: error.message,
     });
   }

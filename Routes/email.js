@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   addLeadDiscussion,
+  clearAllEmailsAndConnections,
   deleteAllConnections,
   deleteConnectionById,
   deleteMultipleLeads,
@@ -45,6 +46,7 @@ emailRouter.get('/getAllEmailsData/:userId', getEmailDataforUser);
 emailRouter.post('/Run-test-mode/', RunTestMode);
 emailRouter.get('/get-test-email/:userId', getTestEmail);
 emailRouter.delete('/delete', deleteAllConnections);
+emailRouter.delete('/clear-all-data', clearAllEmailsAndConnections);
 emailRouter.get('/verification/:userId', getLatestVerificationEmail);
 emailRouter.post('/validate-forwarding/:userId', validateTestEmail);
 emailRouter.get('/validateTest/:userId/', getValidateEmail);

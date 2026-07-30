@@ -119,7 +119,11 @@ const processIncomingGmailEmail = async ({
       emailId: parsed.messageId || '',
       threadId: '',
       inReplyTo: parsed.inReplyTo || '',
-      references: parsed.references || [],
+      references: Array.isArray(parsed.references)
+        ? parsed.references
+        : typeof parsed.references === 'string'
+        ? [parsed.references]
+        : [],
 
       attachments:
         parsed.attachments?.map(
