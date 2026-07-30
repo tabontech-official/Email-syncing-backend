@@ -33,6 +33,8 @@ import scriptRouter from './Routes/scriptRoutes.js';
 import productPageRouter from './Routes/productPage.js';
 import { gmailWebhook } from './middleware/gmailWebhook.js';
 import connectionRouter from './Routes/connection.js';
+import companyProfileRouter from './Routes/companyProfileRoutes.js';
+import aiConfigRouter from './Routes/aiConfigRoutes.js';
 import { outlookWebhook } from './middleware/outlookWebhook.js';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
 const app = express();
@@ -77,6 +79,8 @@ app.use('/scenario-run-log', scenarioRunLogRouter);
 app.use('/api/landing-page', landingPageRouter);
 app.use('/api/product-page', productPageRouter);
 app.use('/api/connection', connectionRouter);
+app.use('/api/company-profile', companyProfileRouter);
+app.use('/api/ai-config', aiConfigRouter);
 app.post('/gmail/webhook', gmailWebhook);
 
 app.post('/outlook/webhook', outlookWebhook);
