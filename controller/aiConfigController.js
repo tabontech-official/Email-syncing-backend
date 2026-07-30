@@ -1,4 +1,4 @@
-import { AiConfigModel } from "../models/AiConfig.js";
+import { AiConfigModel } from "../Models/AiConfig.js";
 
 // GET /api/ai-config
 export const getAiConfig = async (req, res) => {

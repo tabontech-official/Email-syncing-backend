@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { CompanyProfileModel } from "../models/CompanyProfile.js";
+import { CompanyProfileModel } from "../Models/CompanyProfile.js";
 
 // GET /api/company-profile/:userId
 export const getCompanyProfile = async (req, res) => {
