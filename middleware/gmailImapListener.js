@@ -4,6 +4,7 @@ import { ConnectionModel } from '../Models/Connection.js';
 import { EmailModel } from '../Models/Email.js';
 import { executeScenarios, saveIncomingReplyIfExists } from '../controller/smtpServer.js';
 import { decrypt } from './encryption.js';
+import { uploadBufferToCloudinary } from './cloudinary.js';
 
 /*
  * All currently running Gmail listeners.
@@ -125,17 +126,23 @@ const processIncomingGmailEmail = async ({
         ? [parsed.references]
         : [],
 
-      attachments:
-        parsed.attachments?.map(
-          (attachment) => ({
-            filename:
-              attachment.filename ||
-              'attachment',
-            contentType:
-              attachment.contentType,
+      attachments: await Promise.all(
+        (parsed.attachments || []).map(async (attachment) => {
+          let cUrl = null;
+          if (attachment.content) {
+            cUrl = await uploadBufferToCloudinary(
+              attachment.content,
+              attachment.filename || 'attachment'
+            );
+          }
+          return {
+            filename: attachment.filename || 'attachment',
+            contentType: attachment.contentType,
             size: attachment.size,
-          })
-        ) || [],
+            url: cUrl || '',
+          };
+        })
+      ),
     });
 
   if (savedAsReply) {

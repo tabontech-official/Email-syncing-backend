@@ -20,6 +20,12 @@ import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+const extractEmail = (value = '') => {
+  if (!value) return '';
+  const match = String(value).match(/<(.+?)>/);
+  return (match ? match[1] : String(value)).trim().toLowerCase();
+};
+
 // export const generateGeminiReply = async ({ from, subject, body }) => {
 //   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
@@ -875,17 +881,38 @@ export const saveIncomingReplyIfExists = async (emailData) => {
       orConditions.push({ messageId: { $in: refs } });
     }
   }
+  // 4. Fallback Subject & Customer Email matching
+  const cleanSubj = (emailData.subject || "").replace(/^re:\s*/i, "").trim().toLowerCase();
+  const fromEmail = extractEmail(emailData.from)?.toLowerCase();
 
-  if (orConditions.length === 0) {
-    console.log('ℹ️ No messageId, inReplyTo, or threadId found — not a customer reply.');
-    console.log('=======================================\n');
-    return false;
+  const queryConditions = [];
+  if (orConditions.length > 0) {
+    queryConditions.push({ $or: orConditions });
   }
 
-  const parentEmail = await EmailModel.findOne({
-    $or: [{ userId: userId }, { userId: userObjId }],
-    $or: orConditions,
-  }).sort({ createdAt: -1 });
+  if (userId) {
+    queryConditions.push({ $or: [{ userId: userId }, { userId: userObjId }] });
+  }
+
+  let parentEmail = null;
+  if (queryConditions.length > 0) {
+    parentEmail = await EmailModel.findOne({
+      $and: queryConditions,
+    }).sort({ createdAt: -1 });
+  }
+
+  // Fallback: If Message-ID / Thread-ID header match failed, match by Customer Email + Cleaned Subject
+  if (!parentEmail && fromEmail && cleanSubj) {
+    const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    console.log(`🔍 [saveIncomingReplyIfExists] Attempting fallback match for email: "${fromEmail}" subject: "${cleanSubj}"...`);
+    parentEmail = await EmailModel.findOne({
+      $or: [
+        { senderAddress: new RegExp(fromEmail, "i") },
+        { recipientAddress: new RegExp(fromEmail, "i") },
+      ],
+      subject: new RegExp(escapedSubj, "i"),
+    }).sort({ createdAt: -1 });
+  }
 
   if (!parentEmail) {
     console.log('ℹ️ Parent email thread not found for incoming reply.');
@@ -1947,6 +1974,12 @@ const connection = await ConnectionModel.findById(
       references: parentMessageId
         ? [parentMessageId]
         : undefined,
+
+      attachments: (module.attachments || []).map((att) => ({
+        filename: att.filename,
+        path: att.path,
+        contentType: att.contentType,
+      })),
     });
 
     log('✅ [GMAIL SMTP] Email sent successfully!');
@@ -2106,6 +2139,7 @@ const connection = await ConnectionModel.findById(
         inReplyTo: parentMessageId || null,
         references: parentMessageId ? [parentMessageId] : [],
         templateId: module.templateId || null,
+        attachments: module.attachments || [],
 
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
@@ -2404,14 +2438,23 @@ export const addLeadDiscussion = async (req, res) => {
       lastOutgoingChild?.messageId || rootEmail.messageId;
 
     // -------------------------------
-    // PAYLOAD
+    // ATTACHMENTS & PAYLOAD
     // -------------------------------
+    const uploadedAttachments = (req.files || []).map((file) => ({
+      filename: file.originalname,
+      path: file.path,
+      contentType: file.mimetype,
+      size: file.size,
+      url: `${req.protocol}://${req.get('host')}/uploads/${file.filename}`,
+    }));
+
     const modulePayload = {
       connectionId,
       subject,
       template: `<div>${cleanMessage.replace(/\n/g, '<br/>')}</div>`,
       service: lastOutgoingChild?.service || rootEmail.service,
       stepType: 'Manual Reply',
+      attachments: uploadedAttachments,
     };
 
     log('Sending email module...', modulePayload);

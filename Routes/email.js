@@ -56,10 +56,12 @@ emailRouter.post('/sendTestEmail', sendTestEmail);
 emailRouter.post("/verify", verifyConnection);
 emailRouter.get("/:id", getConnectionById);
 emailRouter.post("/test/custom", RunCustomTestMode);
-emailRouter.get("/email/latest/:userId", getLatestServiceEmail);
-emailRouter.put("/connection/:id", updateConnectionById);
-emailRouter.patch('/lead-status/:emailId', updateLeadStatus);
-emailRouter.post('/send-thread-reply/:emailId', addLeadDiscussion);
-emailRouter.delete('/lead/:emailId', deleteSingleLead);
+import { uploadAttachmentsMulter } from '../middleware/cloudinary.js';
+
+emailRouter.post(
+  '/send-thread-reply/:emailId',
+  uploadAttachmentsMulter.array('attachments', 10),
+  addLeadDiscussion
+);
 emailRouter.post('/leads/delete-many', deleteMultipleLeads);
 export default emailRouter;
