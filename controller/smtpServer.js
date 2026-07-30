@@ -2427,24 +2427,20 @@ export const addLeadDiscussion = async (req, res) => {
     }
 
     // -------------------------------
-    // SAVE DISCUSSION
+    // UPDATE ROOT EMAIL STATUS
     // -------------------------------
     const updatedEmail = await EmailModel.findByIdAndUpdate(
       emailId,
       {
-        $push: {
-          discussion: {
-            message: cleanMessage,
-            createdBy: userId || null,
-          },
-        },
+        leadStatus:
+          rootEmail.leadStatus === 'new_lead' ? 'awaiting' : rootEmail.leadStatus,
       },
       { new: true }
     );
 
     return res.status(200).json({
       success: true,
-      message: 'Discussion added and email sent successfully',
+      message: 'Email sent successfully',
       data: updatedEmail,
       sentEmail: sendResult,
     });
