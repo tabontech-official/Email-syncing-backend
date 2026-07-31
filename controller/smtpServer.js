@@ -849,6 +849,29 @@ export const saveIncomingReplyIfExists = async (emailData) => {
 
   const cleanId = (str = '') => String(str).replace(/^<|>$/g, '').trim();
 
+  const rawRefs = Array.isArray(emailData.references)
+    ? emailData.references
+    : typeof emailData.references === 'string'
+    ? [emailData.references]
+    : [];
+  const refs = rawRefs.flatMap((r) => {
+    const c = cleanId(r);
+    return c ? [r, c, `<${c}>`] : [];
+  });
+
+  const hasInReplyTo = !!cleanId(emailData.inReplyTo);
+  const hasRefs = refs.length > 0;
+  const hasThreadId = !!emailData.threadId;
+  const isReSubject = /^re:\s*|^fwd:\s*/i.test((emailData.subject || '').trim());
+
+  // STRICT GUARD: If no inReplyTo, no references, no threadId AND subject does NOT start with Re:/Fwd:,
+  // this is a BRAND NEW lead email, NOT a customer reply!
+  if (!hasInReplyTo && !hasRefs && !hasThreadId && !isReSubject) {
+    console.log('ℹ️ [saveIncomingReplyIfExists] No reply headers and subject is not Re:/Fwd: — treating as NEW LEAD EMAIL.');
+    console.log('=======================================\n');
+    return false;
+  }
+
   // 1. Thread ID matching
   if (emailData.threadId) {
     orConditions.push({ threadId: emailData.threadId });
@@ -866,23 +889,12 @@ export const saveIncomingReplyIfExists = async (emailData) => {
   }
 
   // 3. References Message-ID matching
-  const rawRefs = Array.isArray(emailData.references)
-    ? emailData.references
-    : typeof emailData.references === 'string'
-    ? [emailData.references]
-    : [];
-
-  if (rawRefs.length > 0) {
-    const refs = rawRefs.flatMap((r) => {
-      const c = cleanId(r);
-      return c ? [r, c, `<${c}>`] : [r];
-    });
-    if (refs.length > 0) {
-      orConditions.push({ messageId: { $in: refs } });
-    }
+  if (refs.length > 0) {
+    orConditions.push({ messageId: { $in: refs } });
   }
+
   // 4. Fallback Subject & Customer Email matching
-  const cleanSubj = (emailData.subject || "").replace(/^re:\s*/i, "").trim().toLowerCase();
+  const cleanSubj = (emailData.subject || "").replace(/^re:\s*|^fwd:\s*/i, "").trim().toLowerCase();
   const fromEmail = extractEmail(emailData.from)?.toLowerCase();
 
   const queryConditions = [];
@@ -901,10 +913,10 @@ export const saveIncomingReplyIfExists = async (emailData) => {
     }).sort({ createdAt: -1 });
   }
 
-  // Fallback: If Message-ID / Thread-ID header match failed, match by Customer Email + Cleaned Subject
-  if (!parentEmail && fromEmail && cleanSubj) {
+  // Fallback: ONLY if subject starts with Re: or Fwd:, attempt Subject + Email matching
+  if (!parentEmail && isReSubject && fromEmail && cleanSubj) {
     const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    console.log(`🔍 [saveIncomingReplyIfExists] Attempting fallback match for email: "${fromEmail}" subject: "${cleanSubj}"...`);
+    console.log(`🔍 [saveIncomingReplyIfExists] Attempting fallback match for reply subject: "${cleanSubj}" email: "${fromEmail}"...`);
     parentEmail = await EmailModel.findOne({
       $or: [
         { senderAddress: new RegExp(fromEmail, "i") },
@@ -1782,6 +1794,30 @@ export const executeScenarios = async (emailData) => {
   }
 };
 
+const formatMessageId = (id) => {
+  if (!id) return undefined;
+  const clean = String(id).replace(/^<|>$/g, '').trim();
+  if (!clean || clean.startsWith('disc-') || clean.startsWith('reply-') || clean.startsWith('custom-test-')) {
+    return undefined;
+  }
+  return `<${clean}>`;
+};
+
+const formatReferencesHeader = (parentMsgId, parentEmailDoc = null) => {
+  const refs = [];
+  if (parentEmailDoc?.references && Array.isArray(parentEmailDoc.references)) {
+    parentEmailDoc.references.forEach((r) => {
+      const formatted = formatMessageId(r);
+      if (formatted && !refs.includes(formatted)) refs.push(formatted);
+    });
+  }
+  const formattedParent = formatMessageId(parentMsgId || parentEmailDoc?.messageId);
+  if (formattedParent && !refs.includes(formattedParent)) {
+    refs.push(formattedParent);
+  }
+  return refs.length > 0 ? refs : undefined;
+};
+
 const convertToMs = (value, unit) => {
   if (!value) return 0;
   if (unit === 'seconds') return value * 1000;
@@ -1939,14 +1975,24 @@ const connection = await ConnectionModel.findById(
 
     log('✅ Gmail SMTP connection verified.');
 
+    let parentEmailDoc = null;
+    if (parentEmailId && mongoose.Types.ObjectId.isValid(parentEmailId)) {
+      parentEmailDoc = await EmailModel.findById(parentEmailId);
+    }
+
+    const formattedInReplyTo = formatMessageId(parentMessageId || parentEmailDoc?.messageId);
+    const formattedReferences = formatReferencesHeader(parentMessageId, parentEmailDoc);
+
+    const senderName =
+      (connection.name && !/connection/i.test(connection.name) ? connection.name : null) ||
+      user?.fullName ||
+      user?.organizationName ||
+      connection.email.split('@')[0] ||
+      'Email Sender';
+
     const info = await transporter.sendMail({
       from: {
-        name:
-          connection.name ||
-          user?.fullName ||
-          user?.organizationName ||
-          'Email Sender',
-
+        name: senderName,
         address: connection.email,
       },
 
@@ -1968,12 +2014,9 @@ const connection = await ConnectionModel.findById(
 
       replyTo: connection.email,
 
-      inReplyTo:
-        parentMessageId || undefined,
+      inReplyTo: formattedInReplyTo,
 
-      references: parentMessageId
-        ? [parentMessageId]
-        : undefined,
+      references: formattedReferences,
 
       attachments: (module.attachments || []).map((att) => ({
         filename: att.filename,
@@ -4981,8 +5024,8 @@ export const getEmailDataforUser = async (req, res) => {
       });
     }
 
-    // 4. Return ALL emails: identify root emails or fallback to all top-level emails without discarding any email
-    let rootEmails = userEmails.filter((email) => {
+    // 4. Return ALL emails: identify root emails and deduplicate multiple root entries for the same lead
+    let rawRoots = userEmails.filter((email) => {
       const hasNoParent =
         !email.parentEmailId ||
         email.parentEmailId === null ||
@@ -4991,15 +5034,37 @@ export const getEmailDataforUser = async (req, res) => {
       return hasNoParent;
     });
 
-    if (!rootEmails.length) {
-      rootEmails = userEmails;
+    if (!rawRoots.length) {
+      rawRoots = userEmails;
     }
 
-    console.log(`🌱 Root Lead Threads Identified: ${rootEmails.length}`);
+    const uniqueRootMap = new Map();
+
+    for (const email of rawRoots) {
+      const cleanSender = extractEmail(email.senderAddress || '').toLowerCase();
+      const cleanSubj = (email.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
+      const threadKey = email.threadId
+        ? `thread-${email.threadId}`
+        : `sender-${cleanSender}-${cleanSubj}`;
+
+      if (!uniqueRootMap.has(threadKey)) {
+        uniqueRootMap.set(threadKey, email);
+      } else {
+        const existing = uniqueRootMap.get(threadKey);
+        if (new Date(email.createdAt || email.date) < new Date(existing.createdAt || existing.date)) {
+          uniqueRootMap.set(threadKey, email);
+        }
+      }
+    }
+
+    const deduplicatedRoots = Array.from(uniqueRootMap.values());
+    console.log(`🌱 Root Lead Threads Identified: ${deduplicatedRoots.length} (deduplicated from ${rawRoots.length})`);
 
     // Attach thread conversation items (strictly direct child replies or outgoing thread items)
-    const emailsWithThreads = rootEmails.map((root) => {
+    const emailsWithThreads = deduplicatedRoots.map((root) => {
       const rootIdStr = root._id.toString();
+      const cleanRootSender = extractEmail(root.senderAddress || '').toLowerCase();
+      const cleanRootSubj = (root.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
 
       const thread = userEmails.filter((e) => {
         const eIdStr = e._id.toString();
@@ -5008,11 +5073,18 @@ export const getEmailDataforUser = async (req, res) => {
         // 1. Root email itself
         if (eIdStr === rootIdStr) return true;
 
-        // 2. Direct child reply (incoming customer reply or outgoing scenario reply)
+        // 2. Direct child reply
         if (eParentStr === rootIdStr) return true;
 
-        // 3. Matching threadId for child/reply emails
-        if (root.threadId && e.threadId && root.threadId === e.threadId && eParentStr) {
+        // 3. Matching threadId
+        if (root.threadId && e.threadId && root.threadId === e.threadId) return true;
+
+        // 4. Matching sender/recipient & subject
+        const eSender = extractEmail(e.senderAddress || '').toLowerCase();
+        const eRecip = extractEmail(e.recipientAddress || '').toLowerCase();
+        const eSubj = (e.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
+
+        if ((eSender === cleanRootSender || eRecip === cleanRootSender) && eSubj === cleanRootSubj) {
           return true;
         }
 
