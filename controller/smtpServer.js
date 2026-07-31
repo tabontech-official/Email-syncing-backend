@@ -980,6 +980,23 @@ export const executeScenarios = async (emailData) => {
 
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
+    if (emailId) {
+      const emailIdObj = mongoose.Types.ObjectId.isValid(emailId)
+        ? new mongoose.Types.ObjectId(emailId)
+        : emailId;
+
+      const updated = await EmailModel.findOneAndUpdate(
+        { _id: emailIdObj, scenarioExecuted: { $ne: true } },
+        { $set: { scenarioExecuted: true } },
+        { new: true }
+      );
+
+      if (!updated) {
+        console.log(`⚠️ [executeScenarios] Scenario ALREADY EXECUTED for emailId: ${emailId} — preventing duplicate response!`);
+        return;
+      }
+    }
+
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
@@ -2311,14 +2328,22 @@ export const deleteMultipleLeads = async (req, res) => {
       mongoose.Types.ObjectId.isValid(id)
     );
 
-    await EmailModel.updateMany(
-      { _id: { $in: validIds } },
-      { isDeleted: true }
-    );
+    const validObjectIds = validIds.map((id) => new mongoose.Types.ObjectId(id));
+
+    // Permanently delete root lead emails AND all associated child replies/conversation items from MongoDB
+    const result = await EmailModel.deleteMany({
+      $or: [
+        { _id: { $in: validObjectIds } },
+        { parentEmailId: { $in: validObjectIds } },
+      ],
+    });
+
+    console.log(`🗑️ Permanently deleted ${result.deletedCount} email document(s) from DB.`);
 
     return res.status(200).json({
       success: true,
-      message: 'Selected leads deleted',
+      message: 'Selected leads permanently deleted from DB',
+      deletedCount: result.deletedCount,
     });
   } catch (error) {
     console.error('deleteMultipleLeads error:', error);
@@ -4973,23 +4998,39 @@ export const getEmailDataforUser = async (req, res) => {
 
     // 2. Fetch all connections associated with this user
     const userConnections = await ConnectionModel.find({
-      $or: [{ userId: userId }, { userId: userObjId }],
-    }).select('_id email provider').lean();
+      $or: [
+        { userId: userId },
+        { userId: userObjId },
+        ...(userDoc?.email ? [{ email: userDoc.email }] : []),
+      ],
+    }).select('_id email provider userId').lean();
 
     const connIds = userConnections.map((c) => c._id);
-    const userEmailAddresses = [
-      userDoc?.email,
-      userDoc?.mailhook,
-      ...userConnections.map((c) => c.email),
-    ].filter(Boolean);
+    const connUserIds = userConnections.map((c) => c.userId).filter(Boolean);
+
+    const userEmailAddresses = Array.from(
+      new Set(
+        [
+          userDoc?.email,
+          userDoc?.mailhook,
+          ...userConnections.map((c) => c.email),
+        ]
+          .filter(Boolean)
+          .map((e) => e.trim().toLowerCase())
+      )
+    );
 
     console.log(`🔌 User Connections (${userConnections.length}):`, userConnections.map(c => `${c.provider}: ${c.email}`));
     console.log(`✉️ Search Target Addresses:`, userEmailAddresses);
 
-    // 3. Build comprehensive query matching ANY user criteria (userId, connectionId, recipientAddress, senderAddress)
+    // 3. Build comprehensive query matching ANY user criteria
     const queryConditions = [
       { userId: userId },
       { userId: userObjId },
+      ...connUserIds.flatMap((uid) => [
+        { userId: uid },
+        ...(mongoose.Types.ObjectId.isValid(uid) ? [{ userId: new mongoose.Types.ObjectId(uid) }] : []),
+      ]),
       ...(connIds.length ? [{ connectionId: { $in: connIds } }] : []),
     ];
 
@@ -4997,8 +5038,9 @@ export const getEmailDataforUser = async (req, res) => {
       if (addr && typeof addr === 'string') {
         const cleanAddr = addr.trim();
         if (cleanAddr) {
-          queryConditions.push({ recipientAddress: { $regex: cleanAddr, $options: 'i' } });
-          queryConditions.push({ senderAddress: { $regex: cleanAddr, $options: 'i' } });
+          const escaped = cleanAddr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+          queryConditions.push({ recipientAddress: new RegExp(escaped, 'i') });
+          queryConditions.push({ senderAddress: new RegExp(escaped, 'i') });
         }
       }
     });
@@ -5041,18 +5083,24 @@ export const getEmailDataforUser = async (req, res) => {
     const uniqueRootMap = new Map();
 
     for (const email of rawRoots) {
+      const cleanMsgId = email.messageId ? email.messageId.replace(/^<|>$/g, '').trim() : '';
       const cleanSender = extractEmail(email.senderAddress || '').toLowerCase();
       const cleanSubj = (email.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
-      const threadKey = email.threadId
-        ? `thread-${email.threadId}`
-        : `sender-${cleanSender}-${cleanSubj}`;
+      const itemTime = new Date(email.date || email.createdAt || 0).getTime();
+      const timeWindow = Math.floor(itemTime / 60000); // 1-minute window
 
-      if (!uniqueRootMap.has(threadKey)) {
-        uniqueRootMap.set(threadKey, email);
+      const rootKey = cleanMsgId
+        ? `msg-${cleanMsgId}`
+        : email.threadId
+        ? `thread-${email.threadId}`
+        : `root-${cleanSender}-${cleanSubj}-${timeWindow}`;
+
+      if (!uniqueRootMap.has(rootKey)) {
+        uniqueRootMap.set(rootKey, email);
       } else {
-        const existing = uniqueRootMap.get(threadKey);
+        const existing = uniqueRootMap.get(rootKey);
         if (new Date(email.createdAt || email.date) < new Date(existing.createdAt || existing.date)) {
-          uniqueRootMap.set(threadKey, email);
+          uniqueRootMap.set(rootKey, email);
         }
       }
     }
@@ -5060,11 +5108,12 @@ export const getEmailDataforUser = async (req, res) => {
     const deduplicatedRoots = Array.from(uniqueRootMap.values());
     console.log(`🌱 Root Lead Threads Identified: ${deduplicatedRoots.length} (deduplicated from ${rawRoots.length})`);
 
-    // Attach thread conversation items (strictly direct child replies or outgoing thread items)
+    // Attach thread conversation items
     const emailsWithThreads = deduplicatedRoots.map((root) => {
       const rootIdStr = root._id.toString();
       const cleanRootSender = extractEmail(root.senderAddress || '').toLowerCase();
       const cleanRootSubj = (root.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
+      const cleanRootMsgId = root.messageId ? root.messageId.replace(/^<|>$/g, '').trim() : '';
 
       const thread = userEmails.filter((e) => {
         const eIdStr = e._id.toString();
@@ -5079,25 +5128,36 @@ export const getEmailDataforUser = async (req, res) => {
         // 3. Matching threadId
         if (root.threadId && e.threadId && root.threadId === e.threadId) return true;
 
-        // 4. Matching sender/recipient & subject
-        const eSender = extractEmail(e.senderAddress || '').toLowerCase();
-        const eRecip = extractEmail(e.recipientAddress || '').toLowerCase();
-        const eSubj = (e.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
-
-        if ((eSender === cleanRootSender || eRecip === cleanRootSender) && eSubj === cleanRootSubj) {
-          return true;
+        // 4. InReplyTo / MessageId matching
+        if (cleanRootMsgId && e.inReplyTo) {
+          const cleanReplyTo = e.inReplyTo.replace(/^<|>$/g, '').trim();
+          if (cleanReplyTo === cleanRootMsgId) return true;
         }
 
         return false;
       });
 
-      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${thread.length} message(s)`);
+      // Deduplicate conversation messages by direction + normalized body text snippet
+      const uniqueMsgMap = new Map();
+      thread.forEach((msg) => {
+        const text = (msg.textBody || msg.htmlBody || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 150);
+        const dir = msg.direction || 'incoming';
+        const key = text ? `${dir}:${text}` : `id:${msg._id}`;
+
+        if (!uniqueMsgMap.has(key)) {
+          uniqueMsgMap.set(key, msg);
+        }
+      });
+
+      const deduplicatedThread = Array.from(uniqueMsgMap.values()).sort(
+        (a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt)
+      );
+
+      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${deduplicatedThread.length} unique message(s) (from ${thread.length})`);
 
       return {
         ...root,
-        conversation: thread.sort(
-          (a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt)
-        ),
+        conversation: deduplicatedThread,
       };
     });
 

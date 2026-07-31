@@ -58,6 +58,7 @@ const emailSchema = new mongoose.Schema(
       body: { type: String, default: null }, // full forwarded block
     },
     isTestEmail: Boolean,
+    scenarioExecuted: { type: Boolean, default: false },
     verificationCode: { type: String, default: null },
     verificationUrl: { type: String, default: null },
     extraFields: { type: Object, default: {} },

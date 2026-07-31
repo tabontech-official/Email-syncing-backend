@@ -84,12 +84,17 @@ const processIncomingGmailEmail = async ({
    * Avoid processing the same email twice.
    */
   if (parsed.messageId) {
-    const existingEmail =
-      await EmailModel.findOne({
-        userId: connection.userId,
-        connectionId: connection._id,
-        messageId: parsed.messageId,
-      }).select('_id');
+    const rawId = parsed.messageId;
+    const cleanIdStr = String(rawId).replace(/^<|>$/g, '').trim();
+    const existingEmail = await EmailModel.findOne({
+      userId: connection.userId,
+      connectionId: connection._id,
+      $or: [
+        { messageId: rawId },
+        { messageId: cleanIdStr },
+        { messageId: `<${cleanIdStr}>` },
+      ],
+    }).select('_id');
 
     if (existingEmail) {
       console.log(
