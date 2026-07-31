@@ -162,6 +162,7 @@ const processIncomingGmailEmail = async ({
   /*
    * Save as a new incoming email.
    */
+  const msgDate = parsed.date || new Date();
   const emailDoc =
     await EmailModel.create({
       userId: connection.userId,
@@ -174,9 +175,11 @@ const processIncomingGmailEmail = async ({
       textBody: parsed.text || '',
       htmlBody: parsed.html || '',
 
-      date: parsed.date || new Date(),
+      date: msgDate,
+      lastActivityAt: msgDate,
 
       messageId: parsed.messageId || '',
+      threadId: parsed.threadId || null,
       inReplyTo: parsed.inReplyTo || '',
       references: parsed.references || [],
 
@@ -201,6 +204,11 @@ const processIncomingGmailEmail = async ({
       notes:
         'Incoming Gmail email received through IMAP IDLE',
     });
+
+  if (!emailDoc.threadId) {
+    emailDoc.threadId = emailDoc._id.toString();
+    await emailDoc.save();
+  }
 
   console.log(
     'New Gmail email saved:',

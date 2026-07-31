@@ -18,6 +18,13 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
+import {
+  cleanMessageId,
+  formatMessageId,
+  normalizeSubject,
+  formatReferencesHeader,
+  resolveAndAttachIncomingReply,
+} from '../utils/threadingHelper.js';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const extractEmail = (value = '') => {
@@ -699,11 +706,6 @@ export const mailHookWebhook = async (req, res) => {
       parsed.text?.toLowerCase().includes('forwarded message') ||
       !!req.body.envelope;
 
-    if (!isForwarded) {
-      console.log('⏭️ Not forwarded — ignored');
-      return res.status(200).send('Ignored');
-    }
-
     /* ---------------- VALIDATION EMAIL ---------------- */
     if (parsed.subject?.includes('Replex Engine Forwarding Validation Test')) {
       console.log('✅ Forwarding validation detected');
@@ -751,6 +753,7 @@ export const mailHookWebhook = async (req, res) => {
     }
 
     /* ---------------- SAVE EMAIL ---------------- */
+    const rootDate = parsed.date || new Date();
     const emailDoc = await EmailModel.create({
       userId: user._id,
       senderAddress,
@@ -758,8 +761,10 @@ export const mailHookWebhook = async (req, res) => {
       subject: parsed.subject,
       textBody: parsed.text,
       htmlBody: parsed.html,
-      date: parsed.date || new Date(),
+      date: rootDate,
+      lastActivityAt: rootDate,
       messageId: parsed.messageId || '',
+      threadId: parsed.threadId || null,
       attachments:
         parsed.attachments?.map((a) => ({
           filename: a.filename,
@@ -768,6 +773,11 @@ export const mailHookWebhook = async (req, res) => {
         })) || [],
       notes: 'Forwarded email captured',
     });
+
+    if (!emailDoc.threadId) {
+      emailDoc.threadId = emailDoc._id.toString();
+      await emailDoc.save();
+    }
 
     console.log('💾 Email saved:', emailDoc._id);
 
@@ -830,145 +840,8 @@ function extractFieldsFromEmail(emailObj = {}) {
 }
 
 export const saveIncomingReplyIfExists = async (emailData) => {
-  console.log('\n=======================================');
-  console.log('🔍 Checking if incoming email is a Customer Reply (strictly via messageId / threadId)...');
-  console.log('📩 From:', emailData.from);
-  console.log('📩 To:', emailData.to);
-  console.log('📩 Subject:', emailData.subject);
-  console.log('📩 threadId:', emailData.threadId || 'none');
-  console.log('📩 inReplyTo:', emailData.inReplyTo || 'none');
-  console.log('📩 references:', emailData.references || []);
-
-  const { userId } = emailData;
-
-  const userObjId = mongoose.Types.ObjectId.isValid(userId)
-    ? new mongoose.Types.ObjectId(userId)
-    : userId;
-
-  const orConditions = [];
-
-  const cleanId = (str = '') => String(str).replace(/^<|>$/g, '').trim();
-
-  const rawRefs = Array.isArray(emailData.references)
-    ? emailData.references
-    : typeof emailData.references === 'string'
-    ? [emailData.references]
-    : [];
-  const refs = rawRefs.flatMap((r) => {
-    const c = cleanId(r);
-    return c ? [r, c, `<${c}>`] : [];
-  });
-
-  const hasInReplyTo = !!cleanId(emailData.inReplyTo);
-  const hasRefs = refs.length > 0;
-  const hasThreadId = !!emailData.threadId;
-  const isReSubject = /^re:\s*|^fwd:\s*/i.test((emailData.subject || '').trim());
-
-  // STRICT GUARD: If no inReplyTo, no references, no threadId AND subject does NOT start with Re:/Fwd:,
-  // this is a BRAND NEW lead email, NOT a customer reply!
-  if (!hasInReplyTo && !hasRefs && !hasThreadId && !isReSubject) {
-    console.log('ℹ️ [saveIncomingReplyIfExists] No reply headers and subject is not Re:/Fwd: — treating as NEW LEAD EMAIL.');
-    console.log('=======================================\n');
-    return false;
-  }
-
-  // 1. Thread ID matching
-  if (emailData.threadId) {
-    orConditions.push({ threadId: emailData.threadId });
-  }
-
-  // 2. In-Reply-To Message-ID matching
-  if (emailData.inReplyTo) {
-    const rawReplyTo = emailData.inReplyTo;
-    const cleanedReplyTo = cleanId(rawReplyTo);
-    if (cleanedReplyTo) {
-      orConditions.push({ messageId: rawReplyTo });
-      orConditions.push({ messageId: cleanedReplyTo });
-      orConditions.push({ messageId: `<${cleanedReplyTo}>` });
-    }
-  }
-
-  // 3. References Message-ID matching
-  if (refs.length > 0) {
-    orConditions.push({ messageId: { $in: refs } });
-  }
-
-  // 4. Fallback Subject & Customer Email matching
-  const cleanSubj = (emailData.subject || "").replace(/^re:\s*|^fwd:\s*/i, "").trim().toLowerCase();
-  const fromEmail = extractEmail(emailData.from)?.toLowerCase();
-
-  const queryConditions = [];
-  if (orConditions.length > 0) {
-    queryConditions.push({ $or: orConditions });
-  }
-
-  if (userId) {
-    queryConditions.push({ $or: [{ userId: userId }, { userId: userObjId }] });
-  }
-
-  let parentEmail = null;
-  if (queryConditions.length > 0) {
-    parentEmail = await EmailModel.findOne({
-      $and: queryConditions,
-    }).sort({ createdAt: -1 });
-  }
-
-  // Fallback: ONLY if subject starts with Re: or Fwd:, attempt Subject + Email matching
-  if (!parentEmail && isReSubject && fromEmail && cleanSubj) {
-    const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    console.log(`🔍 [saveIncomingReplyIfExists] Attempting fallback match for reply subject: "${cleanSubj}" email: "${fromEmail}"...`);
-    parentEmail = await EmailModel.findOne({
-      $or: [
-        { senderAddress: new RegExp(fromEmail, "i") },
-        { recipientAddress: new RegExp(fromEmail, "i") },
-      ],
-      subject: new RegExp(escapedSubj, "i"),
-    }).sort({ createdAt: -1 });
-  }
-
-  if (!parentEmail) {
-    console.log('ℹ️ Parent email thread not found for incoming reply.');
-    console.log('=======================================\n');
-    return false;
-  }
-
-  console.log(`📍 Matched Parent Email [ID: ${parentEmail._id}] Subject: "${parentEmail.subject}"`);
-
-  // Trace back to the ultimate root email
-  let ultimateRoot = parentEmail;
-  while (ultimateRoot.parentEmailId) {
-    const p = await EmailModel.findById(ultimateRoot.parentEmailId);
-    if (!p) break;
-    ultimateRoot = p;
-  }
-
-  console.log(`🌱 Ultimate Root Lead Email [ID: ${ultimateRoot._id}]`);
-
-  const newReply = await EmailModel.create({
-    userId: parentEmail.userId || userId,
-    connectionId: emailData.connectionId || parentEmail.connectionId || null,
-    senderAddress: emailData.from,
-    recipientAddress: emailData.to,
-    subject: emailData.subject,
-    textBody: emailData.body,
-    htmlBody: emailData.html || '',
-    date: new Date(),
-    direction: 'incoming',
-    threadId: emailData.threadId || ultimateRoot.threadId || parentEmail.threadId || null,
-    parentEmailId: ultimateRoot._id,
-    messageId: emailData.emailId,
-    inReplyTo: emailData.inReplyTo || '',
-    references: emailData.references || [],
-    attachments: emailData.attachments || [],
-    notes: 'Customer reply saved and attached to root lead thread',
-  });
-
-  console.log('🎉 SUCCESS: Customer reply saved in DB!');
-  console.log(`  💾 New Reply ID: ${newReply._id}`);
-  console.log(`  🔗 Linked to Root Thread ID: ${ultimateRoot._id}`);
-  console.log('=======================================\n');
-
-  return true;
+  const result = await resolveAndAttachIncomingReply(emailData);
+  return result.matched;
 };
 
 export const executeScenarios = async (emailData) => {
@@ -1811,30 +1684,6 @@ export const executeScenarios = async (emailData) => {
   }
 };
 
-const formatMessageId = (id) => {
-  if (!id) return undefined;
-  const clean = String(id).replace(/^<|>$/g, '').trim();
-  if (!clean || clean.startsWith('disc-') || clean.startsWith('reply-') || clean.startsWith('custom-test-')) {
-    return undefined;
-  }
-  return `<${clean}>`;
-};
-
-const formatReferencesHeader = (parentMsgId, parentEmailDoc = null) => {
-  const refs = [];
-  if (parentEmailDoc?.references && Array.isArray(parentEmailDoc.references)) {
-    parentEmailDoc.references.forEach((r) => {
-      const formatted = formatMessageId(r);
-      if (formatted && !refs.includes(formatted)) refs.push(formatted);
-    });
-  }
-  const formattedParent = formatMessageId(parentMsgId || parentEmailDoc?.messageId);
-  if (formattedParent && !refs.includes(formattedParent)) {
-    refs.push(formattedParent);
-  }
-  return refs.length > 0 ? refs : undefined;
-};
-
 const convertToMs = (value, unit) => {
   if (!value) return 0;
   if (unit === 'seconds') return value * 1000;
@@ -1895,20 +1744,43 @@ const connection = await ConnectionModel.findById(
     if (isPro && isAIActive) {
       log('🤖 PRO PLAN + AI ENABLED → Gemini generating email');
 
-    const aiReply = await generateGeminiReply({
-  from: to,
-  subject: originalSubject,
-  body: module.template || '',
-  user,
-});
+      const aiReply = await generateGeminiReply({
+        from: to,
+        subject: originalSubject,
+        body: module.template || '',
+        user,
+      });
 
       module.template = aiReply; // 🔥 TEMPLATE REPLACED BY AI
     }
-    // ✅ Prepare Subject
-    const finalSubject =
-      module.subject && module.subject.trim() !== ''
-        ? module.subject
-        : `Re: ${originalSubject || 'Shopify Inquiry'}`;
+
+    // ✅ Resolve Parent Email & Thread Header Info
+    let parentEmailDoc = null;
+    if (parentEmailId && mongoose.Types.ObjectId.isValid(parentEmailId)) {
+      parentEmailDoc = await EmailModel.findById(parentEmailId);
+    } else if (parentMessageId) {
+      const cleanP = cleanMessageId(parentMessageId);
+      parentEmailDoc = await EmailModel.findOne({
+        $or: [{ messageId: parentMessageId }, { messageId: cleanP }, { messageId: `<${cleanP}>` }],
+      });
+    }
+
+    let ultimateRoot = parentEmailDoc;
+    if (ultimateRoot) {
+      while (ultimateRoot.parentEmailId) {
+        const p = await EmailModel.findById(ultimateRoot.parentEmailId);
+        if (!p) break;
+        ultimateRoot = p;
+      }
+    }
+
+    const targetParentMsgId = parentMessageId || parentEmailDoc?.messageId;
+    const formattedInReplyTo = formatMessageId(targetParentMsgId);
+    const formattedReferences = formatReferencesHeader(targetParentMsgId, parentEmailDoc);
+    const effectiveThreadId = threadId || ultimateRoot?.threadId || (ultimateRoot ? ultimateRoot._id.toString() : null);
+
+    // ✅ Prepare Subject (Normalized Re: header)
+    const finalSubject = normalizeSubject(module.subject || originalSubject || 'Shopify Inquiry');
     const safeSubject = finalSubject.replace(/\r?\n|\r/g, ' ').trim();
 
     // ✅ Prepare Body
@@ -1935,139 +1807,125 @@ const connection = await ConnectionModel.findById(
       (Array.isArray(module.bcc) ? module.bcc.join(',') : module.bcc) || '';
 
     let sentOk = false;
-    let sentThreadId = null;
+    let sentThreadId = effectiveThreadId;
     let sentProviderMessageId = null;
+
     // =====================================================================
     // ------------------------ 📧 GMAIL PROVIDER ---------------------------
     // =====================================================================
-  if (connection.provider === 'gmail') {
-  let transporter = null;
+    if (connection.provider === 'gmail') {
+      let transporter = null;
 
-  try {
-    log('📨 Sending through Gmail SMTP + App Password...');
+      try {
+        log('📨 Sending through Gmail SMTP + App Password...');
 
-    if (!connection.smtp?.password) {
-      throw new Error(
-        'Gmail App Password is missing. Please reconnect the Gmail account.'
-      );
+        if (!connection.smtp?.password) {
+          throw new Error(
+            'Gmail App Password is missing. Please reconnect the Gmail account.'
+          );
+        }
+
+        const decryptedAppPassword = decrypt(
+          connection.smtp.password
+        );
+
+        if (!decryptedAppPassword || (connection.smtp.password.includes(":") && decryptedAppPassword === connection.smtp.password)) {
+          throw new Error(
+            'Gmail App Password decryption failed due to invalid encryption key. Please reconnect your Gmail account on the Connections page.'
+          );
+        }
+
+        const smtpPort = Number(
+          connection.smtp?.port || 465
+        );
+
+        transporter = nodemailer.createTransport({
+          host:
+            connection.smtp?.host ||
+            'smtp.gmail.com',
+
+          port: smtpPort,
+
+          secure: smtpPort === 465,
+
+          auth: {
+            user:
+              connection.smtp?.username ||
+              connection.email,
+
+            pass: decryptedAppPassword,
+          },
+
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 30000,
+        });
+
+        await transporter.verify();
+
+        log('✅ Gmail SMTP connection verified.');
+
+        const senderName =
+          (connection.name && !/connection/i.test(connection.name) ? connection.name : null) ||
+          user?.fullName ||
+          user?.organizationName ||
+          connection.email.split('@')[0] ||
+          'Email Sender';
+
+        const info = await transporter.sendMail({
+          from: {
+            name: senderName,
+            address: connection.email,
+          },
+
+          to,
+
+          cc: cc || undefined,
+
+          bcc: bcc || undefined,
+
+          subject: safeSubject,
+
+          html: emailBody,
+
+          text: emailBody
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/p>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .trim(),
+
+          replyTo: connection.email,
+
+          inReplyTo: formattedInReplyTo,
+
+          references: formattedReferences,
+
+          attachments: (module.attachments || []).map((att) => ({
+            filename: att.filename,
+            path: att.path,
+            contentType: att.contentType,
+          })),
+        });
+
+        log('✅ [GMAIL SMTP] Email sent successfully!');
+        log('📨 Message ID:', info.messageId);
+
+        sentOk = true;
+        sentProviderMessageId = info.messageId || null;
+        sentThreadId = effectiveThreadId || info.messageId || null;
+      } catch (err) {
+        log('❌ [GMAIL SMTP] Send Error:', {
+          message: err?.message,
+          code: err?.code,
+          response: err?.response,
+          responseCode: err?.responseCode,
+        });
+      } finally {
+        if (transporter) {
+          transporter.close();
+        }
+      }
     }
-
-    const decryptedAppPassword = decrypt(
-      connection.smtp.password
-    );
-
-    if (!decryptedAppPassword || (connection.smtp.password.includes(":") && decryptedAppPassword === connection.smtp.password)) {
-      throw new Error(
-        'Gmail App Password decryption failed due to invalid encryption key. Please reconnect your Gmail account on the Connections page.'
-      );
-    }
-
-    const smtpPort = Number(
-      connection.smtp?.port || 465
-    );
-
-    transporter = nodemailer.createTransport({
-      host:
-        connection.smtp?.host ||
-        'smtp.gmail.com',
-
-      port: smtpPort,
-
-      secure: smtpPort === 465,
-
-      auth: {
-        user:
-          connection.smtp?.username ||
-          connection.email,
-
-        pass: decryptedAppPassword,
-      },
-
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 30000,
-    });
-
-    await transporter.verify();
-
-    log('✅ Gmail SMTP connection verified.');
-
-    let parentEmailDoc = null;
-    if (parentEmailId && mongoose.Types.ObjectId.isValid(parentEmailId)) {
-      parentEmailDoc = await EmailModel.findById(parentEmailId);
-    }
-
-    const formattedInReplyTo = formatMessageId(parentMessageId || parentEmailDoc?.messageId);
-    const formattedReferences = formatReferencesHeader(parentMessageId, parentEmailDoc);
-
-    const senderName =
-      (connection.name && !/connection/i.test(connection.name) ? connection.name : null) ||
-      user?.fullName ||
-      user?.organizationName ||
-      connection.email.split('@')[0] ||
-      'Email Sender';
-
-    const info = await transporter.sendMail({
-      from: {
-        name: senderName,
-        address: connection.email,
-      },
-
-      to,
-
-      cc: cc || undefined,
-
-      bcc: bcc || undefined,
-
-      subject: safeSubject,
-
-      html: emailBody,
-
-      text: emailBody
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .trim(),
-
-      replyTo: connection.email,
-
-      inReplyTo: formattedInReplyTo,
-
-      references: formattedReferences,
-
-      attachments: (module.attachments || []).map((att) => ({
-        filename: att.filename,
-        path: att.path,
-        contentType: att.contentType,
-      })),
-    });
-
-    log('✅ [GMAIL SMTP] Email sent successfully!');
-    log('📨 Message ID:', info.messageId);
-
-    sentOk = true;
-
-    sentProviderMessageId =
-      info.messageId || null;
-
-    sentThreadId =
-      threadId ||
-      parentMessageId ||
-      info.messageId ||
-      null;
-  } catch (err) {
-    log('❌ [GMAIL SMTP] Send Error:', {
-      message: err?.message,
-      code: err?.code,
-      response: err?.response,
-      responseCode: err?.responseCode,
-    });
-  } finally {
-    if (transporter) {
-      transporter.close();
-    }
-  }
-}
 
     // =====================================================================
     // ------------------------ 🟣 OUTLOOK PROVIDER -------------------------
@@ -2092,12 +1950,24 @@ const connection = await ConnectionModel.findById(
             }))
           : [];
 
+        const internetHeaders = [];
+        if (formattedInReplyTo) {
+          internetHeaders.push({ name: 'In-Reply-To', value: formattedInReplyTo });
+        }
+        if (formattedReferences) {
+          internetHeaders.push({
+            name: 'References',
+            value: Array.isArray(formattedReferences) ? formattedReferences.join(' ') : formattedReferences,
+          });
+        }
+
         const message = {
           message: {
             subject: safeSubject,
             body: { contentType: 'HTML', content: emailBody },
             toRecipients: [{ emailAddress: { address: toClean } }],
             ccRecipients: ccClean,
+            ...(internetHeaders.length > 0 ? { internetMessageHeaders: internetHeaders } : {}),
           },
           saveToSentItems: true,
         };
@@ -2165,8 +2035,8 @@ const connection = await ConnectionModel.findById(
           bcc,
           subject: safeSubject,
           html: emailBody,
-          inReplyTo: parentMessageId || undefined,
-          references: parentMessageId ? [parentMessageId] : undefined,
+          inReplyTo: formattedInReplyTo,
+          references: formattedReferences,
         });
 
         log('✅ [SMTP] Email sent successfully!');
@@ -2181,9 +2051,12 @@ const connection = await ConnectionModel.findById(
     }
 
     if (sentOk) {
+      const now = new Date();
       const plainTextBody = emailBody.replace(/<\/?[^>]+(>|$)/g, '');
       log('💾 Saving sent email record...');
       log('🧾 HTML Saved Body (first 200 chars):', emailBody.slice(0, 200));
+
+      const generatedMsgId = sentProviderMessageId || formatMessageId(`sent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
 
       const sentDoc = new EmailModel({
         userId: connection.userId,
@@ -2193,38 +2066,45 @@ const connection = await ConnectionModel.findById(
         textBody: plainTextBody,
         htmlBody: emailBody,
         direction: 'outgoing',
-        messageId: sentProviderMessageId,
+        messageId: generatedMsgId,
         connectionId: module.connectionId,
-        threadId: sentThreadId || threadId || parentMessageId || null,
-        inReplyTo: parentMessageId || null,
-        references: parentMessageId ? [parentMessageId] : [],
+        threadId: effectiveThreadId,
+        parentEmailId: parentEmailDoc ? parentEmailDoc._id : (parentEmailId || null),
+        inReplyTo: formattedInReplyTo || null,
+        references: formattedReferences || [],
         templateId: module.templateId || null,
         attachments: module.attachments || [],
-
         service: module.service || 'Unknown',
         stepType: module.stepType || 'initial',
         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
         bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
-        date: new Date(),
+        date: now,
+        lastActivityAt: now,
         isForwarded: true,
-        parentEmailId: parentEmailId || null,
         forwardedMeta: {
           from: connection.email,
           to,
           subject: originalSubject,
-          date: new Date().toISOString(),
+          date: now.toISOString(),
           body: emailBody,
         },
       });
 
       await sentDoc.save();
+
+      // Update lastActivityAt on ultimate root email
+      if (ultimateRoot) {
+        await EmailModel.findByIdAndUpdate(ultimateRoot._id, { lastActivityAt: now });
+      } else if (parentEmailDoc) {
+        await EmailModel.findByIdAndUpdate(parentEmailDoc._id, { lastActivityAt: now });
+      }
+
       log(' Sent email saved in DB with ID:', sentDoc._id);
       return {
         success: true,
         replyEmailId: sentDoc._id,
         templateId: sentDoc.templateId || null,
         threadId: sentDoc.threadId,
-
         service: sentDoc.service || '',
         stepType: sentDoc.stepType || 'initial',
       };
@@ -2503,7 +2383,13 @@ export const addLeadDiscussion = async (req, res) => {
       rootEmail.messageId;
 
     const parentMessageId =
-      lastOutgoingChild?.messageId || rootEmail.messageId;
+      req.body.targetMessageId ||
+      lastOutgoingChild?.messageId ||
+      rootEmail.messageId;
+
+    const targetParentEmailId =
+      req.body.targetParentEmailId ||
+      rootEmail._id;
 
     // -------------------------------
     // ATTACHMENTS & PAYLOAD
@@ -2531,7 +2417,7 @@ export const addLeadDiscussion = async (req, res) => {
       modulePayload,
       customerEmail,
       rootEmail.subject,
-      rootEmail._id,
+      targetParentEmailId,
       threadId,
       parentMessageId
     );
@@ -2551,6 +2437,7 @@ export const addLeadDiscussion = async (req, res) => {
       {
         leadStatus:
           rootEmail.leadStatus === 'new_lead' ? 'awaiting' : rootEmail.leadStatus,
+        lastActivityAt: new Date(),
       },
       { new: true }
     );
@@ -5122,16 +5009,24 @@ export const getEmailDataforUser = async (req, res) => {
         // 1. Root email itself
         if (eIdStr === rootIdStr) return true;
 
-        // 2. Direct child reply
+        // 2. Direct child reply whose parent is this root email
         if (eParentStr === rootIdStr) return true;
 
-        // 3. Matching threadId
-        if (root.threadId && e.threadId && root.threadId === e.threadId) return true;
+        // 3. Child reply whose parent explicitly belongs to another root email -> DO NOT attach to this root!
+        if (eParentStr && eParentStr !== rootIdStr) {
+          const isParentAnotherRoot = rawRoots.some((r) => r._id.toString() === eParentStr);
+          if (isParentAnotherRoot) return false;
+        }
 
-        // 4. InReplyTo / MessageId matching
+        // 4. InReplyTo matching cleanRootMsgId
         if (cleanRootMsgId && e.inReplyTo) {
           const cleanReplyTo = e.inReplyTo.replace(/^<|>$/g, '').trim();
           if (cleanReplyTo === cleanRootMsgId) return true;
+        }
+
+        // 5. Matching threadId ONLY if e is not explicitly assigned to another root
+        if (root.threadId && e.threadId && root.threadId === e.threadId) {
+          if (!eParentStr || eParentStr === rootIdStr) return true;
         }
 
         return false;
@@ -5150,18 +5045,35 @@ export const getEmailDataforUser = async (req, res) => {
       });
 
       const deduplicatedThread = Array.from(uniqueMsgMap.values()).sort(
-        (a, b) => new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt)
+        (a, b) => new Date(a.date || a.createdAt || 0) - new Date(b.date || b.createdAt || 0)
       );
 
-      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${deduplicatedThread.length} unique message(s) (from ${thread.length})`);
+      const newestMessage = deduplicatedThread.length > 0 ? deduplicatedThread[deduplicatedThread.length - 1] : root;
+      const lastActivityAt = root.lastActivityAt || newestMessage.date || newestMessage.createdAt || root.date || root.createdAt;
+      const latestMessagePreview = (newestMessage.textBody || newestMessage.htmlBody || root.textBody || '').replace(/<[^>]*>/g, '').trim().slice(0, 150);
+      const latestSender = newestMessage.senderAddress || root.senderAddress;
+      const stepType = newestMessage.stepType || root.stepType || null;
+
+      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${deduplicatedThread.length} message(s) | lastActivityAt: ${lastActivityAt}`);
 
       return {
         ...root,
+        lastActivityAt,
+        latestMessagePreview,
+        latestSender,
+        stepType,
         conversation: deduplicatedThread,
       };
     });
 
-    console.log(`✅ Returning ${emailsWithThreads.length} Thread(s) to Inbox UI`);
+    // Sort root threads by latest activity descending (Gmail-style)
+    emailsWithThreads.sort((a, b) => {
+      const timeA = new Date(a.lastActivityAt || a.date || a.createdAt || 0).getTime();
+      const timeB = new Date(b.lastActivityAt || b.date || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    console.log(`✅ Returning ${emailsWithThreads.length} Thread(s) sorted by lastActivityAt to Inbox UI`);
     console.log('=======================================\n');
 
     return res.status(200).json({

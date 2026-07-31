@@ -231,6 +231,7 @@ import { executeScenarios } from '../controller/smtpServer.js';
 import { ConnectionModel } from '../Models/Connection.js';
 import { EmailModel } from '../Models/Email.js';
 import { htmlToText } from "html-to-text";
+import { resolveAndAttachIncomingReply } from '../utils/threadingHelper.js';
 
 // ------------------------------
 // BODY EXTRACTOR (SAFE)
@@ -368,33 +369,64 @@ export async function processGmailEmail(emailAddress, historyId) {
 
         console.log('📩 Processing Email:', subject);
 
-        // SAVE EMAIL
+        const htmlContent = payload?.payload?.parts
+          ?.find((p) => p.mimeType === 'text/html')
+          ?.body?.data
+          ? Buffer.from(
+              payload.payload.parts.find(
+                (p) => p.mimeType === 'text/html'
+              ).body.data,
+              'base64'
+            ).toString('utf-8')
+          : null;
+
+        const emailMsgId = getHeader('Message-ID') || msg.id;
+        const msgDate = date ? new Date(date) : new Date();
+
+        const replyResult = await resolveAndAttachIncomingReply({
+          userId: connection.userId,
+          connectionId: connection._id,
+          from,
+          to,
+          subject,
+          body,
+          html: htmlContent || '',
+          emailId: emailMsgId,
+          threadId: payload?.threadId || null,
+          inReplyTo: inReplyTo || '',
+          references: references ? references.split(' ') : [],
+          date: msgDate,
+        });
+
+        if (replyResult.matched) {
+          console.log('💬 Gmail reply attached to existing thread:', emailMsgId);
+          continue;
+        }
+
+        // SAVE NEW ROOT EMAIL
         const parentEmail = await EmailModel.create({
           userId: connection.userId,
-          messageId: msg.id,
+          messageId: emailMsgId,
           senderAddress: from,
           recipientAddress: to,
           cc: cc ? cc.split(',') : [],
           bcc: bcc ? bcc.split(',') : [],
           subject,
           textBody: body,
-          htmlBody:
-            payload?.payload?.parts
-              ?.find((p) => p.mimeType === 'text/html')
-              ?.body?.data
-              ? Buffer.from(
-                  payload.payload.parts.find(
-                    (p) => p.mimeType === 'text/html'
-                  ).body.data,
-                  'base64'
-                ).toString('utf-8')
-              : null,
+          htmlBody: htmlContent,
           threadId: payload?.threadId || null,
           inReplyTo: inReplyTo || null,
           references: references ? references.split(' ') : [],
           direction: 'incoming',
           connectionId: connection._id,
+          date: msgDate,
+          lastActivityAt: msgDate,
         });
+
+        if (!parentEmail.threadId) {
+          parentEmail.threadId = parentEmail._id.toString();
+          await parentEmail.save();
+        }
 
         // SCENARIO ENGINE
         await executeScenarios({
@@ -533,9 +565,32 @@ export const processOutlookEmail = async (notification, connection) => {
     // -------------------------
     // SAVE EMAIL
     // -------------------------
+    const outlookMsgId = email.internetMessageId || messageId;
+    const msgDate = receivedDate ? new Date(receivedDate) : new Date();
+
+    const replyResult = await resolveAndAttachIncomingReply({
+      userId: connection.userId,
+      connectionId: connection._id,
+      from,
+      to,
+      subject,
+      body: cleanBody,
+      html: email.body?.content || "",
+      emailId: outlookMsgId,
+      threadId: email.conversationId || null,
+      inReplyTo: email.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || '',
+      references: email.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || '',
+      date: msgDate,
+    });
+
+    if (replyResult.matched) {
+      console.log('💬 Outlook reply attached to existing thread:', outlookMsgId);
+      return;
+    }
+
     const savedEmail = await EmailModel.create({
       userId: connection.userId,
-      messageId,
+      messageId: outlookMsgId,
       senderAddress: from,
       recipientAddress: to,
       subject,
@@ -543,8 +598,15 @@ export const processOutlookEmail = async (notification, connection) => {
       htmlBody: email.body?.content || "",
       direction: "incoming",
       connectionId: connection._id,
-      date: receivedDate,
+      date: msgDate,
+      lastActivityAt: msgDate,
+      threadId: email.conversationId || null,
     });
+
+    if (!savedEmail.threadId) {
+      savedEmail.threadId = savedEmail._id.toString();
+      await savedEmail.save();
+    }
 
     console.log('💾 Email saved successfully:', savedEmail._id);
 
