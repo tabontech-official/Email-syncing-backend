@@ -125,43 +125,22 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
     }).sort({ createdAt: -1 });
   }
 
-  // 5. Fallback Match: Subject + Sender email
+  // 5. Fallback Match: Subject + Sender email (ONLY for explicit replies starting with Re: or Fwd:)
   const isReSubject = /^re:\s*|^fwd:\s*/i.test((emailData.subject || '').trim());
   const cleanSubj = (emailData.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
   const fromEmail = extractEmailAddress(emailData.from)?.toLowerCase();
 
-  if (!parentEmail && fromEmail) {
-    if (cleanSubj) {
-      const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-      console.log(`🔍 Fallback subject search for: "${cleanSubj}" email: "${fromEmail}"`);
-      parentEmail = await EmailModel.findOne({
-        $or: [
-          { senderAddress: new RegExp(fromEmail, 'i') },
-          { recipientAddress: new RegExp(fromEmail, 'i') },
-        ],
-        subject: new RegExp(escapedSubj, 'i'),
-        ...(userId ? { $or: [{ userId: userId }, { userId: userObjId }] } : {}),
-      }).sort({ createdAt: -1 });
-    }
-
-    // 6. Last Resort Match: Customer Email Address (ONLY if customer has exactly ONE active thread)
-    if (!parentEmail) {
-      console.log(`🔍 Fallback customer email thread search for: "${fromEmail}"`);
-      const customerThreads = await EmailModel.find({
-        $or: [
-          { senderAddress: new RegExp(fromEmail, 'i') },
-          { recipientAddress: new RegExp(fromEmail, 'i') },
-        ],
-        $or: [{ parentEmailId: null }, { parentEmailId: { $exists: false } }],
-        ...(userId ? { $or: [{ userId: userId }, { userId: userObjId }] } : {}),
-      }).sort({ createdAt: -1 });
-
-      if (customerThreads.length === 1) {
-        parentEmail = customerThreads[0];
-      } else {
-        console.log(`ℹ️ Customer has ${customerThreads.length} root threads. Skipping ambiguous email-only fallback to prevent cross-thread bleeding.`);
-      }
-    }
+  if (!parentEmail && fromEmail && isReSubject && cleanSubj) {
+    const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    console.log(`🔍 Fallback subject search for reply: "${cleanSubj}" email: "${fromEmail}"`);
+    parentEmail = await EmailModel.findOne({
+      $or: [
+        { senderAddress: new RegExp(fromEmail, 'i') },
+        { recipientAddress: new RegExp(fromEmail, 'i') },
+      ],
+      subject: new RegExp(escapedSubj, 'i'),
+      ...(userId ? { $or: [{ userId: userId }, { userId: userObjId }] } : {}),
+    }).sort({ createdAt: -1 });
   }
 
   if (!parentEmail) {
