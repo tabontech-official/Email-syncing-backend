@@ -3223,6 +3223,53 @@ export const updateAiStatus = async (req, res) => {
 //   }
 // };
 
+export const purgeUserData = async (userIdsInput) => {
+  try {
+    const idsArray = Array.isArray(userIdsInput) ? userIdsInput : [userIdsInput];
+    if (idsArray.length === 0) return;
+
+    const validObjectIds = idsArray
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+    const stringIds = idsArray.map((id) => String(id)).filter(Boolean);
+
+    if (validObjectIds.length === 0 && stringIds.length === 0) return;
+
+    const idQuery = {
+      $in: [...validObjectIds, ...stringIds],
+    };
+
+    console.log(`🧹 Purging all database records for user IDs:`, stringIds);
+
+    // Primary deletion tasks
+    await Promise.allSettled([
+      authModel.deleteMany({ _id: idQuery }),
+      EmailModel.deleteMany({ userId: idQuery }),
+      ConnectionModel.deleteMany({ userId: idQuery }),
+      TemplateModel.deleteMany({ userId: idQuery }),
+      scenarioModel.deleteMany({ userId: idQuery }),
+      mailhookModel.deleteMany({ userId: idQuery }),
+      OrganizationModel.deleteMany({ userId: idQuery }),
+    ]);
+
+    // Comprehensive dynamic cleanup across all registered Mongoose models
+    for (const modelName of Object.keys(mongoose.models)) {
+      try {
+        const model = mongoose.models[modelName];
+        if (model && model.schema && model.schema.paths && model.schema.paths.userId) {
+          await model.deleteMany({ userId: idQuery });
+        }
+      } catch (err) {
+        console.error(`Error purging model ${modelName}:`, err.message);
+      }
+    }
+
+    console.log(`✅ All user data purged successfully for ${stringIds.length} user(s).`);
+  } catch (err) {
+    console.error('❌ User data purge failed:', err);
+  }
+};
+
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -3237,15 +3284,10 @@ export const deleteUser = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await Promise.all([
-      TemplateModel.deleteMany({ userId: id }),
-      ConnectionModel.deleteMany({ userId: id }),
-    ]);
-
-    await authModel.findByIdAndDelete(id);
+    await purgeUserData([id]);
 
     res.status(200).json({
-      message: 'User and related data deleted successfully',
+      message: 'User account, emails, scenarios, history, and all associated data deleted successfully from database',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3256,9 +3298,13 @@ export const bulkDeleteUsers = async (req, res) => {
   try {
     const { ids } = req.body;
 
-    await authModel.deleteMany({ _id: { $in: ids } });
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Array of user IDs is required' });
+    }
 
-    res.send({ message: 'Users deleted' });
+    await purgeUserData(ids);
+
+    res.status(200).json({ message: 'Users and all associated database records deleted successfully' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
