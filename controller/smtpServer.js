@@ -859,8 +859,6 @@ export const executeScenarios = async (emailData) => {
     const lockConditions = [];
     if (emailId && mongoose.Types.ObjectId.isValid(emailId)) {
       lockConditions.push({ _id: new mongoose.Types.ObjectId(emailId) });
-    } else if (emailId) {
-      lockConditions.push({ _id: emailId });
     }
 
     if (targetMsgId) {
@@ -868,6 +866,12 @@ export const executeScenarios = async (emailData) => {
       lockConditions.push({ rfcMessageId: targetMsgId });
       lockConditions.push({ messageId: `<${targetMsgId}>` });
       lockConditions.push({ rfcMessageId: `<${targetMsgId}>` });
+    } else if (emailId && !mongoose.Types.ObjectId.isValid(emailId)) {
+      const cleanEId = String(emailId).replace(/^<|>$/g, '').trim();
+      lockConditions.push({ messageId: cleanEId });
+      lockConditions.push({ rfcMessageId: cleanEId });
+      lockConditions.push({ messageId: `<${cleanEId}>` });
+      lockConditions.push({ rfcMessageId: `<${cleanEId}>` });
     }
 
     if (lockConditions.length > 0) {
@@ -1284,26 +1288,28 @@ export const executeScenarios = async (emailData) => {
 
                 matchedService = matchedService || 'General';
 
-                const tpl =
-                  (await TemplateModel.findOne({
-                    userId,
-                    platform: 'shopify',
-                    service: new RegExp(`^${matchedService}$`, 'i'),
-                    $or: [
-                      {
-                        name: new RegExp(
-                          stepType === 'initial'
-                            ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                            : stepType === 'first'
-                              ? '(.*First Email.*|.*First Follow-up.*)'
-                              : '(.*Second Email.*|.*Second Follow-up.*)',
-                          'i'
-                        ),
-                      },
-                    ],
-                    active: true,
-                  })) ||
-                  (await TemplateModel.findOne({
+                let tpl = await TemplateModel.findOne({
+                  userId,
+                  platform: 'shopify',
+                  service: new RegExp(`^${matchedService}$`, 'i'),
+                  $or: [
+                    {
+                      name: new RegExp(
+                        stepType === 'initial'
+                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                          : stepType === 'first'
+                            ? '(.*First Email.*|.*First Follow-up.*)'
+                            : '(.*Second Email.*|.*Second Follow-up.*)',
+                        'i'
+                      ),
+                    },
+                  ],
+                  active: true,
+                });
+
+                if (!tpl) {
+                  console.log(`⚠️ Active template for service "${matchedService}" not found or inactive. Falling back to active General template...`);
+                  tpl = await TemplateModel.findOne({
                     userId,
                     platform: 'shopify',
                     service: /^General$/i,
@@ -1320,7 +1326,8 @@ export const executeScenarios = async (emailData) => {
                       },
                     ],
                     active: true,
-                  }));
+                  });
+                }
 
                 if (tpl) {
                   templateContent = fillTemplate(tpl.content, extractedFields);
@@ -1544,26 +1551,28 @@ export const executeScenarios = async (emailData) => {
               );
               matchedService = matchedService || 'General';
 
-              const tpl =
-                (await TemplateModel.findOne({
-                  userId,
-                  platform: 'shopify',
-                  service: new RegExp(`^${matchedService}$`, 'i'),
-                  $or: [
-                    {
-                      name: new RegExp(
-                        stepType === 'initial'
-                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                          : stepType === 'first'
-                            ? '(.*First Email.*|.*First Follow-up.*)'
-                            : '(.*Second Email.*|.*Second Follow-up.*)',
-                        'i'
-                      ),
-                    },
-                  ],
-                  active: true,
-                })) ||
-                (await TemplateModel.findOne({
+              let tpl = await TemplateModel.findOne({
+                userId,
+                platform: 'shopify',
+                service: new RegExp(`^${matchedService}$`, 'i'),
+                $or: [
+                  {
+                    name: new RegExp(
+                      stepType === 'initial'
+                        ? '(.*Initial Email.*|.*Initial Follow-up.*)'
+                        : stepType === 'first'
+                          ? '(.*First Email.*|.*First Follow-up.*)'
+                          : '(.*Second Email.*|.*Second Follow-up.*)',
+                      'i'
+                    ),
+                  },
+                ],
+                active: true,
+              });
+
+              if (!tpl) {
+                console.log(`⚠️ Active template for service "${matchedService}" not found or inactive. Falling back to active General template...`);
+                tpl = await TemplateModel.findOne({
                   userId,
                   platform: 'shopify',
                   service: /^General$/i,
@@ -1580,15 +1589,22 @@ export const executeScenarios = async (emailData) => {
                     },
                   ],
                   active: true,
-                }));
+                });
+              }
 
               if (tpl) templateContent = tpl.content;
 
               templateContent = fillTemplate(templateContent, extractedFields);
 
+              const targetConnId =
+                module.connectionId || scenario.incomingLead?.connectionId;
+
               const sendResult = await sendEmailModule(
                 {
                   ...module,
+                  connectionId: targetConnId,
+                  fallbackConnectionId: scenario.incomingLead?.connectionId,
+                  userId,
                   template: templateContent,
                   templateId: tpl?._id || null,
                   templateName: tpl?.name || module.template || '',
@@ -1734,18 +1750,31 @@ export const sendEmailModule = async (
     log('🎯 Recipient:', to);
     log('💬 Original Subject:', originalSubject);
 
-    if (!module.connectionId) {
-      log('❌ Missing connectionId — cannot send email!');
-      return;
+    let connection = null;
+
+    if (module.connectionId && mongoose.Types.ObjectId.isValid(module.connectionId)) {
+      connection = await ConnectionModel.findById(module.connectionId).select('+smtp.password');
     }
 
-    // const connection = await ConnectionModel.findById(module.connectionId);
-const connection = await ConnectionModel.findById(
-  module.connectionId
-).select('+smtp.password');
+    if (!connection && module.fallbackConnectionId && mongoose.Types.ObjectId.isValid(module.fallbackConnectionId)) {
+      connection = await ConnectionModel.findById(module.fallbackConnectionId).select('+smtp.password');
+    }
+
     if (!connection) {
-      log('❌ Connection not found:', module.connectionId);
-      return;
+      const rootDoc = parentEmailId && mongoose.Types.ObjectId.isValid(parentEmailId) ? await EmailModel.findById(parentEmailId) : null;
+      const targetUserId = rootDoc?.userId || module.userId;
+
+      if (targetUserId) {
+        connection = await ConnectionModel.findOne({
+          userId: targetUserId,
+          status: 'active',
+        }).select('+smtp.password');
+      }
+    }
+
+    if (!connection) {
+      log('❌ Connection not found or no active connection available for module:', module.connectionId);
+      return { success: false, error: 'No active connection found' };
     }
 
     log('🔌 Connection found:', {
@@ -1809,6 +1838,78 @@ const connection = await ConnectionModel.findById(
     // 🧠 Wrap non-HTML text in <div>
     if (!emailBody.startsWith('<')) {
       emailBody = `<div>${emailBody}</div>`;
+    }
+
+    // ----------------------------------------------------
+    // AUTOMATIC QUOTED REFERENCE BLOCK ATTACHMENT
+    // ----------------------------------------------------
+    if (parentEmailDoc && !emailBody.includes('gmail_quote')) {
+      const rawSender = parentEmailDoc.senderAddress || parentEmailDoc.from || '';
+      const quotedSenderEmail = extractEmail(rawSender) || rawSender;
+
+      let quotedSenderName = parentEmailDoc.senderName || '';
+      if (!quotedSenderName && rawSender.includes('<')) {
+        quotedSenderName = rawSender.split('<')[0].replace(/^"|"$/g, '').trim();
+      }
+      if (!quotedSenderName && quotedSenderEmail) {
+        quotedSenderName = quotedSenderEmail.split('@')[0] || 'Sender';
+      }
+
+      const msgDate = parentEmailDoc.date || parentEmailDoc.createdAt || new Date();
+      const dateOptions = {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      };
+      const dateStr = new Date(msgDate).toLocaleString('en-US', dateOptions);
+
+      let quotedContent = '';
+      const rawText = (parentEmailDoc.textBody || '').trim();
+
+      if (rawText) {
+        let cleanText = rawText;
+        const quoteHeaderRegex = /(?:\r?\n|^)(?:On\s+.*?\s+wrote:|-{3,}\s*Original Message\s*-{3,}|From:\s+.*?|Sent:\s+.*?|Subject:\s+.*?)/i;
+        const matchIndex = cleanText.search(quoteHeaderRegex);
+        if (matchIndex !== -1) {
+          cleanText = cleanText.slice(0, matchIndex).trim();
+        }
+
+        cleanText = cleanText
+          .split(/\r?\n/)
+          .filter((line) => !line.trim().startsWith('>'))
+          .join('\n')
+          .trim();
+
+        quotedContent = cleanText ? cleanText.replace(/\r?\n/g, '<br/>') : '';
+      }
+
+      if (!quotedContent && parentEmailDoc.htmlBody) {
+        let cleanHtml = parentEmailDoc.htmlBody
+          .replace(/<div class="gmail_quote"[\s\S]*$/gi, '')
+          .replace(/<blockquote[\s\S]*$/gi, '')
+          .replace(/<html[^>]*>|<\/html>|<body[^>]*>|<\/body>/gi, '')
+          .trim();
+        quotedContent = cleanHtml;
+      }
+
+      if (!quotedContent) {
+        quotedContent = 'No message content';
+      }
+
+      const quoteBlock = `
+<br/>
+<div class="gmail_quote">
+  <div dir="ltr" class="gmail_attr">On ${dateStr} ${quotedSenderName} &lt;<a href="mailto:${quotedSenderEmail}">${quotedSenderEmail}</a>&gt; wrote:<br/></div>
+  <blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">
+    ${quotedContent}
+  </blockquote>
+</div>`;
+
+      emailBody = `${emailBody}${quoteBlock}`;
     }
 
     log('📧 ================= EMAIL CONTENT START =================');
@@ -2145,6 +2246,7 @@ const connection = await ConnectionModel.findById(
           messageCount: updatedMsgCount,
           unreadCount: 0, // Reset unread count on platform reply
           status: 'awaiting_customer_reply',
+          leadStatus: 'awaiting',
           awaitingReply: true,
         });
       }
@@ -2485,8 +2587,7 @@ export const addLeadDiscussion = async (req, res) => {
     const updatedEmail = await EmailModel.findByIdAndUpdate(
       emailId,
       {
-        leadStatus:
-          rootEmail.leadStatus === 'new_lead' ? 'awaiting' : rootEmail.leadStatus,
+        leadStatus: 'awaiting',
         status: 'awaiting_customer_reply',
         awaitingReply: true,
         unreadCount: 0,
@@ -3855,35 +3956,40 @@ export const RunTestMode = async (req, res) => {
 
     /*
      * System sender transporter.
-     *
      * Test lead configured Incoming Leads inbox par jayegi.
      */
-    const transporter =
-      nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
+    let parentSendInfo = { messageId: formatMessageId(`test-parent-${Date.now()}`) };
 
-    const fromAddress =
-      `Replex Engine <${process.env.EMAIL_USER}>`;
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      try {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+          },
+        });
 
-    const parentSendInfo =
-      await transporter.sendMail({
-        from: fromAddress,
+        const fromAddress = `Replex Engine <${process.env.EMAIL_USER}>`;
 
-        // Incoming Leads node ka configured email
-        to: incomingLeadEmail,
+        const sentInfo = await transporter.sendMail({
+          from: fromAddress,
+          to: incomingLeadEmail,
+          replyTo: businessEmail,
+          subject: parentSubject,
+          text: parentTextBody,
+          html: parentHtmlBody,
+        });
 
-        // Reply karne par customer email use hogi
-        replyTo: businessEmail,
-
-        subject: parentSubject,
-        text: parentTextBody,
-        html: parentHtmlBody,
-      });
+        if (sentInfo?.messageId) {
+          parentSendInfo = sentInfo;
+        }
+      } catch (smtpErr) {
+        console.log('⚠️ System SMTP send skipped or failed during test mode:', smtpErr.message);
+      }
+    } else {
+      console.log('ℹ️ System EMAIL_USER/EMAIL_PASS not configured in .env — creating test parent lead directly in DB');
+    }
 
     addStep({
       stepKey: 'parent-email-send',
@@ -4272,114 +4378,7 @@ export const RunTestMode = async (req, res) => {
     }
 
     /*
-     * Initial reply module payload
-     */
-    const emailModulePayload = {
-      ...initialEmailModule,
-      connectionId:
-        initialEmailModule.connectionId,
-      subject: replySubject,
-      template: replyHtmlBody,
-      templateId:
-        selectedTemplate._id,
-      service: useGeneralTemplate
-        ? 'General'
-        : service,
-      stepType: 'Initial Email',
-    };
-
-    /*
-     * Reply test customer's business email par jayega
-     */
-    const sendResult =
-      await sendEmailModule(
-        emailModulePayload,
-        businessEmail,
-        parentSubject,
-        parentEmail._id
-      );
-
-    if (!sendResult?.success) {
-      addStep({
-        stepKey: 'reply-email-send',
-        stepName: 'Reply Email Send',
-        status: 'failed',
-        message:
-          'Reply email failed through selected connection.',
-        issue:
-          'sendEmailModule returned false.',
-        location: String(
-          initialEmailModule.connectionId
-        ),
-        suggestion:
-          'Check selected connection tokens or SMTP credentials.',
-      });
-
-      await saveRunLog({
-        status: 'failed',
-        message:
-          'Failed to send reply using selected connection.',
-        errorSummary:
-          'sendEmailModule failed.',
-        userId,
-        scenarioId: scenario._id,
-        scenarioName:
-          scenario.name || 'Shopify Scenario',
-        service,
-        businessEmail,
-        fullName,
-        useGeneralTemplate,
-        parentEmail,
-        selectedTemplate,
-        requestPayload: req.body,
-      });
-
-      return res.status(500).json({
-        success: false,
-        message:
-          'Failed to send email through selected Initial Email connection.',
-      });
-    }
-
-    const replyEmail =
-      await EmailModel.findById(
-        sendResult.replyEmailId
-      );
-
-    addStep({
-      stepKey: 'reply-email-send',
-      stepName: 'Reply Email Send',
-      status: 'success',
-      message:
-        'Reply email sent using selected Initial Email connection.',
-      location: businessEmail,
-      meta: {
-        replyEmailId:
-          sendResult.replyEmailId,
-        connectionId:
-          initialEmailModule.connectionId,
-        templateId:
-          selectedTemplate._id,
-        service: sendResult.service,
-        stepType:
-          sendResult.stepType,
-      },
-    });
-
-    addStep({
-      stepKey: 'reply-email-save',
-      stepName: 'Reply Email Save',
-      status: 'success',
-      message:
-        'Reply email saved in database by sendEmailModule.',
-      location: String(
-        replyEmail?._id ||
-        sendResult.replyEmailId
-      ),
-    });
-
-    /*
-     * Scenario execution
+     * Scenario execution - executes the scenario modules and sends reply
      */
     await executeScenarios({
       userId,
@@ -4393,8 +4392,8 @@ export const RunTestMode = async (req, res) => {
       to: incomingLeadEmail,
       subject: parentSubject,
       body: parentTextBody,
-      emailId:
-        parentSendInfo.messageId,
+      emailId: parentEmail?._id ? parentEmail._id.toString() : parentSendInfo.messageId,
+      messageId: parentSendInfo.messageId,
 
       parsedEmailObj: {
         from: {
@@ -4448,22 +4447,23 @@ export const RunTestMode = async (req, res) => {
       },
     });
 
+    const replyEmail = await EmailModel.findOne({
+      $or: [
+        { parentEmailId: parentEmail._id },
+        { rootEmailId: parentEmail._id },
+      ],
+      direction: 'outgoing',
+    }).sort({ createdAt: -1 });
+
     const responsePayload = {
       scenarioId: scenario._id,
-      parentEmailId:
-        parentEmail._id,
-      replyEmailId:
-        replyEmail?._id ||
-        sendResult.replyEmailId,
-      templateId:
-        selectedTemplate._id,
-      incomingConnectionId:
-        incomingConnection._id,
+      parentEmailId: parentEmail._id,
+      replyEmailId: replyEmail?._id || null,
+      templateId: selectedTemplate._id,
+      incomingConnectionId: incomingConnection._id,
       incomingLeadEmail,
-      initialEmailConnectionId:
-        initialEmailModule.connectionId,
-      subjectFilter:
-        configuredSubjectFilter,
+      initialEmailConnectionId: initialEmailModule.connectionId,
+      subjectFilter: configuredSubjectFilter,
     };
 
     await saveRunLog({
@@ -5174,12 +5174,16 @@ export const getEmailDataforUser = async (req, res) => {
         return false;
       });
 
-      // Deduplicate conversation messages by direction + normalized body text snippet
+      // Deduplicate conversation messages by messageId, rfcMessageId, OR direction + text snippet
       const uniqueMsgMap = new Map();
       thread.forEach((msg) => {
-        const text = (msg.textBody || msg.htmlBody || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 150);
+        const cleanMsgId = msg.messageId ? msg.messageId.replace(/^<|>$/g, '').trim().toLowerCase() : '';
+        const cleanRfcId = msg.rfcMessageId ? msg.rfcMessageId.replace(/^<|>$/g, '').trim().toLowerCase() : '';
+        const text = (msg.textBody || msg.htmlBody || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 100);
         const dir = msg.direction || 'incoming';
-        const key = text ? `${dir}:${text}` : `id:${msg._id}`;
+        const sender = (msg.senderAddress || '').trim().toLowerCase();
+
+        const key = cleanMsgId || cleanRfcId || `${dir}:${sender}:${text}`;
 
         if (!uniqueMsgMap.has(key)) {
           uniqueMsgMap.set(key, msg);

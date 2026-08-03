@@ -42,6 +42,8 @@ const extractEmailAddress = (value = '') => {
   return (match ? match[1] : String(value)).trim().toLowerCase();
 };
 
+export const activeMessageProcessingLocks = new Set();
+
 export const resolveAndAttachIncomingReply = async (emailData) => {
   console.log('\n=======================================');
   console.log('🔍 [resolveAndAttachIncomingReply] Resolving email thread...');
@@ -54,6 +56,14 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
   const { userId } = emailData;
   const incomingMsgId = cleanMessageId(emailData.emailId || emailData.messageId);
   const now = new Date(emailData.date || Date.now());
+
+  const lockKey = incomingMsgId ? `msg-${incomingMsgId}` : `msg-${emailData.from}-${now.getTime()}`;
+  if (activeMessageProcessingLocks.has(lockKey)) {
+    console.log(`⚠️ Concurrent lock active for: ${lockKey} — skipping duplicate execution.`);
+    return { matched: false, isDuplicate: true };
+  }
+  activeMessageProcessingLocks.add(lockKey);
+  setTimeout(() => activeMessageProcessingLocks.delete(lockKey), 15000);
 
   // 0. IDEMPOTENCY DEDUPLICATION CHECK: Check if message with this ID or identical content exists
   if (incomingMsgId) {
@@ -359,6 +369,7 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
     messageCount: updatedMessageCount,
     unreadCount: updatedUnreadCount,
     status: 'customer_replied',
+    leadStatus: 'replied',
     awaitingReply: false,
   });
 
