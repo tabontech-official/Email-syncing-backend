@@ -116,8 +116,38 @@ isDeleted: {
       default: Date.now,
       index: true,
     },
+
+    // Conversation Data Fields
+    conversationId: { type: String, default: null, index: true },
+    providerThreadId: { type: String, default: null, index: true },
+    rfcMessageId: { type: String, default: null, index: true },
+    rootEmailId: { type: mongoose.Schema.Types.ObjectId, ref: 'Email', default: null, index: true },
+    leadId: { type: mongoose.Schema.Types.Mixed, default: null, index: true },
+    lastMessageAt: { type: Date, default: Date.now, index: true },
+    lastMessagePreview: { type: String, default: '' },
+    unreadCount: { type: Number, default: 0 },
+    messageCount: { type: Number, default: 1 },
+    status: {
+      type: String,
+      enum: ['new_lead', 'customer_replied', 'awaiting_customer_reply', 'secured', 'closed'],
+      default: 'new_lead',
+      index: true,
+    },
+    awaitingReply: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+emailSchema.pre('save', function (next) {
+  if (this.messageId && !this.rfcMessageId) this.rfcMessageId = this.messageId;
+  if (this.rfcMessageId && !this.messageId) this.messageId = this.rfcMessageId;
+  if (this.threadId && !this.providerThreadId) this.providerThreadId = this.threadId;
+  if (this.providerThreadId && !this.threadId) this.threadId = this.providerThreadId;
+
+  const now = this.date || this.createdAt || new Date();
+  if (!this.lastMessageAt) this.lastMessageAt = this.lastActivityAt || now;
+  if (!this.lastActivityAt) this.lastActivityAt = this.lastMessageAt || now;
+  next();
+});
 
 export const EmailModel = mongoose.model('Email', emailSchema);

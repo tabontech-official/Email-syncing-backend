@@ -775,7 +775,7 @@ export const mailHookWebhook = async (req, res) => {
     });
 
     if (!emailDoc.threadId) {
-      emailDoc.threadId = emailDoc._id.toString();
+      emailDoc.threadId = parsed.threadId || parsed.messageId || emailDoc._id.toString();
       await emailDoc.save();
     }
 
@@ -2052,11 +2052,19 @@ const connection = await ConnectionModel.findById(
 
     if (sentOk) {
       const now = new Date();
-      const plainTextBody = emailBody.replace(/<\/?[^>]+(>|$)/g, '');
-      log('💾 Saving sent email record...');
-      log('🧾 HTML Saved Body (first 200 chars):', emailBody.slice(0, 200));
+      const plainTextBody = (emailBody || '').replace(/<\/?[^>]+(>|$)/g, '');
+      const textPreview = plainTextBody.replace(/\s+/g, ' ').trim().slice(0, 150);
+      const rootDoc = ultimateRoot || parentEmailDoc;
+      const rootId = rootDoc ? rootDoc._id : null;
 
       const generatedMsgId = sentProviderMessageId || formatMessageId(`sent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+
+      const effectiveConversationId =
+        rootDoc?.conversationId ||
+        effectiveThreadId ||
+        (rootId ? rootId.toString() : null);
+
+      const effectiveLeadId = rootDoc?.leadId || rootId;
 
       const sentDoc = new EmailModel({
         userId: connection.userId,
@@ -2066,10 +2074,17 @@ const connection = await ConnectionModel.findById(
         textBody: plainTextBody,
         htmlBody: emailBody,
         direction: 'outgoing',
-        messageId: generatedMsgId,
-        connectionId: module.connectionId,
+
+        // Conversation Data Fields
+        conversationId: effectiveConversationId,
+        providerThreadId: effectiveThreadId,
         threadId: effectiveThreadId,
+        rfcMessageId: generatedMsgId,
+        messageId: generatedMsgId,
+        rootEmailId: rootId,
+        leadId: effectiveLeadId,
         parentEmailId: parentEmailDoc ? parentEmailDoc._id : (parentEmailId || null),
+
         inReplyTo: formattedInReplyTo || null,
         references: formattedReferences || [],
         templateId: module.templateId || null,
@@ -2079,7 +2094,11 @@ const connection = await ConnectionModel.findById(
         cc: cc ? cc.split(',').map((a) => a.trim()) : [],
         bcc: bcc ? bcc.split(',').map((a) => a.trim()) : [],
         date: now,
+        lastMessageAt: now,
         lastActivityAt: now,
+        lastMessagePreview: textPreview,
+        status: 'awaiting_customer_reply',
+        awaitingReply: true,
         isForwarded: true,
         forwardedMeta: {
           from: connection.email,
@@ -2092,11 +2111,26 @@ const connection = await ConnectionModel.findById(
 
       await sentDoc.save();
 
-      // Update lastActivityAt on ultimate root email
-      if (ultimateRoot) {
-        await EmailModel.findByIdAndUpdate(ultimateRoot._id, { lastActivityAt: now });
-      } else if (parentEmailDoc) {
-        await EmailModel.findByIdAndUpdate(parentEmailDoc._id, { lastActivityAt: now });
+      // If sentDoc is its own root email (initial email sent by scenario/platform)
+      if (!sentDoc.rootEmailId) {
+        sentDoc.rootEmailId = sentDoc._id;
+        sentDoc.conversationId = sentDoc.conversationId || sentDoc._id.toString();
+        sentDoc.leadId = sentDoc.leadId || sentDoc._id;
+        await sentDoc.save();
+      }
+
+      // Update conversation metadata on ultimate root email
+      if (rootDoc) {
+        const updatedMsgCount = (rootDoc.messageCount || 1) + 1;
+        await EmailModel.findByIdAndUpdate(rootDoc._id, {
+          lastMessageAt: now,
+          lastActivityAt: now,
+          lastMessagePreview: textPreview,
+          messageCount: updatedMsgCount,
+          unreadCount: 0, // Reset unread count on platform reply
+          status: 'awaiting_customer_reply',
+          awaitingReply: true,
+        });
       }
 
       log(' Sent email saved in DB with ID:', sentDoc._id);
@@ -2437,6 +2471,10 @@ export const addLeadDiscussion = async (req, res) => {
       {
         leadStatus:
           rootEmail.leadStatus === 'new_lead' ? 'awaiting' : rootEmail.leadStatus,
+        status: 'awaiting_customer_reply',
+        awaitingReply: true,
+        unreadCount: 0,
+        lastMessageAt: new Date(),
         lastActivityAt: new Date(),
       },
       { new: true }
@@ -4932,13 +4970,38 @@ export const getEmailDataforUser = async (req, res) => {
       }
     });
 
-    const userEmails = await EmailModel.find({ $or: queryConditions })
+    const initialEmails = await EmailModel.find({ $or: queryConditions })
       .populate('userId', 'name email')
       .populate('templateId')
       .sort({ createdAt: -1 })
       .lean();
 
-    console.log(`📄 Total Raw Emails Fetched from DB: ${userEmails.length}`);
+    const rootIdStrs = initialEmails.map((e) => e._id.toString());
+    const convIds = initialEmails
+      .map((e) => e.conversationId || e.threadId)
+      .filter(Boolean);
+
+    const childEmails = await EmailModel.find({
+      $or: [
+        { rootEmailId: { $in: rootIdStrs } },
+        { conversationId: { $in: convIds } },
+        { threadId: { $in: convIds } },
+        { parentEmailId: { $in: rootIdStrs } },
+      ],
+    })
+      .populate('userId', 'name email')
+      .populate('templateId')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const emailMap = new Map();
+    [...initialEmails, ...childEmails].forEach((e) => {
+      emailMap.set(e._id.toString(), e);
+    });
+
+    const userEmails = Array.from(emailMap.values());
+
+    console.log(`📄 Total Raw Emails Fetched from DB: ${userEmails.length} (${initialEmails.length} initial, ${childEmails.length} child/threads)`);
 
     if (!userEmails.length) {
       console.log(`ℹ️ 0 emails found in DB for user ${userId}`);
@@ -4951,6 +5014,70 @@ export const getEmailDataforUser = async (req, res) => {
           threads: [],
         },
       });
+    }
+
+    // 3.5 AUTO-STITCH ORPHANED REPLIES TO PRIMARY LEAD THREADS
+    const getLeadEmail = (item) => {
+      const s = extractEmail(item.senderAddress || '').toLowerCase();
+      const r = extractEmail(item.recipientAddress || '').toLowerCase();
+      const isSupportSender =
+        s.includes('2014tabontech') ||
+        s.includes('replexengine') ||
+        s.includes('shopifyexpertsteam');
+      if (item.direction === 'outgoing' || isSupportSender) {
+        return r || s;
+      }
+      return s || r;
+    };
+
+    for (const email of userEmails) {
+      const hasNoParent =
+        !email.parentEmailId ||
+        email.parentEmailId === null ||
+        email.parentEmailId === undefined ||
+        email.parentEmailId === '';
+
+      if (hasNoParent) {
+        const emailLead = getLeadEmail(email);
+        const cleanReplyTo = email.inReplyTo ? email.inReplyTo.replace(/^<|>$/g, '').trim() : '';
+
+        // Find candidate parent email in userEmails that was created earlier or matches lead address / inReplyTo
+        const parentCandidate = userEmails.find((candidate) => {
+          if (candidate._id.toString() === email._id.toString()) return false;
+          const candidateMsgId = candidate.messageId ? candidate.messageId.replace(/^<|>$/g, '').trim() : '';
+
+          // 1. Direct Message-ID match via inReplyTo
+          if (cleanReplyTo && candidateMsgId && cleanReplyTo === candidateMsgId) {
+            return true;
+          }
+
+          // 2. Lead email match (same customer/lead address)
+          const candidateLead = getLeadEmail(candidate);
+          if (emailLead && candidateLead && emailLead === candidateLead) {
+            const emailTime = new Date(email.date || email.createdAt || 0).getTime();
+            const candidateTime = new Date(candidate.date || candidate.createdAt || 0).getTime();
+            // Candidate must be an earlier message or root
+            const isEarlier = candidateTime <= emailTime;
+            const hasNoParentCandidate = !candidate.parentEmailId;
+            return isEarlier && (hasNoParentCandidate || candidate._id.toString() !== email._id.toString());
+          }
+
+          return false;
+        });
+
+        if (parentCandidate) {
+          console.log(`🔗 [getAllEmails] Auto-stitching orphaned email [ID: ${email._id}] to parent thread [ID: ${parentCandidate._id}]`);
+          email.parentEmailId = parentCandidate._id;
+          const effectiveThread = parentCandidate.threadId || parentCandidate._id.toString();
+          email.threadId = effectiveThread;
+
+          // Asynchronously update DB
+          EmailModel.findByIdAndUpdate(email._id, {
+            parentEmailId: parentCandidate._id,
+            threadId: effectiveThread,
+          }).catch((err) => console.error('Error auto-stitching email in DB:', err));
+        }
+      }
     }
 
     // 4. Return ALL emails: identify root emails and deduplicate multiple root entries for the same lead
@@ -4970,17 +5097,18 @@ export const getEmailDataforUser = async (req, res) => {
     const uniqueRootMap = new Map();
 
     for (const email of rawRoots) {
+      const emailLead = getLeadEmail(email);
       const cleanMsgId = email.messageId ? email.messageId.replace(/^<|>$/g, '').trim() : '';
-      const cleanSender = extractEmail(email.senderAddress || '').toLowerCase();
-      const cleanSubj = (email.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
-      const itemTime = new Date(email.date || email.createdAt || 0).getTime();
-      const timeWindow = Math.floor(itemTime / 60000); // 1-minute window
+      const cleanSubj = (email.subject || '')
+        .replace(/^((re|fwd|fw|\[external\]):\s*)+/i, '')
+        .trim()
+        .toLowerCase();
 
-      const rootKey = cleanMsgId
-        ? `msg-${cleanMsgId}`
-        : email.threadId
-        ? `thread-${email.threadId}`
-        : `root-${cleanSender}-${cleanSubj}-${timeWindow}`;
+      const rootKey =
+        email.conversationId ||
+        email.providerThreadId ||
+        email.threadId ||
+        (emailLead && cleanSubj ? `lead-${emailLead}-${cleanSubj}` : `msg-${cleanMsgId}`);
 
       if (!uniqueRootMap.has(rootKey)) {
         uniqueRootMap.set(rootKey, email);
@@ -5004,29 +5132,40 @@ export const getEmailDataforUser = async (req, res) => {
 
       const thread = userEmails.filter((e) => {
         const eIdStr = e._id.toString();
-        const eParentStr = e.parentEmailId ? e.parentEmailId.toString() : '';
 
         // 1. Root email itself
         if (eIdStr === rootIdStr) return true;
 
-        // 2. Direct child reply whose parent is this root email
-        if (eParentStr === rootIdStr) return true;
+        // 2. Direct rootEmailId match
+        if (e.rootEmailId && e.rootEmailId.toString() === rootIdStr) return true;
 
-        // 3. Child reply whose parent explicitly belongs to another root email -> DO NOT attach to this root!
-        if (eParentStr && eParentStr !== rootIdStr) {
-          const isParentAnotherRoot = rawRoots.some((r) => r._id.toString() === eParentStr);
-          if (isParentAnotherRoot) return false;
+        // 3. Direct conversationId match
+        if (e.conversationId && root.conversationId && e.conversationId === root.conversationId) return true;
+        if (e.conversationId && e.conversationId === rootIdStr) return true;
+
+        // 4. Direct providerThreadId / threadId match
+        if (root.providerThreadId && e.providerThreadId && root.providerThreadId === e.providerThreadId) return true;
+        if (root.threadId && e.threadId && root.threadId === e.threadId) return true;
+
+        // 5. Customer Lead Email Match (same customer address)
+        const eLead = getLeadEmail(e);
+        const rootLead = getLeadEmail(root);
+        if (eLead && rootLead && eLead === rootLead) return true;
+
+        // 6. Recursive parent tracing back to rootIdStr
+        let curr = e;
+        const visited = new Set();
+        while (curr && curr.parentEmailId && !visited.has(curr._id.toString())) {
+          visited.add(curr._id.toString());
+          const pStr = curr.parentEmailId.toString();
+          if (pStr === rootIdStr) return true;
+          curr = userEmails.find((item) => item._id.toString() === pStr);
         }
 
-        // 4. InReplyTo matching cleanRootMsgId
+        // 7. InReplyTo matching cleanRootMsgId
         if (cleanRootMsgId && e.inReplyTo) {
           const cleanReplyTo = e.inReplyTo.replace(/^<|>$/g, '').trim();
           if (cleanReplyTo === cleanRootMsgId) return true;
-        }
-
-        // 5. Matching threadId ONLY if e is not explicitly assigned to another root
-        if (root.threadId && e.threadId && root.threadId === e.threadId) {
-          if (!eParentStr || eParentStr === rootIdStr) return true;
         }
 
         return false;
@@ -5053,15 +5192,25 @@ export const getEmailDataforUser = async (req, res) => {
       const latestMessagePreview = (newestMessage.textBody || newestMessage.htmlBody || root.textBody || '').replace(/<[^>]*>/g, '').trim().slice(0, 150);
       const latestSender = newestMessage.senderAddress || root.senderAddress;
       const stepType = newestMessage.stepType || root.stepType || null;
-
-      console.log(`  🧵 Thread [Root ID: ${root._id}] "${root.subject}" => ${deduplicatedThread.length} message(s) | lastActivityAt: ${lastActivityAt}`);
+      const unreadCount = deduplicatedThread.filter((m) => m.direction === 'incoming' && !m.isRead).length;
+      const computedStatus = newestMessage.direction === 'incoming' ? 'customer_replied' : 'awaiting_customer_reply';
+      const awaitingReply = newestMessage.direction === 'outgoing';
 
       return {
         ...root,
+        conversationId: root.conversationId || root.providerThreadId || root.threadId || root._id.toString(),
+        providerThreadId: root.providerThreadId || root.threadId || root._id.toString(),
+        rootEmailId: root._id,
+        leadId: root.leadId || root._id,
+        lastMessageAt: lastActivityAt,
         lastActivityAt,
-        latestMessagePreview,
+        lastMessagePreview: latestMessagePreview,
         latestSender,
         stepType,
+        unreadCount,
+        messageCount: deduplicatedThread.length,
+        status: root.status || computedStatus,
+        awaitingReply: root.awaitingReply !== undefined ? root.awaitingReply : awaitingReply,
         conversation: deduplicatedThread,
       };
     });

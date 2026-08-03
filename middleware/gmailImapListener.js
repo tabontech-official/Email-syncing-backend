@@ -85,24 +85,26 @@ const processIncomingGmailEmail = async ({
    */
   if (parsed.messageId) {
     const rawId = parsed.messageId;
-    const cleanIdStr = String(rawId).replace(/^<|>$/g, '').trim();
-    const existingEmail = await EmailModel.findOne({
-      userId: connection.userId,
-      connectionId: connection._id,
-      $or: [
-        { messageId: rawId },
-        { messageId: cleanIdStr },
-        { messageId: `<${cleanIdStr}>` },
-      ],
-    }).select('_id');
+    const cleanIdStr = parsed.messageId ? parsed.messageId.replace(/^<|>$/g, '').trim() : '';
+    if (cleanIdStr) {
+      const existingEmail = await EmailModel.findOne({
+        $or: [
+          { messageId: parsed.messageId },
+          { messageId: cleanIdStr },
+          { messageId: `<${cleanIdStr}>` },
+          { rfcMessageId: parsed.messageId },
+          { rfcMessageId: cleanIdStr },
+          { rfcMessageId: `<${cleanIdStr}>` },
+        ],
+      }).select('_id');
 
-    if (existingEmail) {
-      console.log(
-        'Duplicate Gmail email skipped:',
-        parsed.messageId
-      );
-
-      return;
+      if (existingEmail) {
+        console.log(
+          '⚠️ Duplicate email event ignored (already saved & scenario already executed):',
+          parsed.subject
+        );
+        return;
+      }
     }
   }
 
@@ -206,7 +208,7 @@ const processIncomingGmailEmail = async ({
     });
 
   if (!emailDoc.threadId) {
-    emailDoc.threadId = emailDoc._id.toString();
+    emailDoc.threadId = parsed.threadId || parsed.messageId || emailDoc._id.toString();
     await emailDoc.save();
   }
 
