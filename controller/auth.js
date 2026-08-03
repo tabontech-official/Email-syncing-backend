@@ -13,6 +13,8 @@ import { TemplateModel } from '../Models/Template.js';
 import nodemailer from 'nodemailer';
 import path from 'path';
 import { scenarioModel } from '../Models/Scenario.js';
+import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
+import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
@@ -3248,6 +3250,8 @@ export const purgeUserData = async (userIdsInput) => {
       ConnectionModel.deleteMany({ userId: idQuery }),
       TemplateModel.deleteMany({ userId: idQuery }),
       scenarioModel.deleteMany({ userId: idQuery }),
+      ScenarioRunLogModel.deleteMany({ userId: idQuery }),
+      TestEmailDataModel.deleteMany({ userId: idQuery }),
       mailhookModel.deleteMany({ userId: idQuery }),
       OrganizationModel.deleteMany({ userId: idQuery }),
     ]);
@@ -3256,8 +3260,13 @@ export const purgeUserData = async (userIdsInput) => {
     for (const modelName of Object.keys(mongoose.models)) {
       try {
         const model = mongoose.models[modelName];
-        if (model && model.schema && model.schema.paths && model.schema.paths.userId) {
-          await model.deleteMany({ userId: idQuery });
+        if (model && model.schema && model.schema.paths) {
+          if (model.schema.paths.userId) {
+            await model.deleteMany({ userId: idQuery });
+          }
+          if (model.schema.paths.user) {
+            await model.deleteMany({ user: idQuery });
+          }
         }
       } catch (err) {
         console.error(`Error purging model ${modelName}:`, err.message);

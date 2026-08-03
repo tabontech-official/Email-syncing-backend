@@ -1,4 +1,5 @@
 import { scenarioModel } from "../Models/Scenario.js";
+import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
 import { ConnectionModel } from "../Models/Connection.js";
 import { authModel } from "../Models/auth.js";
 import mongoose from "mongoose";
@@ -432,8 +433,10 @@ export const updateScenario = async (req, res) => {
 
 export const deleteScenario = async (req, res) => {
   try {
-    await scenarioModel.findByIdAndDelete(req.params.id);
-    res.json({ message: "Scenario deleted" });
+    const scenarioId = req.params.id;
+    await scenarioModel.findByIdAndDelete(scenarioId);
+    await ScenarioRunLogModel.deleteMany({ scenarioId });
+    res.json({ message: "Scenario and its run history deleted successfully" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
