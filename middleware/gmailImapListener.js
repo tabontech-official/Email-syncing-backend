@@ -165,6 +165,28 @@ const processIncomingGmailEmail = async ({
    * Save as a new incoming email.
    */
   const msgDate = parsed.date || new Date();
+  if (parsed.messageId) {
+    const rawId = parsed.messageId;
+    const cleanIdStr = rawId.replace(/^<|>$/g, '').trim();
+    if (cleanIdStr) {
+      const existingDoc = await EmailModel.findOne({
+        $or: [
+          { messageId: rawId },
+          { messageId: cleanIdStr },
+          { messageId: `<${cleanIdStr}>` },
+          { rfcMessageId: rawId },
+          { rfcMessageId: cleanIdStr },
+          { rfcMessageId: `<${cleanIdStr}>` },
+        ],
+      }).select('_id');
+
+      if (existingDoc) {
+        console.log('⚠️ Duplicate IMAP email event skipped (already saved in DB):', parsed.subject);
+        return;
+      }
+    }
+  }
+
   const emailDoc =
     await EmailModel.create({
       userId: connection.userId,

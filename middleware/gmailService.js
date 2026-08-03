@@ -173,9 +173,33 @@ export async function processGmailEmail(emailAddress, historyId) {
           date: msgDate,
         });
 
+        if (replyResult.isDuplicate) {
+          console.log('⚠️ Gmail message already in DB — skipping duplicate:', emailMsgId);
+          continue;
+        }
+
         if (replyResult.matched) {
           console.log('💬 Gmail reply attached to existing thread:', emailMsgId);
           continue;
+        }
+
+        const cleanMsgIdStr = emailMsgId ? emailMsgId.replace(/^<|>$/g, '').trim() : '';
+        if (cleanMsgIdStr) {
+          const existingRoot = await EmailModel.findOne({
+            $or: [
+              { messageId: emailMsgId },
+              { messageId: cleanMsgIdStr },
+              { messageId: `<${cleanMsgIdStr}>` },
+              { rfcMessageId: emailMsgId },
+              { rfcMessageId: cleanMsgIdStr },
+              { rfcMessageId: `<${cleanMsgIdStr}>` },
+            ],
+          }).select('_id');
+
+          if (existingRoot) {
+            console.log('⚠️ Gmail root email already exists in DB — skipping duplicate creation:', emailMsgId);
+            continue;
+          }
         }
 
         // SAVE NEW ROOT EMAIL

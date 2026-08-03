@@ -853,19 +853,35 @@ export const executeScenarios = async (emailData) => {
 
     const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
 
-    if (emailId) {
-      const emailIdObj = mongoose.Types.ObjectId.isValid(emailId)
-        ? new mongoose.Types.ObjectId(emailId)
-        : emailId;
+    const rawMsgId = parsedEmailObj?.messageId || emailData.messageId || emailData.emailId;
+    const targetMsgId = rawMsgId ? String(rawMsgId).replace(/^<|>$/g, '').trim() : '';
 
+    const lockConditions = [];
+    if (emailId && mongoose.Types.ObjectId.isValid(emailId)) {
+      lockConditions.push({ _id: new mongoose.Types.ObjectId(emailId) });
+    } else if (emailId) {
+      lockConditions.push({ _id: emailId });
+    }
+
+    if (targetMsgId) {
+      lockConditions.push({ messageId: targetMsgId });
+      lockConditions.push({ rfcMessageId: targetMsgId });
+      lockConditions.push({ messageId: `<${targetMsgId}>` });
+      lockConditions.push({ rfcMessageId: `<${targetMsgId}>` });
+    }
+
+    if (lockConditions.length > 0) {
       const updated = await EmailModel.findOneAndUpdate(
-        { _id: emailIdObj, scenarioExecuted: { $ne: true } },
-        { $set: { scenarioExecuted: true } },
+        {
+          $or: lockConditions,
+          scenarioExecuted: { $ne: true },
+        },
+        { $set: { scenarioExecuted: true, scenarioExecutingAt: new Date() } },
         { new: true }
       );
 
       if (!updated) {
-        console.log(`⚠️ [executeScenarios] Scenario ALREADY EXECUTED for emailId: ${emailId} — preventing duplicate response!`);
+        console.log(`⚠️ [executeScenarios] Scenario ALREADY EXECUTED/EXECUTING for emailId/messageId: ${emailId || targetMsgId} — preventing duplicate response!`);
         return;
       }
     }
@@ -5030,56 +5046,6 @@ export const getEmailDataforUser = async (req, res) => {
       return s || r;
     };
 
-    for (const email of userEmails) {
-      const hasNoParent =
-        !email.parentEmailId ||
-        email.parentEmailId === null ||
-        email.parentEmailId === undefined ||
-        email.parentEmailId === '';
-
-      if (hasNoParent) {
-        const emailLead = getLeadEmail(email);
-        const cleanReplyTo = email.inReplyTo ? email.inReplyTo.replace(/^<|>$/g, '').trim() : '';
-
-        // Find candidate parent email in userEmails that was created earlier or matches lead address / inReplyTo
-        const parentCandidate = userEmails.find((candidate) => {
-          if (candidate._id.toString() === email._id.toString()) return false;
-          const candidateMsgId = candidate.messageId ? candidate.messageId.replace(/^<|>$/g, '').trim() : '';
-
-          // 1. Direct Message-ID match via inReplyTo
-          if (cleanReplyTo && candidateMsgId && cleanReplyTo === candidateMsgId) {
-            return true;
-          }
-
-          // 2. Lead email match (same customer/lead address)
-          const candidateLead = getLeadEmail(candidate);
-          if (emailLead && candidateLead && emailLead === candidateLead) {
-            const emailTime = new Date(email.date || email.createdAt || 0).getTime();
-            const candidateTime = new Date(candidate.date || candidate.createdAt || 0).getTime();
-            // Candidate must be an earlier message or root
-            const isEarlier = candidateTime <= emailTime;
-            const hasNoParentCandidate = !candidate.parentEmailId;
-            return isEarlier && (hasNoParentCandidate || candidate._id.toString() !== email._id.toString());
-          }
-
-          return false;
-        });
-
-        if (parentCandidate) {
-          console.log(`🔗 [getAllEmails] Auto-stitching orphaned email [ID: ${email._id}] to parent thread [ID: ${parentCandidate._id}]`);
-          email.parentEmailId = parentCandidate._id;
-          const effectiveThread = parentCandidate.threadId || parentCandidate._id.toString();
-          email.threadId = effectiveThread;
-
-          // Asynchronously update DB
-          EmailModel.findByIdAndUpdate(email._id, {
-            parentEmailId: parentCandidate._id,
-            threadId: effectiveThread,
-          }).catch((err) => console.error('Error auto-stitching email in DB:', err));
-        }
-      }
-    }
-
     // 4. Return ALL emails: identify root emails and deduplicate multiple root entries for the same lead
     let rawRoots = userEmails.filter((email) => {
       const hasNoParent =
@@ -5147,12 +5113,7 @@ export const getEmailDataforUser = async (req, res) => {
         if (root.providerThreadId && e.providerThreadId && root.providerThreadId === e.providerThreadId) return true;
         if (root.threadId && e.threadId && root.threadId === e.threadId) return true;
 
-        // 5. Customer Lead Email Match (same customer address)
-        const eLead = getLeadEmail(e);
-        const rootLead = getLeadEmail(root);
-        if (eLead && rootLead && eLead === rootLead) return true;
-
-        // 6. Recursive parent tracing back to rootIdStr
+        // 5. Recursive parent tracing back to rootIdStr
         let curr = e;
         const visited = new Set();
         while (curr && curr.parentEmailId && !visited.has(curr._id.toString())) {
@@ -5162,7 +5123,7 @@ export const getEmailDataforUser = async (req, res) => {
           curr = userEmails.find((item) => item._id.toString() === pStr);
         }
 
-        // 7. InReplyTo matching cleanRootMsgId
+        // 6. InReplyTo matching cleanRootMsgId
         if (cleanRootMsgId && e.inReplyTo) {
           const cleanReplyTo = e.inReplyTo.replace(/^<|>$/g, '').trim();
           if (cleanReplyTo === cleanRootMsgId) return true;
