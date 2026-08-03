@@ -64,4 +64,6 @@ emailRouter.post(
   addLeadDiscussion
 );
 emailRouter.post('/leads/delete-many', deleteMultipleLeads);
+emailRouter.patch('/lead-status/:emailId', updateLeadStatus);
+emailRouter.put('/lead-status/:emailId', updateLeadStatus);
 export default emailRouter;

@@ -2177,7 +2177,7 @@ export const updateLeadStatus = async (req, res) => {
     const { emailId } = req.params;
     const { leadStatus } = req.body;
 
-    const allowedStatuses = ['new_lead', 'secured', 'closed'];
+    const allowedStatuses = ['new_lead', 'awaiting', 'replied', 'secured', 'closed'];
 
     if (!allowedStatuses.includes(leadStatus)) {
       return res.status(400).json({
@@ -3499,32 +3499,24 @@ export const RunTestMode = async (req, res) => {
       '';
 
     if (!incomingLeadConnectionId) {
+      const errMsg = "First add a connection to 'Incoming Leads' node before running send test.";
       addStep({
-        stepKey:
-          'incoming-lead-connection-check',
-        stepName:
-          'Incoming Leads Connection Check',
+        stepKey: 'incoming-lead-connection-check',
+        stepName: 'Incoming Leads Connection Check',
         status: 'failed',
-        message:
-          'Incoming Leads connection is not configured.',
-        issue:
-          'scenario.incomingLead.connectionId is missing.',
-        location:
-          'scenario.incomingLead.connectionId',
-        suggestion:
-          'Open Incoming Leads node, select Gmail connection and save the scenario.',
+        message: errMsg,
+        issue: 'scenario.incomingLead.connectionId is missing.',
+        location: 'scenario.incomingLead.connectionId',
+        suggestion: 'Open Incoming Leads node, select Gmail connection and save the scenario.',
       });
 
       await saveRunLog({
         status: 'failed',
-        message:
-          'Incoming Leads connection is not configured.',
-        errorSummary:
-          'Incoming Leads connection missing.',
+        message: errMsg,
+        errorSummary: 'Incoming Leads connection missing.',
         userId,
         scenarioId: scenario._id,
-        scenarioName:
-          scenario.name || 'Shopify Scenario',
+        scenarioName: scenario.name || 'Shopify Scenario',
         service,
         businessEmail,
         fullName,
@@ -3534,8 +3526,58 @@ export const RunTestMode = async (req, res) => {
 
       return res.status(400).json({
         success: false,
-        message:
-          'Incoming Leads connection is not configured. Select a Gmail connection first.',
+        message: errMsg,
+      });
+    }
+
+    /*
+     * Validate that ALL modules across ALL router branches have configured connections
+     */
+    const missingNodeNames = [];
+    (scenario.routerBranches || []).forEach((branch, bIdx) => {
+      (branch.modules || []).forEach((mod, mIdx) => {
+        const rawName = mod.app?.displayName || mod.app?.name || mod.emailType || mod.stepType || `Module ${mIdx + 1}`;
+        const connId = typeof mod.connectionId === 'string'
+          ? mod.connectionId.trim()
+          : (mod.connectionId?._id || mod.connectionId || '').toString().trim();
+
+        if (!connId || connId === '' || connId === 'null' || connId === 'undefined' || connId === '(empty)') {
+          missingNodeNames.push(rawName);
+        }
+      });
+    });
+
+    if (missingNodeNames.length > 0) {
+      const uniqueNames = [...new Set(missingNodeNames)].join(', ');
+      const errMsg = `First add a connection to '${uniqueNames}' node before running send test.`;
+
+      addStep({
+        stepKey: 'module-connection-check',
+        stepName: 'Module Connection Check',
+        status: 'failed',
+        message: errMsg,
+        issue: `Connection ID missing on nodes: ${uniqueNames}`,
+        location: 'scenario.routerBranches',
+        suggestion: 'Open the node settings and select a valid connection.',
+      });
+
+      await saveRunLog({
+        status: 'failed',
+        message: errMsg,
+        errorSummary: `Missing connection in node(s): ${uniqueNames}`,
+        userId,
+        scenarioId: scenario._id,
+        scenarioName: scenario.name || 'Shopify Scenario',
+        service,
+        businessEmail,
+        fullName,
+        useGeneralTemplate,
+        requestPayload: req.body,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: errMsg,
       });
     }
 
