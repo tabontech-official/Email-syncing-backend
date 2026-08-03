@@ -1983,7 +1983,6 @@ export const sendEmailModule = async (
         log('✅ Gmail SMTP connection verified.');
 
         const senderName =
-          (connection.name && !/connection/i.test(connection.name) ? connection.name : null) ||
           user?.fullName ||
           user?.organizationName ||
           connection.email.split('@')[0] ||
@@ -2145,8 +2144,14 @@ export const sendEmailModule = async (
         await transporter.verify();
         log('✅ [SMTP] Connection verified.');
 
+        const smtpSenderName =
+          user?.fullName ||
+          user?.organizationName ||
+          connection.email.split('@')[0] ||
+          'Email Sender';
+
         const info = await transporter.sendMail({
-          from: `"${connection.name || 'SMTP Sender'}" <${connection.email}>`,
+          from: `"${smtpSenderName}" <${connection.email}>`,
           to,
           cc,
           bcc,
@@ -4409,9 +4414,9 @@ export const RunTestMode = async (req, res) => {
           value: [
             {
               name:
-                incomingConnection.name ||
-                scenario.incomingLead?.app
-                  ?.name ||
+                user?.fullName ||
+                user?.organizationName ||
+                scenario.incomingLead?.app?.name ||
                 'Incoming Leads',
               address:
                 incomingLeadEmail,
