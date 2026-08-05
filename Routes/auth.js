@@ -43,6 +43,9 @@ import {
   googleLogin,
   loginAsUserByAdmin,
   updatePassword,
+  getOrgMembers,
+  addOrgMember,
+  acceptInvitation,
 } from '../controller/auth.js';
 import { cpUpload } from '../middleware/cloudinary.js';
 import { authMiddleware } from '../middleware/authmiddleware.js';
@@ -61,6 +64,9 @@ authRouter.patch('/verify/:id', verifyUser);
 authRouter.post('/saveSmtpConnection', addSmtpConnection);
 authRouter.post('/organization/create', createOrganization);
 authRouter.get('/organization/get/:userId', getOrganizationByUserId);
+authRouter.get('/organization/members/:userId', getOrgMembers);
+authRouter.post('/organization/add-member/:userId', addOrgMember);
+authRouter.post('/organization/accept-invitation', acceptInvitation);
 authRouter.post("/2fa/setup", setupTwoFactor);
 authRouter.post("/2fa/verify-setup", verifyTwoFactorSetup);
 authRouter.post("/2fa/disable", disableTwoFactor);

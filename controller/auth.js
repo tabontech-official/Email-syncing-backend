@@ -16,6 +16,8 @@ import { scenarioModel } from '../Models/Scenario.js';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
 import { OrganizationModel } from '../Models/Organization.js';
+import { TeamModel } from '../Models/Team.js';
+import { OrgMemberModel } from '../Models/OrgMember.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
@@ -24,6 +26,7 @@ import mongoose from 'mongoose';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { encrypt } from '../middleware/encryption.js';
+import crypto from 'crypto';
 
 export const defaultServices = [
   'General',
@@ -220,6 +223,15 @@ export const signUp = async (req, res) => {
       // defaults
       TimeZone: 'UTC',
     });
+    
+    // Automatically create default Team for the new user
+    await TeamModel.create({
+      userId: savedUser._id,
+      name: 'My Team',
+      creditsUsed: 0,
+      membersCount: 1,
+    });
+
     savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
     await savedUser.save();
 
@@ -547,15 +559,20 @@ export const getUserById = async (req, res) => {
       .lean();
 
     const organization = await OrganizationModel.findOne({ userId: id }).lean();
+    const orgName = organization?.organizationName || user?.organizationName || user?.companyName || 'My Organization';
 
     res.status(200).json({
       message: 'User fetched successfully',
       data: {
         ...user,
-
+        organizationName: orgName,
+        companyName: orgName,
+        Region: organization?.Region || user?.Region || 'US',
+        TimeZone: organization?.TimeZone || user?.TimeZone || '(GMT-05:00) America/Toronto',
+        country: organization?.country || user?.country || 'Canada',
+        PartnerLink: organization?.PartnerLink || user?.PartnerLink || '',
         verificationUrl: latestEmail?.verificationUrl || null,
         verificationCode: latestEmail?.verificationCode || null,
-
         organization: organization || null,
       },
     });
@@ -602,6 +619,10 @@ export const updateUserAndOrganization = async (req, res) => {
     if (email !== undefined) user.email = email;
     if (role !== undefined) user.role = role;
     if (TimeZone !== undefined) user.TimeZone = TimeZone;
+    if (organizationName !== undefined) {
+      user.organizationName = organizationName;
+      user.companyName = organizationName;
+    }
 
     // 🔥 PROFILE IMAGE (Cloudinary via cpUpload)
     let imageUpdated = false;
@@ -1402,6 +1423,14 @@ export const googleLogin = async (req, res) => {
       phone: '',
       whatsapp: '',
       TimeZone: 'UTC',
+    });
+
+    // Automatically create default Team for new Google user
+    await TeamModel.create({
+      userId: savedUser._id,
+      name: 'My Team',
+      creditsUsed: 0,
+      membersCount: 1,
     });
 
     savedUser.mailhook = `${savedUser._id}@mail.replexengine.com`;
@@ -3686,6 +3715,189 @@ export const loginAsUserByAdmin = async (req, res) => {
     });
   }
 };
+
+// --- ORGANIZATION MEMBERS CONTROLLERS ---
+export const getOrgMembers = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required' });
+    }
+
+    const user = await authModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Get user's team name
+    const queryFilter = mongoose.Types.ObjectId.isValid(userId)
+      ? { $or: [{ userId }, { userId: new mongoose.Types.ObjectId(userId) }] }
+      : { userId };
+    const userTeam = await TeamModel.findOne(queryFilter);
+    const teamName = userTeam?.name || 'My Team';
+
+    const ownerMember = {
+      id: user._id.toString(),
+      name: user.fullName || user.email.split('@')[0],
+      email: user.email,
+      role: 'Owner',
+      team: teamName,
+      status: 'Active',
+      permissions: {
+        templates: { view: true, edit: true, delete: true },
+        connections: { view: true, edit: true, delete: true },
+        scenarios: { view: true, edit: true, delete: true },
+        inbox: { view: true, edit: true, delete: true },
+        organization: { view: true, edit: true, delete: true },
+      },
+      lastLoginDate: user.lastLogin ? new Date(user.lastLogin).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Active',
+      lastLoginTime: user.lastLogin ? new Date(user.lastLogin).toLocaleTimeString('en-US') : '',
+      timestamp: user.createdAt ? new Date(user.createdAt).getTime() : Date.now(),
+    };
+
+    const invitedMembers = await OrgMemberModel.find({ userId });
+
+    const formattedInvited = invitedMembers.map((m) => ({
+      id: m._id.toString(),
+      name: m.name,
+      email: m.email,
+      role: m.role || 'Member',
+      team: m.team || teamName,
+      status: m.status || 'Pending',
+      permissions: m.permissions || {
+        templates: { view: true, edit: true, delete: false },
+        connections: { view: true, edit: true, delete: false },
+        scenarios: { view: true, edit: true, delete: false },
+        inbox: { view: true, edit: true, delete: false },
+        organization: { view: true, edit: false, delete: false },
+      },
+      lastLoginDate: m.status === 'Accepted' ? 'Accepted' : 'Invitation pending',
+      lastLoginTime: m.status === 'Accepted' ? 'Active member' : 'Not logged in yet',
+      timestamp: new Date(m.createdAt).getTime(),
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: [ownerMember, ...formattedInvited],
+    });
+  } catch (error) {
+    console.error('Error fetching org members:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const addOrgMember = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { name, email, role, team, permissions } = req.body;
+
+    if (!userId || !name || !email) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    // Get user's actual team name
+    const userTeam = await TeamModel.findOne({ userId });
+    const assignedTeam = team || userTeam?.name || 'My Team';
+
+    const invitationToken = crypto.randomBytes(24).toString('hex');
+
+    const defaultPermissions = {
+      templates: { view: true, edit: true, delete: false },
+      connections: { view: true, edit: true, delete: false },
+      scenarios: { view: true, edit: true, delete: false },
+      inbox: { view: true, edit: true, delete: false },
+      organization: { view: true, edit: false, delete: false },
+    };
+
+    const newMember = await OrgMemberModel.create({
+      userId,
+      name,
+      email,
+      role: 'Member', // Strict 2-role system: Owner / Member
+      team: assignedTeam,
+      status: 'Pending',
+      invitationToken,
+      permissions: permissions || defaultPermissions,
+    });
+
+    // Update team membersCount
+    await TeamModel.findOneAndUpdate({ userId }, { $inc: { membersCount: 1 } });
+
+    // Send Invitation Email
+    try {
+      const inviteUrl = `https://zenith-inbox.vercel.app/accept-invitation?token=${invitationToken}`;
+      await welComeEmail({
+        to: email,
+        subject: `Invitation to join ${assignedTeam} on Replex Engine`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded-lg: 8px;">
+            <h2 style="color: #0f172a; font-size: 20px;">You've been invited to join ${assignedTeam}!</h2>
+            <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+              Hello <strong>${name}</strong>,<br/><br/>
+              You have been invited to join the organization as a <strong>Member</strong> of team <strong>${assignedTeam}</strong>.
+            </p>
+            <div style="margin: 25px 0;">
+              <a href="${inviteUrl}" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">Accept Invitation</a>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px;">If you did not request this invitation, you can ignore this email.</p>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error('Error sending invitation email:', emailErr);
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        id: newMember._id.toString(),
+        name: newMember.name,
+        email: newMember.email,
+        role: newMember.role,
+        team: newMember.team,
+        status: newMember.status,
+        permissions: newMember.permissions,
+        lastLoginDate: 'Invitation pending',
+        lastLoginTime: 'Not logged in yet',
+        timestamp: new Date(newMember.createdAt).getTime(),
+      },
+    });
+  } catch (error) {
+    console.error('Error adding org member:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const acceptInvitation = async (req, res) => {
+  try {
+    const { token, email } = req.body;
+
+    let member = null;
+    if (token) {
+      member = await OrgMemberModel.findOne({ invitationToken: token });
+    } else if (email) {
+      member = await OrgMemberModel.findOne({ email, status: 'Pending' });
+    }
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Invalid or expired invitation token' });
+    }
+
+    member.status = 'Accepted';
+    await member.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Invitation accepted successfully!',
+      data: member,
+    });
+  } catch (error) {
+    console.error('Error accepting invitation:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 
 
 
