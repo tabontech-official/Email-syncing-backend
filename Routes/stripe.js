@@ -1,7 +1,15 @@
 import express from "express";
-import { createCheckoutSession, updateUserPlanDirect, stripeWebhook, cancelSubscription } from "../controller/stripe.js";
+import {
+  createCheckoutSession,
+  updateUserPlanDirect,
+  stripeWebhook,
+  cancelSubscription,
+  getPaymentHistory,
+} from "../controller/stripe.js";
 
 const stripeRouter = express.Router();
+
+stripeRouter.get("/payment-history/:userId", getPaymentHistory);
 
 stripeRouter.post(
   "/create-checkout-session/:userId",

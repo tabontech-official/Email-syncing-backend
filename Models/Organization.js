@@ -49,6 +49,32 @@ const OrganizationSchema = new mongoose.Schema(
     hourlyRate: { type: Number, default: 0 },
     experienceYears: { type: Number, default: 0 },
     services: { type: String, default: "" },
+
+    // ---------------- UTILITIES CONFIG ----------------
+    scenarioProperties: {
+      maxRetries: { type: Number, default: 3 },
+      delayTimeoutMinutes: { type: Number, default: 5 },
+      autoAiFallback: { type: Boolean, default: true },
+      logLevel: { type: String, default: "Detailed" },
+      deduplicateIncomingEmails: { type: Boolean, default: true },
+    },
+    notificationOptions: {
+      emailOnNewLead: { type: Boolean, default: true },
+      emailOnCustomerReply: { type: Boolean, default: true },
+      desktopPushAlerts: { type: Boolean, default: true },
+      soundAlerts: { type: Boolean, default: false },
+      dailySummaryEmail: { type: Boolean, default: true },
+    },
+    paymentMethod: {
+      cardholderName: { type: String, default: "" },
+      last4: { type: String, default: "4242" },
+      brand: { type: String, default: "Visa" },
+      expMonth: { type: String, default: "12" },
+      expYear: { type: String, default: "28" },
+      billingAddress: { type: String, default: "" },
+      country: { type: String, default: "United States" },
+      isSaved: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );

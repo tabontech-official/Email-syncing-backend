@@ -94,6 +94,7 @@ authRouter.post('/set-password', setPassword);
 authRouter.post('/request-login', requestLogin);
 authRouter.post('/verify-login/:token', verifyLogin); // Step 1
 authRouter.patch('/user/ai', updateAiStatus);
+authRouter.post('/toggle-ai-replies/:userId', updateAiStatus);
 
 authRouter.get('/guide/:userId', getGuideStatus);
 authRouter.post('/guide/:userId', updateGuideStatus);

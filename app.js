@@ -36,17 +36,16 @@ import connectionRouter from './Routes/connection.js';
 import companyProfileRouter from './Routes/companyProfileRoutes.js';
 import aiConfigRouter from './Routes/aiConfigRoutes.js';
 import teamRouter from './Routes/team.js';
+import organizationUtilitiesRouter from './Routes/organizationUtilitiesRoutes.js';
 import { outlookWebhook } from './middleware/outlookWebhook.js';
 import { authModel } from './Models/auth.js';
 import { OrganizationModel } from './Models/Organization.js';
 import mongoose from 'mongoose';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
+
 const app = express();
 setupSwagger(app);
-// Connect();
 
-// startDelayWorker();
-// financeScheduler.start();
 // ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
 app.post(
   '/stripe/webhook',
@@ -86,6 +85,7 @@ app.use('/api/product-page', productPageRouter);
 app.use('/api/connection', connectionRouter);
 app.use('/api/company-profile', companyProfileRouter);
 app.use('/api/ai-config', aiConfigRouter);
+app.use('/organization', organizationUtilitiesRouter);
 app.post('/gmail/webhook', gmailWebhook);
 
 // ---------------- TEAM API ENDPOINTS ----------------
@@ -160,6 +160,7 @@ app.put(['/team/updateUserTeam/:userId', '/team/update/:id'], async (req, res) =
 });
 
 app.post('/outlook/webhook', outlookWebhook);
+
 (async () => {
   try {
     const indexes = await mailhookModel.collection.indexes();
@@ -172,16 +173,17 @@ app.post('/outlook/webhook', outlookWebhook);
     console.log('No duplicate index to drop or already removed:', err.message);
   }
 })();
+
 app.use((req, res, next) => {
   res.setTimeout(300000, () => {
     res.status(504).send('Request timed out');
   });
   next();
 });
+
 app.get('/', (req, res) => {
   res.send('API is running...');
 });
-
 
 const initializeApplication = async () => {
   try {
@@ -282,9 +284,3 @@ const initializeApplication = async () => {
 initializeApplication();
 
 export default app;
-
-// {
-//   "version": 2,
-//   "builds": [{ "src": "app.js", "use": "@vercel/node" }],
-//   "routes": [{ "src": "/(.*)", "dest": "/app.js" }]
-// }

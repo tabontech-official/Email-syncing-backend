@@ -3202,15 +3202,16 @@ export const getTemplateUsageForAdmin = async (req, res) => {
 export const updateAiStatus = async (req, res) => {
   try {
     const { userId, enabled } = req.body;
+    const targetUserId = userId || req.params?.userId;
 
-    if (!userId || typeof enabled !== 'boolean') {
+    if (!targetUserId || typeof enabled !== 'boolean') {
       return res.status(400).json({
         success: false,
         message: 'userId and enabled(boolean) are required',
       });
     }
 
-    const user = await authModel.findById(userId);
+    const user = await authModel.findById(targetUserId);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -3218,20 +3219,20 @@ export const updateAiStatus = async (req, res) => {
       });
     }
 
-    if (user.subscription?.plan !== 'pro') {
-      return res.status(403).json({
-        success: false,
-        message: 'AI is available only on Pro plan',
-      });
-    }
-
     user.Ai = enabled;
+    if (!user.subscription) {
+      user.subscription = { plan: 'Explore', aiRepliesUsed: 0, extraAiReplies: 0, status: 'active' };
+    }
+    user.subscription.aiRepliesActive = enabled;
+    user.markModified('subscription');
     await user.save();
 
     return res.json({
       success: true,
-      message: `AI ${enabled ? 'enabled' : 'disabled'} successfully`,
+      message: `AI Replies ${enabled ? 'activated' : 'deactivated'} successfully`,
       Ai: user.Ai,
+      aiRepliesActive: enabled,
+      user,
     });
   } catch (error) {
     console.error('❌ updateAiStatus error:', error);
