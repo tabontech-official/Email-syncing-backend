@@ -6,7 +6,33 @@ import mongoose from "mongoose";
 
 export const addScenario = async (req, res) => {
   try {
-    const scenario = new scenarioModel(req.body);
+    const { userId } = req.body;
+    let requestedActive = req.body.hasOwnProperty("scenarioActive")
+      ? Boolean(req.body.scenarioActive)
+      : true;
+
+    if (userId) {
+      const user = await authModel.findById(userId);
+      const plan = (user?.subscription?.plan || "Explore").toLowerCase();
+      let maxActive = 1;
+      if (plan === "elevate") maxActive = 5;
+      else if (plan === "unite") maxActive = 15;
+      else if (plan === "enterprise") maxActive = 999;
+
+      const activeCount = await scenarioModel.countDocuments({
+        userId,
+        scenarioActive: true,
+      });
+
+      if (activeCount >= maxActive) {
+        requestedActive = false;
+      }
+    }
+
+    const scenario = new scenarioModel({
+      ...req.body,
+      scenarioActive: requestedActive,
+    });
     await scenario.save();
 
     res.status(201).json(scenario);
@@ -204,10 +230,35 @@ export const updateScenario = async (req, res) => {
     }
 
     /*
-     * Scenario tab active hoga jab koi required connection
-     * missing ya inactive na ho.
+     * Check requested active status and enforce user subscription plan limit!
      */
-    const scenarioActive = !missingConnectionFound;
+    let requestedActive = req.body.hasOwnProperty("scenarioActive")
+      ? Boolean(req.body.scenarioActive)
+      : (existingScenario?.scenarioActive ?? true);
+
+    const existingScenario = await scenarioModel.findById(req.params.id);
+    const userId = req.body.userId || existingScenario?.userId;
+
+    if (requestedActive && userId) {
+      const user = await authModel.findById(userId);
+      const plan = (user?.subscription?.plan || "Explore").toLowerCase();
+      let maxActive = 1;
+      if (plan === "elevate") maxActive = 5;
+      else if (plan === "unite") maxActive = 15;
+      else if (plan === "enterprise") maxActive = 999;
+
+      const otherActiveCount = await scenarioModel.countDocuments({
+        userId,
+        _id: { $ne: req.params.id },
+        scenarioActive: true,
+      });
+
+      if (otherActiveCount >= maxActive) {
+        requestedActive = false;
+      }
+    }
+
+    const scenarioActive = !missingConnectionFound && requestedActive;
 
     /*
      * Incoming lead enabled tab hoga jab connection aur
@@ -434,6 +485,19 @@ export const updateScenario = async (req, res) => {
 export const deleteScenario = async (req, res) => {
   try {
     const scenarioId = req.params.id;
+    const scenario = await scenarioModel.findById(scenarioId);
+
+    if (!scenario) {
+      return res.status(404).json({ message: "Scenario not found" });
+    }
+
+    if (scenario.type === "shopify") {
+      return res.status(403).json({
+        success: false,
+        message: "Shopify prebuilt system scenarios cannot be deleted.",
+      });
+    }
+
     await scenarioModel.findByIdAndDelete(scenarioId);
     await ScenarioRunLogModel.deleteMany({ scenarioId });
     res.json({ message: "Scenario and its run history deleted successfully" });
