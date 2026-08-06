@@ -220,6 +220,52 @@ export const updateTemplateStatus = async (req, res) => {
   }
 };
 
+export const toggleTemplateAiResponse = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { aiResponse } = req.body;
+
+    const template = await TemplateModel.findById(id);
+    if (!template) {
+      return res.status(404).json({ success: false, message: 'Template not found.' });
+    }
+
+    template.aiResponse = typeof aiResponse === 'boolean' ? aiResponse : true;
+    await template.save();
+
+    res.json({
+      success: true,
+      message: 'Template AI response status updated successfully.',
+      data: template,
+    });
+  } catch (error) {
+    console.error('❌ toggleTemplateAiResponse Error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const bulkToggleTemplateAiResponse = async (req, res) => {
+  try {
+    const { userId, platform, aiResponse } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+    const query = { userId };
+    if (platform) query.platform = platform;
+    const targetStatus = typeof aiResponse === 'boolean' ? aiResponse : true;
+
+    await TemplateModel.updateMany(query, { aiResponse: targetStatus });
+
+    res.json({
+      success: true,
+      message: `All ${platform || ''} templates updated to AI ${targetStatus ? 'Enabled' : 'Disabled'}.`,
+    });
+  } catch (error) {
+    console.error('❌ bulkToggleTemplateAiResponse Error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const updateAllTemplateStatus = async (req, res) => {
   try {
     const { userId } = req.body;

@@ -1723,11 +1723,10 @@ export const executeScenarios = async (emailData) => {
                     ),
                   },
                 ],
-                active: true,
               });
 
               if (!tpl) {
-                console.log(`⚠️ Active template for service "${matchedService}" not found or inactive. Falling back to active General template...`);
+                console.log(`⚠️ Active template for service "${matchedService}" not found. Falling back to General template...`);
                 tpl = await TemplateModel.findOne({
                   userId,
                   platform: 'shopify',
@@ -1744,7 +1743,6 @@ export const executeScenarios = async (emailData) => {
                       ),
                     },
                   ],
-                  active: true,
                 });
               }
 
@@ -1766,6 +1764,7 @@ export const executeScenarios = async (emailData) => {
                   templateName: tpl?.name || module.template || '',
                   service: matchedService,
                   stepType,
+                  templateAiEnabled: tpl ? (tpl.aiResponse !== false) : true,
                 },
                 from,
                 subject,
@@ -1940,7 +1939,8 @@ export const sendEmailModule = async (
     const user = await authModel.findById(connection.userId).lean();
 
     const isManualReply = module.stepType === 'Manual Reply' || module.isManual === true || module.isManualReply === true;
-    const isAIActive = (user?.Ai === true || user?.subscription?.aiRepliesActive === true) && !isManualReply;
+    const isTemplateAiEnabled = module.templateAiEnabled !== false;
+    const isAIActive = !isManualReply && (module.templateAiEnabled === true || user?.Ai === true || user?.subscription?.aiRepliesActive === true);
 
     if (isAIActive) {
       log('🤖 AI REPLIES ENABLED for automated step → OpenRouter Gemma 4 26B generating high-converting email response');
@@ -2418,9 +2418,9 @@ export const sendEmailModule = async (
           lastMessagePreview: textPreview,
           messageCount: updatedMsgCount,
           unreadCount: 0, // Reset unread count on platform reply
-          status: 'awaiting_customer_reply',
-          leadStatus: 'awaiting',
-          awaitingReply: true,
+          status: 'replied',
+          leadStatus: 'replied',
+          awaitingReply: false,
         });
       }
 
@@ -2785,9 +2785,9 @@ export const addLeadDiscussion = async (req, res) => {
     const updatedEmail = await EmailModel.findByIdAndUpdate(
       emailId,
       {
-        leadStatus: 'awaiting',
-        status: 'awaiting_customer_reply',
-        awaitingReply: true,
+        leadStatus: 'replied',
+        status: 'replied',
+        awaitingReply: false,
         unreadCount: 0,
         lastMessageAt: new Date(),
         lastActivityAt: new Date(),

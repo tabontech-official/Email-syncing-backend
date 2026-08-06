@@ -13,6 +13,8 @@ import {
   updateOtherTemplateStatus,
   updateTemplate,
   updateTemplateStatus,
+  toggleTemplateAiResponse,
+  bulkToggleTemplateAiResponse,
 } from '../controller/template.js';
 
 const templateRouter = express.Router();
@@ -27,6 +29,8 @@ templateRouter.delete('/delete/:id', deleteTemplate);
 templateRouter.put('/update/:id', updateTemplate);
 templateRouter.get('/alltemplates', getAllTemplates);
 templateRouter.patch('/status/:id', updateTemplateStatus);
+templateRouter.patch('/ai-toggle/:id', toggleTemplateAiResponse);
+templateRouter.patch('/ai-toggle-all', bulkToggleTemplateAiResponse);
 templateRouter.patch('/templatestatus/all', updateAllTemplateStatus);
 templateRouter.patch('/templatestatus/all/other', updateOtherTemplateStatus);
 templateRouter.get('/other/active', getActiveOtherTemplates);
