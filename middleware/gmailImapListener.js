@@ -81,22 +81,27 @@ const processIncomingGmailEmail = async ({
   }
 
   /*
-   * Avoid processing the same email twice.
+   * Avoid processing the same email twice (checked by Message-ID AND IMAP UID).
    */
   if (parsed.messageId) {
     const rawId = parsed.messageId;
     const cleanIdStr = parsed.messageId ? parsed.messageId.replace(/^<|>$/g, '').trim() : '';
     if (cleanIdStr) {
-      const existingEmail = await EmailModel.findOne({
-        $or: [
-          { messageId: parsed.messageId },
-          { messageId: cleanIdStr },
-          { messageId: `<${cleanIdStr}>` },
-          { rfcMessageId: parsed.messageId },
-          { rfcMessageId: cleanIdStr },
-          { rfcMessageId: `<${cleanIdStr}>` },
-        ],
-      }).select('_id');
+      const matchCriteria = [
+        { messageId: parsed.messageId },
+        { messageId: cleanIdStr },
+        { messageId: `<${cleanIdStr}>` },
+        { rfcMessageId: parsed.messageId },
+        { rfcMessageId: cleanIdStr },
+        { rfcMessageId: `<${cleanIdStr}>` },
+      ];
+
+      // If we have an IMAP UID, match by UID as well to distinguish multiple emails with reused Message-IDs
+      const query = uid
+        ? { $and: [{ imapUid: uid }, { $or: matchCriteria }] }
+        : { $or: matchCriteria };
+
+      const existingEmail = await EmailModel.findOne(query).select('_id imapUid');
 
       if (existingEmail) {
         console.log(
@@ -169,16 +174,19 @@ const processIncomingGmailEmail = async ({
     const rawId = parsed.messageId;
     const cleanIdStr = rawId.replace(/^<|>$/g, '').trim();
     if (cleanIdStr) {
-      const existingDoc = await EmailModel.findOne({
-        $or: [
-          { messageId: rawId },
-          { messageId: cleanIdStr },
-          { messageId: `<${cleanIdStr}>` },
-          { rfcMessageId: rawId },
-          { rfcMessageId: cleanIdStr },
-          { rfcMessageId: `<${cleanIdStr}>` },
-        ],
-      }).select('_id');
+      const matchCriteria = [
+        { messageId: rawId },
+        { messageId: cleanIdStr },
+        { messageId: `<${cleanIdStr}>` },
+        { rfcMessageId: rawId },
+        { rfcMessageId: cleanIdStr },
+        { rfcMessageId: `<${cleanIdStr}>` },
+      ];
+      const query = uid
+        ? { $and: [{ imapUid: uid }, { $or: matchCriteria }] }
+        : { $or: matchCriteria };
+
+      const existingDoc = await EmailModel.findOne(query).select('_id');
 
       if (existingDoc) {
         console.log('⚠️ Duplicate IMAP email event skipped (already saved in DB):', parsed.subject);
@@ -434,10 +442,14 @@ export const startGmailListener = async (
           }
 
           /*
-           * Fetch the latest message by sequence number.
+           * Fetch all new messages in sequence range (prevCount+1 : totalMessages).
            */
+          const prevCount = event.prevCount || (totalMessages > 1 ? totalMessages - 1 : 1);
+          const startSeq = Math.max(1, Math.min(prevCount + 1, totalMessages));
+          const fetchRange = `${startSeq}:${totalMessages}`;
+
           for await (const message of client.fetch(
-            totalMessages.toString(),
+            fetchRange,
             {
               uid: true,
               source: true,

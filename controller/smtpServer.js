@@ -115,7 +115,7 @@ IMPORTANT:
 const OPENROUTER_API_KEY =
   process.env.OPENROUTER_API_KEY ||
   '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';
-const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b:free';
+const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b-it:free';
 
 export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }) => {
   try {
@@ -132,64 +132,72 @@ export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }
     const timelines = profileDoc?.timelines || {};
     const writingStyle = profileDoc?.writingStyle || {};
 
-    const companyName = cp.companyName || user.organizationName || user.companyName || 'Our Company';
+    const senderName = user.fullName || 'Samiullah Qureshi';
+    const companyName = cp.companyName || user.organizationName || user.companyName || 'Summit Digital Solutions';
 
-    const systemPrompt = `You are an expert sales representative and business email consultant for ${companyName}.
+    const systemPrompt = `You are an expert Sales & Solutions Consultant for ${companyName}.
 
-## Company Information
-- Company: ${companyName}
+Your task is to generate a highly personalized, professional, and persuasive email reply based ONLY on the customer's inquiry.
+
+## Knowledge Base & Company Context
+- Company Name: ${companyName}
 - Industry: ${cp.industry || 'Digital Services'}
-- Description: ${cp.businessDescription || 'High-quality professional services'}
-- Website: ${cp.website || 'N/A'}
-- Support Email: ${cp.email || user.email || 'N/A'}
-- Phone: ${cp.phone || 'N/A'}
-- Address: ${cp.address || 'N/A'}
+- Business Description: ${cp.businessDescription || 'High-impact web development, strategic digital marketing, and business automation'}
+- Services: ${services || 'Web development, marketing, and business automation'}
+- Delivery Timelines: ${timelines.deliveryTime || 'As per scope'}
+- FAQs: ${faqs || 'N/A'}
+- Knowledge Base: ${knowledge || 'N/A'}
 
-## Services We Offer
-${services || 'General business & digital services.'}
+Knowledge Base Guidelines:
+- Use the available knowledge base and company documentation whenever relevant.
+- If the knowledge base contains services, case studies, technologies, pricing guidance, or workflows related to the customer's inquiry, incorporate that information naturally into the email.
+- If no relevant knowledge exists, rely on your own expertise.
+- Never fabricate information that is not present in the knowledge base.
 
-## Delivery & Timeline Information
-- Delivery Time: ${timelines.deliveryTime || 'As per project scope'}
-- Project Timeline: ${timelines.projectTimeline || 'Discussed during consultation'}
-- Support Hours: ${timelines.supportHours || 'Business hours'}
+Instructions:
+- Carefully analyze the customer's message before writing.
+- Understand the customer's business, pain points, goals, budget, country, website, and requested service.
+- Use your own knowledge and industry expertise to recommend the most suitable solution.
+- Do NOT use generic marketing templates.
+- Do NOT assume the customer needs services they did not mention.
+- Only recommend services that directly solve the customer's stated problem.
+- If appropriate, briefly explain how the proposed solution will benefit their business.
+- Keep the email conversational, human, and consultative rather than salesy.
+- Mention the customer's company name naturally if present.
+- Mention the requested service and budget when relevant.
+- Include a clear call-to-action, such as scheduling a discovery call or requesting any missing technical details.
+- Use clear paragraph breaks (blank lines) between sections so the email is structured, formatted, and easy to read.
 
-## Policies
-- Return Policy: ${policies.returnPolicy || 'N/A'}
-- Refund Policy: ${policies.refundPolicy || 'N/A'}
+Sign off as:
+${senderName}
+${companyName}
 
-## FAQs
-${faqs || 'No specific FAQs available.'}
+Email Style:
+- Professional
+- Friendly
+- Personalized
+- Solution-focused
+- 200–350 words
+- No emojis
+- No bullet points unless they improve readability
+- Never mention services unrelated to the customer's inquiry.
+- Never say "we specialize in everything" or use generic agency language.
+- Every email must feel as if it was written specifically for that customer.
 
-## Company Knowledge Base
-${knowledge || 'No additional knowledge available.'}
+Input:
+{{Customer Inquiry}}
 
-## Writing Style Guidelines
-- Tone: ${writingStyle.toneOfVoice || 'Professional, warm, and highly persuasive'}
-- Brand Personality: ${writingStyle.brandPersonality || 'Consultative and trustworthy'}
-- Communication Style: ${writingStyle.communicationStyle || 'Clear and high-converting'}
-- Language: ${writingStyle.preferredLanguage || 'English'}
-${writingStyle.wordsToAvoid ? `- Words to avoid: ${writingStyle.wordsToAvoid}` : ''}
-
-## Your Goal
-Write a HIGH-CONVERTING, persuasive, warm, and professional email response to the incoming lead inquiry.
-1. Address the prospect directly and acknowledge their request.
-2. Clearly explain how ${companyName} solves their needs using our services & knowledge.
-3. Include a compelling call-to-action (e.g. schedule a strategy call, visit our site, or reply for details).
-4. Keep the email concise and high-converting (100–200 words).
-5. Output ONLY the email body text. Do NOT include a subject line or markdown code block wrappers.
-6. Sign off with:
-Best regards,
-${user.fullName || 'The Team'}
-${companyName}`;
+Output:
+A complete email reply only.`;
 
     const userMessage = `Incoming Lead Inquiry:
 From: ${from}
 Subject: ${subject}
 
-Message Content:
+Customer Query:
 ${body}
 
-Write the high-converting email response now:`;
+Write the structured, high-converting email response now:`;
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -1931,10 +1939,11 @@ export const sendEmailModule = async (
     });
     const user = await authModel.findById(connection.userId).lean();
 
-    const isAIActive = user?.Ai === true || user?.subscription?.aiRepliesActive === true;
+    const isManualReply = module.stepType === 'Manual Reply' || module.isManual === true || module.isManualReply === true;
+    const isAIActive = (user?.Ai === true || user?.subscription?.aiRepliesActive === true) && !isManualReply;
 
     if (isAIActive) {
-      log('🤖 AI REPLIES ENABLED → OpenRouter Gemma 4 26B generating high-converting email response');
+      log('🤖 AI REPLIES ENABLED for automated step → OpenRouter Gemma 4 26B generating high-converting email response');
 
       const aiReply = await generateOpenRouterGemmaReply({
         from: to,
@@ -1994,9 +2003,9 @@ export const sendEmailModule = async (
       emailBody = 'Thanks for your email!';
     }
 
-    // 🧠 Wrap non-HTML text in <div>
+    // 🧠 Wrap non-HTML text in <div> and preserve paragraph structure with <br/>
     if (!emailBody.startsWith('<')) {
-      emailBody = `<div>${emailBody}</div>`;
+      emailBody = `<div>${emailBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br/>')}</div>`;
     }
 
     // ----------------------------------------------------
@@ -2639,33 +2648,58 @@ export const addLeadDiscussion = async (req, res) => {
     // -------------------------------
     // CONNECTION RESOLUTION
     // -------------------------------
+    // -------------------------------
+    // CONNECTION RESOLUTION
+    // -------------------------------
     let connectionId =
       manualConnectionId ||
-      lastOutgoingChild?.connectionId;
+      lastOutgoingChild?.connectionId ||
+      rootEmail.connectionId;
 
     if (!connectionId) {
-      const senderEmail = extractEmail(lastOutgoingChild?.senderAddress);
+      const senderEmail = extractEmail(lastOutgoingChild?.senderAddress || rootEmail.recipientAddress);
 
-      const matchedConnection = await ConnectionModel.findOne({
-        userId: rootEmail.userId,
-        email: senderEmail,
+      if (senderEmail) {
+        const matchedConnection = await ConnectionModel.findOne({
+          $or: [
+            { userId: rootEmail.userId },
+            { userId: userId },
+          ],
+          email: senderEmail,
+          status: 'active',
+        });
+
+        if (matchedConnection) {
+          connectionId = matchedConnection._id;
+        }
+      }
+    }
+
+    if (!connectionId) {
+      // Fallback 1: Find any active connection belonging to the user
+      const fallbackConnection = await ConnectionModel.findOne({
+        $or: [
+          { userId: rootEmail.userId },
+          { userId: userId },
+        ],
         status: 'active',
       });
 
-      if (!matchedConnection) {
-        return res.status(400).json({
-          success: false,
-          message: `No active connection found for sender email: ${senderEmail}`,
-        });
+      if (fallbackConnection) {
+        connectionId = fallbackConnection._id;
+      } else {
+        // Fallback 2: Any active connection in the database
+        const anyActiveConn = await ConnectionModel.findOne({ status: 'active' });
+        if (anyActiveConn) {
+          connectionId = anyActiveConn._id;
+        }
       }
-
-      connectionId = matchedConnection._id;
     }
 
     if (!connectionId) {
       return res.status(400).json({
         success: false,
-        message: 'Connection is required to send email',
+        message: 'No active email connection found to send reply. Please configure a Gmail or SMTP connection.',
       });
     }
 
