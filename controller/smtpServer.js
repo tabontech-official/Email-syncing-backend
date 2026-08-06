@@ -18,6 +18,7 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
+import { CompanyProfileModel } from '../Models/CompanyProfile.js';
 import {
   cleanMessageId,
   formatMessageId,
@@ -109,6 +110,123 @@ IMPORTANT:
 
   const result = await model.generateContent(prompt);
   return result.response.text().trim();
+};
+
+const OPENROUTER_API_KEY =
+  process.env.OPENROUTER_API_KEY ||
+  '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';
+const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b:free';
+
+export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }) => {
+  try {
+    const profileDoc = await CompanyProfileModel.findOne({ userId: user._id }).lean();
+    const cp = profileDoc?.company || {};
+    const knowledge = profileDoc?.companyKnowledge || '';
+    const services = (profileDoc?.services || [])
+      .map((s) => `- ${s.name || s.title || ''}${s.description ? ': ' + s.description : ''}`)
+      .join('\n');
+    const faqs = (profileDoc?.faqs || [])
+      .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
+      .join('\n\n');
+    const policies = profileDoc?.policies || {};
+    const timelines = profileDoc?.timelines || {};
+    const writingStyle = profileDoc?.writingStyle || {};
+
+    const companyName = cp.companyName || user.organizationName || user.companyName || 'Our Company';
+
+    const systemPrompt = `You are an expert sales representative and business email consultant for ${companyName}.
+
+## Company Information
+- Company: ${companyName}
+- Industry: ${cp.industry || 'Digital Services'}
+- Description: ${cp.businessDescription || 'High-quality professional services'}
+- Website: ${cp.website || 'N/A'}
+- Support Email: ${cp.email || user.email || 'N/A'}
+- Phone: ${cp.phone || 'N/A'}
+- Address: ${cp.address || 'N/A'}
+
+## Services We Offer
+${services || 'General business & digital services.'}
+
+## Delivery & Timeline Information
+- Delivery Time: ${timelines.deliveryTime || 'As per project scope'}
+- Project Timeline: ${timelines.projectTimeline || 'Discussed during consultation'}
+- Support Hours: ${timelines.supportHours || 'Business hours'}
+
+## Policies
+- Return Policy: ${policies.returnPolicy || 'N/A'}
+- Refund Policy: ${policies.refundPolicy || 'N/A'}
+
+## FAQs
+${faqs || 'No specific FAQs available.'}
+
+## Company Knowledge Base
+${knowledge || 'No additional knowledge available.'}
+
+## Writing Style Guidelines
+- Tone: ${writingStyle.toneOfVoice || 'Professional, warm, and highly persuasive'}
+- Brand Personality: ${writingStyle.brandPersonality || 'Consultative and trustworthy'}
+- Communication Style: ${writingStyle.communicationStyle || 'Clear and high-converting'}
+- Language: ${writingStyle.preferredLanguage || 'English'}
+${writingStyle.wordsToAvoid ? `- Words to avoid: ${writingStyle.wordsToAvoid}` : ''}
+
+## Your Goal
+Write a HIGH-CONVERTING, persuasive, warm, and professional email response to the incoming lead inquiry.
+1. Address the prospect directly and acknowledge their request.
+2. Clearly explain how ${companyName} solves their needs using our services & knowledge.
+3. Include a compelling call-to-action (e.g. schedule a strategy call, visit our site, or reply for details).
+4. Keep the email concise and high-converting (100–200 words).
+5. Output ONLY the email body text. Do NOT include a subject line or markdown code block wrappers.
+6. Sign off with:
+Best regards,
+${user.fullName || 'The Team'}
+${companyName}`;
+
+    const userMessage = `Incoming Lead Inquiry:
+From: ${from}
+Subject: ${subject}
+
+Message Content:
+${body}
+
+Write the high-converting email response now:`;
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://replex-engine.vercel.app',
+        'X-Title': 'Replex Engine Automated AI Scenario Reply',
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.7,
+        max_tokens: 600,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const replyText = data.choices?.[0]?.message?.content?.trim();
+      if (replyText) {
+        console.log('✅ OpenRouter Gemma 4 AI reply generated successfully for automated email');
+        return replyText;
+      }
+    } else {
+      const errText = await response.text();
+      console.warn('⚠️ OpenRouter API error in backend:', response.status, errText);
+    }
+  } catch (err) {
+    console.error('❌ OpenRouter Gemma reply generation error in backend:', err.message);
+  }
+
+  // Fallback to Gemini if OpenRouter fails
+  return generateGeminiReply({ from, subject, body, user });
 };
 
 function checkCondition(condition, email) {
@@ -1813,20 +1931,31 @@ export const sendEmailModule = async (
     });
     const user = await authModel.findById(connection.userId).lean();
 
-    const isPro = user?.subscription?.plan === 'pro';
-    const isAIActive = user?.Ai === true;
+    const isAIActive = user?.Ai === true || user?.subscription?.aiRepliesActive === true;
 
-    if (isPro && isAIActive) {
-      log('🤖 PRO PLAN + AI ENABLED → Gemini generating email');
+    if (isAIActive) {
+      log('🤖 AI REPLIES ENABLED → OpenRouter Gemma 4 26B generating high-converting email response');
 
-      const aiReply = await generateGeminiReply({
+      const aiReply = await generateOpenRouterGemmaReply({
         from: to,
         subject: originalSubject,
         body: module.template || '',
         user,
       });
 
-      module.template = aiReply; // 🔥 TEMPLATE REPLACED BY AI
+      if (aiReply) {
+        module.template = aiReply; // 🔥 TEMPLATE REPLACED BY HIGH-CONVERTING AI RESPONSE
+
+        // Increment AI replies counter for user subscription
+        try {
+          await authModel.updateOne(
+            { _id: user._id },
+            { $inc: { 'subscription.aiRepliesUsed': 1 } }
+          );
+        } catch (e) {
+          console.warn('Could not increment aiRepliesUsed in backend:', e.message);
+        }
+      }
     }
 
     // ✅ Resolve Parent Email & Thread Header Info
