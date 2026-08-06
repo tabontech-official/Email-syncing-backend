@@ -141,15 +141,50 @@ export const updateUserPlanDirect = async (req, res) => {
       user.subscription.status = 'active';
     }
 
+    user.markModified('subscription');
     await user.save();
 
     return res.json({
       success: true,
       message: action === 'buy_credits' ? `Added ${quantity} extra AI replies!` : `Upgraded to ${planName} plan!`,
       data: user.subscription,
+      user,
     });
   } catch (err) {
     console.error('Update plan error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* ================== CANCEL SUBSCRIPTION ================== */
+export const cancelSubscription = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    const user = await authModel.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (!user.subscription) {
+      user.subscription = { plan: 'Explore', aiRepliesUsed: 0, extraAiReplies: 0, status: 'canceled' };
+    } else {
+      user.subscription.plan = 'Explore';
+      user.subscription.status = 'canceled';
+      user.subscription.cancelReason = reason || 'User requested cancellation';
+      user.subscription.canceledAt = new Date();
+    }
+
+    user.markModified('subscription');
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Subscription canceled successfully. Reverted to Explore (Free) plan.',
+      data: user.subscription,
+      user,
+    });
+  } catch (err) {
+    console.error('Cancel subscription error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -181,6 +216,7 @@ export const stripeWebhook = async (req, res) => {
         }
 
         user.locked = false;
+        user.markModified('subscription');
         await user.save();
         console.log(`✅ USER SUBSCRIPTION UPDATED: ${user.email} (${planName || 'Credits'})`);
       }
