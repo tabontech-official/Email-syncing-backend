@@ -91,12 +91,13 @@ const authSchema = new mongoose.Schema(
 
     subscription: {
       id: { type: String },
-      status: { type: String },
+      status: { type: String, default: 'active' },
       plan: {
         type: String,
-
-        default: 'free',
+        default: 'Explore',
       },
+      aiRepliesUsed: { type: Number, default: 0 },
+      extraAiReplies: { type: Number, default: 0 },
       currentPeriodEnd: { type: Date },
       currentPeriodStart: { type: Date },
     },

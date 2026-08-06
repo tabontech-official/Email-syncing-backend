@@ -191,3 +191,42 @@ export const getHistory = async (req, res) => {
   }
 };
 
+export const getUserAiRepliesLogs = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+
+    const logs = await ScenarioRunLogModel.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    const logsWithEmails = await Promise.all(
+      logs.map(async (log) => {
+        const [parentEmail, replyEmail] = await Promise.all([
+          getEmailByRef(log.parentEmailId),
+          getEmailByRef(log.replyEmailId),
+        ]);
+        return {
+          ...log,
+          parentEmail,
+          replyEmail,
+        };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      logs: logsWithEmails,
+    });
+  } catch (err) {
+    console.error("Fetch user AI reply logs error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+

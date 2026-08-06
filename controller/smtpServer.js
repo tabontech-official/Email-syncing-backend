@@ -754,6 +754,26 @@ export const mailHookWebhook = async (req, res) => {
 
     /* ---------------- SAVE EMAIL ---------------- */
     const rootDate = parsed.date || new Date();
+
+    // Guard against duplicate root emails when Gmail IDLE fires multiple times for the same message
+    const incomingMsgId = parsed.messageId
+      ? parsed.messageId.replace(/^<|>$/g, '').trim()
+      : null;
+
+    if (incomingMsgId) {
+      const alreadyExists = await EmailModel.findOne({
+        $or: [
+          { messageId: parsed.messageId },
+          { messageId: incomingMsgId },
+          { messageId: `<${incomingMsgId}>` },
+        ],
+      });
+      if (alreadyExists) {
+        console.log(`⚠️ Duplicate root email already saved (messageId: ${incomingMsgId}) — skipping save & scenario.`);
+        return res.status(200).send('Duplicate email skipped');
+      }
+    }
+
     const emailDoc = await EmailModel.create({
       userId: user._id,
       senderAddress,
@@ -841,6 +861,16 @@ function extractFieldsFromEmail(emailObj = {}) {
 
 export const saveIncomingReplyIfExists = async (emailData) => {
   const result = await resolveAndAttachIncomingReply(emailData);
+
+  // If this is a duplicate of an existing REPLY (child), treat as already handled → skip scenario
+  // If this is a duplicate of a ROOT email (no parentEmailId), it means it's a brand new lead
+  // that was already saved — don't treat it as a reply, let the outer handler deduplicate it
+  if (result.isDuplicate) {
+    const isChildReply = !!(result.email?.parentEmailId);
+    // Only block scenario execution if the duplicate was a child reply
+    return isChildReply;
+  }
+
   return result.matched;
 };
 

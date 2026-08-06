@@ -1,5 +1,5 @@
 import express from "express";
-import { createCheckoutSession, stripeWebhook } from "../controller/stripe.js";
+import { createCheckoutSession, updateUserPlanDirect, stripeWebhook } from "../controller/stripe.js";
 
 const stripeRouter = express.Router();
 
@@ -9,6 +9,12 @@ stripeRouter.post(
   createCheckoutSession
 );
 
-// stripeRouter.post("/webhook", stripeWebhook);
+stripeRouter.post(
+  "/update-plan/:userId",
+  express.json(),
+  updateUserPlanDirect
+);
+
+stripeRouter.post("/webhook", stripeWebhook);
 
 export default stripeRouter;

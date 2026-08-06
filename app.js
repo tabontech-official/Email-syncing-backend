@@ -37,6 +37,9 @@ import companyProfileRouter from './Routes/companyProfileRoutes.js';
 import aiConfigRouter from './Routes/aiConfigRoutes.js';
 import teamRouter from './Routes/team.js';
 import { outlookWebhook } from './middleware/outlookWebhook.js';
+import { authModel } from './Models/auth.js';
+import { OrganizationModel } from './Models/Organization.js';
+import mongoose from 'mongoose';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
 const app = express();
 setupSwagger(app);
@@ -84,6 +87,77 @@ app.use('/api/connection', connectionRouter);
 app.use('/api/company-profile', companyProfileRouter);
 app.use('/api/ai-config', aiConfigRouter);
 app.post('/gmail/webhook', gmailWebhook);
+
+// ---------------- TEAM API ENDPOINTS ----------------
+app.get('/team/getUserTeams/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    let teamName = "My Team";
+    let orgId = "default_team";
+
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      const user = await authModel.findById(userId);
+      const org = await OrganizationModel.findOne({ userId });
+      if (org) {
+        orgId = org._id.toString();
+        teamName = org.organizationName || user?.organizationName || user?.companyName || "My Team";
+      } else if (user) {
+        teamName = user.organizationName || user.companyName || "My Team";
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: [{ _id: orgId, name: teamName, creditsUsed: 0, membersCount: 1 }],
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.put(['/team/updateUserTeam/:userId', '/team/update/:id'], async (req, res) => {
+  try {
+    const userId = req.params.userId || req.params.id;
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Team name is required" });
+    }
+
+    let targetUserId = userId;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      const userObj = await authModel.findById(userId);
+      if (!userObj) {
+        const orgObj = await OrganizationModel.findById(userId);
+        if (orgObj) targetUserId = orgObj.userId.toString();
+      }
+    }
+
+    if (targetUserId && mongoose.Types.ObjectId.isValid(targetUserId)) {
+      await authModel.findByIdAndUpdate(targetUserId, {
+        organizationName: name,
+        companyName: name,
+      });
+
+      const updatedOrg = await OrganizationModel.findOneAndUpdate(
+        { userId: targetUserId },
+        { organizationName: name, userId: targetUserId },
+        { upsert: true, new: true }
+      );
+
+      return res.json({
+        success: true,
+        data: { _id: updatedOrg._id.toString(), name, creditsUsed: 0, membersCount: 1 },
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: { _id: userId || "default_team", name, creditsUsed: 0, membersCount: 1 },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 app.post('/outlook/webhook', outlookWebhook);
 (async () => {
