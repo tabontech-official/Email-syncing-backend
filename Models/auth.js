@@ -98,6 +98,8 @@ const authSchema = new mongoose.Schema(
       },
       aiRepliesUsed: { type: Number, default: 0 },
       extraAiReplies: { type: Number, default: 0 },
+      scenariosLimit: { type: Number, default: 1 },
+      extraScenariosLimit: { type: Number, default: 0 },
       currentPeriodEnd: { type: Date },
       currentPeriodStart: { type: Date },
     },

@@ -11,7 +11,11 @@ import {
   updateUserPlanByAdmin,
   toggleUserLockByAdmin,
   getAdminOrganizations,
+  updateOrganizationPlanByAdmin,
+  deleteOrganizationByAdmin,
   getAuditLogs,
+  getAdminLeads,
+  getAdminLeadThread,
 } from '../controller/adminPlatform.js';
 import { adminMiddleware } from '../middleware/authmiddleware.js';
 
@@ -40,6 +44,13 @@ adminPlatformRouter.get('/platform-users', getAdminPlatformUsers);
 adminPlatformRouter.put('/users/:id/plan', updateUserPlanByAdmin);
 adminPlatformRouter.put('/users/:id/lock', toggleUserLockByAdmin);
 adminPlatformRouter.get('/organizations', getAdminOrganizations);
+adminPlatformRouter.put('/organizations/plan', updateOrganizationPlanByAdmin);
+adminPlatformRouter.delete('/organizations', deleteOrganizationByAdmin);
+adminPlatformRouter.delete('/organizations/:name', deleteOrganizationByAdmin);
+
+// Platform Leads & Thread Reports
+adminPlatformRouter.get('/leads', getAdminLeads);
+adminPlatformRouter.get('/leads/thread/:id', getAdminLeadThread);
 
 // Audit Logging
 adminPlatformRouter.get('/audit-logs', getAuditLogs);

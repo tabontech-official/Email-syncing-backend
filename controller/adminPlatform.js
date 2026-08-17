@@ -1,4 +1,6 @@
 import { authModel } from '../Models/auth.js';
+import { OrganizationModel } from '../Models/Organization.js';
+import { EmailModel } from '../Models/Email.js';
 import { PlanModel } from '../Models/Plan.js';
 import { StripeConfigModel } from '../Models/StripeConfig.js';
 import { AuditLogModel } from '../Models/AuditLog.js';
@@ -476,18 +478,37 @@ export const getAdminOrganizations = async (req, res) => {
 
     users.forEach((u) => {
       const orgName = u.organizationName || u.companyName || 'Default Organization';
+      const isAdminUser = u.role === 'admin';
+
       if (!orgMap[orgName]) {
         orgMap[orgName] = {
           name: orgName,
+          ownerId: u._id.toString(),
           ownerEmail: u.email,
           ownerName: u.fullName || u.email,
+          ownerRole: u.role || 'user',
+          isAdminOrg: isAdminUser,
           membersCount: 1,
-          plan: u.subscription?.plan || 'Explore',
+          plan: isAdminUser ? 'Platform Owner' : (u.subscription?.plan || 'Explore'),
+          extraAiReplies: u.subscription?.extraAiReplies || 0,
+          aiRepliesUsed: u.subscription?.aiRepliesUsed || 0,
+          scenariosLimit: u.subscription?.scenariosLimit || (u.subscription?.plan?.toLowerCase() === 'unite' ? 15 : u.subscription?.plan?.toLowerCase() === 'elevate' ? 5 : 1),
+          extraScenariosLimit: u.subscription?.extraScenariosLimit || 0,
           country: u.country || u.Region || 'US',
           createdAt: u.createdAt,
         };
       } else {
         orgMap[orgName].membersCount += 1;
+        if (u.subscription?.extraAiReplies) {
+          orgMap[orgName].extraAiReplies = Math.max(orgMap[orgName].extraAiReplies || 0, u.subscription.extraAiReplies);
+        }
+        if (u.subscription?.extraScenariosLimit) {
+          orgMap[orgName].extraScenariosLimit = Math.max(orgMap[orgName].extraScenariosLimit || 0, u.subscription.extraScenariosLimit);
+        }
+        if (isAdminUser) {
+          orgMap[orgName].isAdminOrg = true;
+          orgMap[orgName].ownerRole = 'admin';
+        }
       }
     });
 
@@ -504,6 +525,130 @@ export const getAdminOrganizations = async (req, res) => {
   }
 };
 
+export const updateOrganizationPlanByAdmin = async (req, res) => {
+  try {
+    const { orgName, ownerId, planName, extraAiReplies, extraScenariosLimit, scenariosLimit } = req.body;
+    if (!planName) {
+      return res.status(400).json({ success: false, message: 'Plan name is required' });
+    }
+
+    const query = {};
+    if (orgName && orgName !== 'Default Organization') {
+      query.$or = [{ organizationName: orgName }, { companyName: orgName }];
+      if (ownerId) query.$or.push({ _id: ownerId });
+    } else if (ownerId) {
+      query._id = ownerId;
+    } else {
+      return res.status(400).json({ success: false, message: 'Organization name or owner ID is required' });
+    }
+
+    const users = await authModel.find(query);
+    if (!users || users.length === 0) {
+      return res.status(404).json({ success: false, message: 'No users found for this organization' });
+    }
+
+    for (const user of users) {
+      if (!user.subscription) {
+        user.subscription = { plan: 'Explore', aiRepliesUsed: 0, extraAiReplies: 0, status: 'active' };
+      }
+      user.subscription.plan = planName;
+      user.subscription.status = 'active';
+      if (extraAiReplies !== undefined) {
+        user.subscription.extraAiReplies = Number(extraAiReplies) || 0;
+      }
+      if (extraScenariosLimit !== undefined) {
+        user.subscription.extraScenariosLimit = Number(extraScenariosLimit) || 0;
+      }
+      if (scenariosLimit !== undefined) {
+        user.subscription.scenariosLimit = Number(scenariosLimit) || 1;
+      }
+      user.markModified('subscription');
+      await user.save();
+    }
+
+    await recordAuditLog({
+      adminId: req.user._id,
+      adminEmail: req.user.email,
+      action: 'CHANGE_ORGANIZATION_PLAN',
+      targetType: 'ORGANIZATION',
+      targetId: orgName || ownerId,
+      details: { orgName, planName, usersUpdated: users.length },
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Updated plan for '${orgName || 'Organization'}' to ${planName}`,
+      usersUpdated: users.length,
+    });
+  } catch (error) {
+    console.error('Error updating organization plan by admin:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteOrganizationByAdmin = async (req, res) => {
+  try {
+    const { orgName, ownerId, deleteUsers } = req.body;
+    if (!orgName && !ownerId) {
+      return res.status(400).json({ success: false, message: 'Organization name or owner ID is required' });
+    }
+
+    // 🛡️ Guard: Admin / SaaS Owner account organization cannot be deleted
+    const checkQuery = {};
+    if (orgName && orgName !== 'Default Organization') {
+      checkQuery.$or = [{ organizationName: orgName }, { companyName: orgName }];
+      if (ownerId) checkQuery.$or.push({ _id: ownerId });
+    } else if (ownerId) {
+      checkQuery._id = ownerId;
+    }
+
+    const orgUsers = await authModel.find(checkQuery).lean();
+    const hasAdmin = orgUsers.some((u) => u.role === 'admin');
+    if (hasAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Protected: Admin / SaaS Owner organization cannot be deleted.',
+      });
+    }
+
+    // Delete OrganizationModel document if exists
+    if (orgName) {
+      await OrganizationModel.deleteMany({
+        $or: [{ organizationName: orgName }, ...(ownerId ? [{ userId: ownerId }] : [])],
+      });
+    }
+
+    if (deleteUsers) {
+      const deleteQuery = orgName ? { $or: [{ organizationName: orgName }, { companyName: orgName }] } : { _id: ownerId };
+      await authModel.deleteMany(deleteQuery);
+    } else {
+      const updateQuery = orgName ? { $or: [{ organizationName: orgName }, { companyName: orgName }] } : { _id: ownerId };
+      await authModel.updateMany(updateQuery, {
+        $set: { organizationName: 'My Organization', companyName: 'My Organization' },
+      });
+    }
+
+    await recordAuditLog({
+      adminId: req.user._id,
+      adminEmail: req.user.email,
+      action: 'DELETE_ORGANIZATION',
+      targetType: 'ORGANIZATION',
+      targetId: orgName || ownerId,
+      details: { orgName, deleteUsers: Boolean(deleteUsers) },
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Organization '${orgName}' deleted successfully`,
+    });
+  } catch (error) {
+    console.error('Error deleting organization by admin:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getAuditLogs = async (req, res) => {
   try {
     const logs = await AuditLogModel.find({}).sort({ createdAt: -1 }).limit(100).lean();
@@ -514,6 +659,151 @@ export const getAuditLogs = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching audit logs:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAdminLeads = async (req, res) => {
+  try {
+    const { status, orgName, search } = req.query;
+
+    const query = {};
+    if (status && status !== 'all') {
+      if (status === 'new_leads' || status === 'new_lead') {
+        query.$or = [
+          { leadStatus: { $in: ['new_lead', 'awaiting'] } },
+          { status: { $in: ['new_lead', 'awaiting_customer_reply'] } },
+        ];
+      } else if (status === 'secured' || status === 'secured_leads') {
+        query.$or = [
+          { leadStatus: { $in: ['secured', 'replied', 'customer_replied'] } },
+          { status: { $in: ['secured', 'customer_replied', 'replied'] } },
+        ];
+      } else if (status === 'closed' || status === 'closed_leads') {
+        query.$or = [
+          { leadStatus: 'closed' },
+          { status: 'closed' },
+        ];
+      } else {
+        query.leadStatus = status;
+      }
+    }
+
+    const emails = await EmailModel.find(query)
+      .populate('userId', 'fullName email organizationName companyName')
+      .populate('templateId', 'name')
+      .sort({ date: -1, createdAt: -1 })
+      .limit(300)
+      .lean();
+
+    const leads = emails.map((email) => {
+      const user = email.userId || {};
+      const org = user.organizationName || user.companyName || 'Default Workspace';
+      return {
+        _id: email._id,
+        threadId: email.threadId || email.providerThreadId || email._id,
+        subject: email.subject || 'No Subject',
+        senderAddress: email.senderAddress || email.forwardedMeta?.from || 'Unknown',
+        senderName: email.senderFirstName
+          ? `${email.senderFirstName} ${email.senderLastName || ''}`.trim()
+          : (email.senderAddress || 'Unknown'),
+        recipientAddress: email.recipientAddress || email.forwardedMeta?.to || 'Unknown',
+        leadStatus: email.leadStatus || email.status || 'new_lead',
+        direction: email.direction || 'incoming',
+        service: email.service || 'Default Service',
+        date: email.date || email.createdAt,
+        textBody: email.textBody || '',
+        htmlBody: email.htmlBody || '',
+        organizationName: org,
+        userId: user._id,
+        userEmail: user.email || 'Unknown',
+        userName: user.fullName || user.email || 'Unknown',
+        templateName: email.templateId?.name || email.matchedTemplate || 'None',
+        attachmentsCount: email.attachments?.length || 0,
+        discussionCount: email.discussion?.length || 0,
+      };
+    });
+
+    const filteredLeads = search
+      ? leads.filter(
+          (l) =>
+            l.subject?.toLowerCase().includes(search.toLowerCase()) ||
+            l.senderAddress?.toLowerCase().includes(search.toLowerCase()) ||
+            l.organizationName?.toLowerCase().includes(search.toLowerCase()) ||
+            l.userEmail?.toLowerCase().includes(search.toLowerCase())
+        )
+      : leads;
+
+    return res.status(200).json({
+      success: true,
+      count: filteredLeads.length,
+      data: filteredLeads,
+    });
+  } catch (error) {
+    console.error('Error fetching admin leads:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAdminLeadThread = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rootEmail = await EmailModel.findById(id)
+      .populate('userId', 'fullName email organizationName companyName')
+      .populate('templateId', 'name')
+      .lean();
+
+    if (!rootEmail) {
+      return res.status(404).json({ success: false, message: 'Lead not found' });
+    }
+
+    const threadIdentifier = rootEmail.threadId || rootEmail.providerThreadId;
+    let threadEmails = [];
+
+    if (threadIdentifier) {
+      threadEmails = await EmailModel.find({
+        $or: [
+          { threadId: threadIdentifier },
+          { providerThreadId: threadIdentifier },
+          { parentEmailId: id },
+          { _id: id },
+        ],
+      })
+        .populate('userId', 'fullName email organizationName companyName')
+        .sort({ date: 1, createdAt: 1 })
+        .lean();
+    } else {
+      threadEmails = await EmailModel.find({
+        $or: [
+          { _id: id },
+          { parentEmailId: id },
+          { inReplyTo: rootEmail.messageId },
+        ],
+      })
+        .populate('userId', 'fullName email organizationName companyName')
+        .sort({ date: 1, createdAt: 1 })
+        .lean();
+    }
+
+    if (!threadEmails.some((e) => e._id.toString() === rootEmail._id.toString())) {
+      threadEmails.unshift(rootEmail);
+    }
+
+    const user = rootEmail.userId || {};
+    const org = user.organizationName || user.companyName || 'Default Workspace';
+
+    return res.status(200).json({
+      success: true,
+      lead: {
+        ...rootEmail,
+        organizationName: org,
+        userName: user.fullName || user.email,
+        userEmail: user.email,
+      },
+      thread: threadEmails,
+    });
+  } catch (error) {
+    console.error('Error fetching lead thread for admin:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -21,10 +21,10 @@ export const addScenario = async (req, res) => {
     if (userId) {
       const user = await authModel.findById(userId);
       const plan = (user?.subscription?.plan || "Explore").toLowerCase();
-      let maxActive = 1;
-      if (plan === "elevate") maxActive = 5;
-      else if (plan === "unite") maxActive = 15;
-      else if (plan === "enterprise") maxActive = 999;
+      let maxActive = user?.subscription?.scenariosLimit || (plan === "elevate" ? 5 : plan === "unite" ? 15 : plan === "enterprise" ? 999 : 1);
+      if (user?.subscription?.extraScenariosLimit) {
+        maxActive += user.subscription.extraScenariosLimit;
+      }
 
       const activeCount = await scenarioModel.countDocuments({
         userId,
@@ -274,10 +274,10 @@ export const updateScenario = async (req, res) => {
     if (requestedActive && userId) {
       const user = await authModel.findById(userId);
       const plan = (user?.subscription?.plan || "Explore").toLowerCase();
-      let maxActive = 1;
-      if (plan === "elevate") maxActive = 5;
-      else if (plan === "unite") maxActive = 15;
-      else if (plan === "enterprise") maxActive = 999;
+      let maxActive = user?.subscription?.scenariosLimit || (plan === "elevate" ? 5 : plan === "unite" ? 15 : plan === "enterprise" ? 999 : 1);
+      if (user?.subscription?.extraScenariosLimit) {
+        maxActive += user.subscription.extraScenariosLimit;
+      }
 
       const otherActiveCount = await scenarioModel.countDocuments({
         userId,
