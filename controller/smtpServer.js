@@ -5226,11 +5226,16 @@ export const getEmailDataforUser = async (req, res) => {
       }
     });
 
-    const initialEmails = await EmailModel.find({ $or: queryConditions })
+    const initialEmailsRaw = await EmailModel.find({ $or: queryConditions })
       .populate('userId', 'name email')
       .populate('templateId')
       .sort({ createdAt: -1 })
       .lean();
+
+    // Filter out system welcome / onboarding emails from Lead Inbox
+    const initialEmails = initialEmailsRaw.filter(
+      (e) => !e.subject || !/^Welcome to Replex Engine/i.test(e.subject.trim())
+    );
 
     const rootIdStrs = initialEmails.map((e) => e._id.toString());
     const convIds = initialEmails

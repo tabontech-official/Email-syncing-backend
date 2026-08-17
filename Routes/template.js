@@ -9,6 +9,8 @@ import {
   getCustomTemplates,
   getTemplates,
   saveOtherTemplate,
+  toggleAllTemplatesAi,
+  toggleTemplateAi,
   updateAllTemplateStatus,
   updateOtherTemplateStatus,
   updateTemplate,
@@ -35,5 +37,7 @@ templateRouter.patch('/templatestatus/all', updateAllTemplateStatus);
 templateRouter.patch('/templatestatus/all/other', updateOtherTemplateStatus);
 templateRouter.get('/other/active', getActiveOtherTemplates);
 templateRouter.post("/ai/generate", generateTemplateWithAI);
+templateRouter.patch('/ai-toggle/:id', toggleTemplateAi);
+templateRouter.patch('/ai-toggle-all', toggleAllTemplatesAi);
 
 export default templateRouter;

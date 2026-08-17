@@ -818,3 +818,53 @@ Return HTML suitable for ReactQuill editor.
     });
   }
 };
+
+export const toggleTemplateAi = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { aiResponse } = req.body;
+
+    const updated = await TemplateModel.findByIdAndUpdate(
+      id,
+      { aiResponse: Boolean(aiResponse) },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Template not found.' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Template Auto Reply status updated successfully',
+      data: updated,
+    });
+  } catch (err) {
+    console.error('❌ Error updating template Auto Reply status:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+};
+
+export const toggleAllTemplatesAi = async (req, res) => {
+  try {
+    const { userId, platform, aiResponse } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    const query = { userId };
+    if (platform) query.platform = platform;
+
+    await TemplateModel.updateMany(query, {
+      $set: { aiResponse: Boolean(aiResponse) },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'All templates Auto Reply status updated successfully',
+    });
+  } catch (err) {
+    console.error('❌ Error updating all templates Auto Reply status:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+};

@@ -3243,6 +3243,36 @@ export const updateAiStatus = async (req, res) => {
   }
 };
 
+export const toggleAiReplies = async (req, res) => {
+  try {
+    const userId = req.params.userId || req.body.userId;
+    const { enabled } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    const user = await authModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.Ai = Boolean(enabled);
+    if (!user.subscription) user.subscription = {};
+    user.subscription.aiRepliesActive = Boolean(enabled);
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: `AI Replies ${enabled ? 'enabled' : 'disabled'} successfully`,
+      user,
+    });
+  } catch (error) {
+    console.error('❌ toggleAiReplies error:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // export const deleteUser = async (req, res) => {
 //   try {
 //     const { id } = req.params;

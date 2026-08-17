@@ -30,6 +30,7 @@ import {
   signUp,
   skipAllSteps,
   startOutlookOAuth,
+  toggleAiReplies,
   updateAiStatus,
   updateGuideStatus,
   updateUserAndOrganization,
@@ -94,7 +95,8 @@ authRouter.post('/set-password', setPassword);
 authRouter.post('/request-login', requestLogin);
 authRouter.post('/verify-login/:token', verifyLogin); // Step 1
 authRouter.patch('/user/ai', updateAiStatus);
-authRouter.post('/toggle-ai-replies/:userId', updateAiStatus);
+authRouter.post('/toggle-ai-replies/:userId', toggleAiReplies);
+authRouter.post('/toggle-ai-replies', toggleAiReplies);
 
 authRouter.get('/guide/:userId', getGuideStatus);
 authRouter.post('/guide/:userId', updateGuideStatus);

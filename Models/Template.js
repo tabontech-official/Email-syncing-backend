@@ -28,7 +28,7 @@ const templateSchema = new mongoose.Schema(
     ],
     content: { type: String, required: true },
     active: { type: Boolean, default: false },
-    aiResponse: { type: Boolean, default: true },
+    aiResponse: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
