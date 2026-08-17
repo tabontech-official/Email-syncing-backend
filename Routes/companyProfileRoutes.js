@@ -3,10 +3,12 @@ import {
   getCompanyProfile,
   saveCompanyProfile,
 } from "../controller/companyProfileController.js";
+import { authMiddleware } from "../middleware/authmiddleware.js";
 
 const companyProfileRouter = express.Router();
 
-companyProfileRouter.get("/:userId", getCompanyProfile);
-companyProfileRouter.put("/:userId", saveCompanyProfile);
+// --- Authenticated User Endpoints ---
+companyProfileRouter.get("/:userId", authMiddleware, getCompanyProfile);
+companyProfileRouter.put("/:userId", authMiddleware, saveCompanyProfile);
 
 export default companyProfileRouter;

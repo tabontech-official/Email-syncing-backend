@@ -19,25 +19,27 @@ import {
   bulkToggleTemplateAiResponse,
 } from '../controller/template.js';
 
+import { authMiddleware } from '../middleware/authmiddleware.js';
+
 const templateRouter = express.Router();
-templateRouter.post('/create', addTemplate);
-templateRouter.get('/all/', getTemplates);
-templateRouter.get('/all/custom', getCustomTemplates);
-templateRouter.post('/save/other', saveOtherTemplate);
 
-templateRouter.get('/alltemplates/query', getAllTemplatesByQuery);
-
-templateRouter.delete('/delete/:id', deleteTemplate);
-templateRouter.put('/update/:id', updateTemplate);
-templateRouter.get('/alltemplates', getAllTemplates);
-templateRouter.patch('/status/:id', updateTemplateStatus);
-templateRouter.patch('/ai-toggle/:id', toggleTemplateAiResponse);
-templateRouter.patch('/ai-toggle-all', bulkToggleTemplateAiResponse);
-templateRouter.patch('/templatestatus/all', updateAllTemplateStatus);
-templateRouter.patch('/templatestatus/all/other', updateOtherTemplateStatus);
-templateRouter.get('/other/active', getActiveOtherTemplates);
-templateRouter.post("/ai/generate", generateTemplateWithAI);
-templateRouter.patch('/ai-toggle/:id', toggleTemplateAi);
-templateRouter.patch('/ai-toggle-all', toggleAllTemplatesAi);
+// --- Authenticated User Endpoints ---
+templateRouter.post('/create', authMiddleware, addTemplate);
+templateRouter.get('/all/', authMiddleware, getTemplates);
+templateRouter.get('/all/custom', authMiddleware, getCustomTemplates);
+templateRouter.post('/save/other', authMiddleware, saveOtherTemplate);
+templateRouter.get('/alltemplates/query', authMiddleware, getAllTemplatesByQuery);
+templateRouter.delete('/delete/:id', authMiddleware, deleteTemplate);
+templateRouter.put('/update/:id', authMiddleware, updateTemplate);
+templateRouter.get('/alltemplates', authMiddleware, getAllTemplates);
+templateRouter.patch('/status/:id', authMiddleware, updateTemplateStatus);
+templateRouter.patch('/ai-toggle/:id', authMiddleware, toggleTemplateAiResponse);
+templateRouter.patch('/ai-toggle-all', authMiddleware, bulkToggleTemplateAiResponse);
+templateRouter.patch('/templatestatus/all', authMiddleware, updateAllTemplateStatus);
+templateRouter.patch('/templatestatus/all/other', authMiddleware, updateOtherTemplateStatus);
+templateRouter.get('/other/active', authMiddleware, getActiveOtherTemplates);
+templateRouter.post("/ai/generate", authMiddleware, generateTemplateWithAI);
+templateRouter.patch('/ai-toggle/:id', authMiddleware, toggleTemplateAi);
+templateRouter.patch('/ai-toggle-all', authMiddleware, toggleAllTemplatesAi);
 
 export default templateRouter;

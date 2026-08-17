@@ -2,10 +2,16 @@ import { authModel } from '../Models/auth.js';
 import { mailhookModel } from '../Models/MailhookSchema.js';
 import { validationModel } from '../Models/ValidationEmail.js';
 import mongoose from 'mongoose';
+import { isOwnerOrAdmin, getAuthUserId } from '../middleware/authmiddleware.js';
 
 export const addMailhookCard = async (req, res) => {
   try {
-    const { userId, forwardingEmail } = req.body;
+    const authUserId = getAuthUserId(req);
+    const userId = req.body.userId || authUserId;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot create mailhook card for another user" });
+    }
 
     const user = await authModel.findById(userId).select('mailhook email');
 
@@ -26,7 +32,7 @@ export const addMailhookCard = async (req, res) => {
     const newMailhook = new mailhookModel({
       userId,
       mailhook: user.mailhook,
-      forwardingEmail,
+      forwardingEmail: req.body.forwardingEmail,
     });
 
     await newMailhook.save();
@@ -48,6 +54,10 @@ export const addMailhookCard = async (req, res) => {
 export const getMailhookCard = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot access another user's mailhook cards" });
+    }
 
     if (!userId) {
       return res.status(400).json({
@@ -100,6 +110,10 @@ export const deleteMailhookCard = async (req, res) => {
         success: false,
         message: 'Mailhook card not found.',
       });
+    }
+
+    if (!isOwnerOrAdmin(req, mailhook.userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot delete another user's mailhook card" });
     }
 
     if (mailhook.validationId) {

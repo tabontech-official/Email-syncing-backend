@@ -191,9 +191,16 @@ export const getHistory = async (req, res) => {
   }
 };
 
+import { isOwnerOrAdmin } from "../middleware/authmiddleware.js";
+
 export const getUserAiRepliesLogs = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: You cannot access another user's scenario logs" });
+    }
+
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid userId" });
     }

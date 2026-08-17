@@ -3,10 +3,17 @@ import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
 import { ConnectionModel } from "../Models/Connection.js";
 import { authModel } from "../Models/auth.js";
 import mongoose from "mongoose";
+import { isOwnerOrAdmin, getAuthUserId } from "../middleware/authmiddleware.js";
 
 export const addScenario = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const authUserId = getAuthUserId(req);
+    const userId = req.body.userId || authUserId;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot create scenarios for another user" });
+    }
+
     let requestedActive = req.body.hasOwnProperty("scenarioActive")
       ? Boolean(req.body.scenarioActive)
       : true;
@@ -31,6 +38,7 @@ export const addScenario = async (req, res) => {
 
     const scenario = new scenarioModel({
       ...req.body,
+      userId,
       scenarioActive: requestedActive,
     });
     await scenario.save();
@@ -44,7 +52,12 @@ export const addScenario = async (req, res) => {
 
 export const getUserScenarios = async (req, res) => {
   try {
-    const scenarios = await scenarioModel.find({ userId: req.params.userId });
+    const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot access another user's scenarios" });
+    }
+
+    const scenarios = await scenarioModel.find({ userId });
     res.json(scenarios);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -55,6 +68,11 @@ export const getSingleScenario = async (req, res) => {
   try {
     const scenario = await scenarioModel.findById(req.params.id);
     if (!scenario) return res.status(404).json({ message: "Not found" });
+
+    if (!isOwnerOrAdmin(req, scenario.userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot access another user's scenario" });
+    }
+
     res.json(scenario);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -229,6 +247,21 @@ export const updateScenario = async (req, res) => {
       }
     }
 
+    const existingScenario = await scenarioModel.findById(req.params.id);
+    if (!existingScenario) {
+      return res.status(404).json({
+        success: false,
+        message: "Scenario not found.",
+      });
+    }
+
+    if (!isOwnerOrAdmin(req, existingScenario.userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot update another user's scenario",
+      });
+    }
+
     /*
      * Check requested active status and enforce user subscription plan limit!
      */
@@ -236,7 +269,6 @@ export const updateScenario = async (req, res) => {
       ? Boolean(req.body.scenarioActive)
       : (existingScenario?.scenarioActive ?? true);
 
-    const existingScenario = await scenarioModel.findById(req.params.id);
     const userId = req.body.userId || existingScenario?.userId;
 
     if (requestedActive && userId) {
@@ -489,6 +521,13 @@ export const deleteScenario = async (req, res) => {
 
     if (!scenario) {
       return res.status(404).json({ message: "Scenario not found" });
+    }
+
+    if (!isOwnerOrAdmin(req, scenario.userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot delete another user's scenario",
+      });
     }
 
     if (scenario.type === "shopify") {

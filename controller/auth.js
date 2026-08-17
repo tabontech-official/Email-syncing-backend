@@ -25,8 +25,8 @@ import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 import mongoose from 'mongoose';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
-import { encrypt } from '../middleware/encryption.js';
 import crypto from 'crypto';
+import { isOwnerOrAdmin } from '../middleware/authmiddleware.js';
 
 export const defaultServices = [
   'General',
@@ -60,6 +60,16 @@ export const defaultServices = [
   'Content marketing',
   'Product sourcing guidance',
 ];
+
+export const sanitizeUser = (userDoc) => {
+  if (!userDoc) return null;
+  const userObj = typeof userDoc.toObject === 'function' ? userDoc.toObject() : { ...userDoc };
+  delete userObj.password;
+  delete userObj.twoFactorSecret;
+  delete userObj.twoFactorTempSecret;
+  delete userObj.__v;
+  return userObj;
+};
 
 const welcomeEmailTemplate = (user) => `
   <div style="font-family: Inter, Arial, sans-serif; background:#f9fafb; padding:40px">
@@ -379,7 +389,7 @@ export const signUp = async (req, res) => {
     res.send({
       message: 'Successfully registered',
       token,
-      data: savedUser,
+      data: sanitizeUser(savedUser),
     });
   } catch (error) {
     return res.status(400).json({ error: error.message });
@@ -531,7 +541,7 @@ export const signIn = async (req, res) => {
       success: true,
       message: 'Successfully logged in',
       token,
-      data: user,
+      data: sanitizeUser(user),
     });
   } catch (error) {
     console.error('🔥 [signIn] Error during login:', error);
@@ -545,6 +555,15 @@ export const signIn = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // 🔒 BOLA / IDOR Ownership check
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+    if (!authUserId || (authUserId !== String(id) && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's account details",
+      });
+    }
 
     const user = await authModel.findById(id).lean();
     if (!user) {
@@ -561,10 +580,12 @@ export const getUserById = async (req, res) => {
     const organization = await OrganizationModel.findOne({ userId: id }).lean();
     const orgName = organization?.organizationName || user?.organizationName || user?.companyName || 'My Organization';
 
+    const safeUser = sanitizeUser(user);
+
     res.status(200).json({
       message: 'User fetched successfully',
       data: {
-        ...user,
+        ...safeUser,
         organizationName: orgName,
         companyName: orgName,
         Region: organization?.Region || user?.Region || 'US',
@@ -585,6 +606,24 @@ export const getUserById = async (req, res) => {
 export const updateUserAndOrganization = async (req, res) => {
   try {
     const { id } = req.params;
+    const authUser = req.user;
+
+    // 🔒 1. Require authenticated session
+    if (!authUser) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const authUserId = String(authUser._id || authUser.id || '');
+    const isSelf = authUserId === String(id);
+    const isAdmin = authUser.role === 'admin';
+
+    // 🔒 2. A user can only edit their own profile unless they are an admin
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot update another user's profile",
+      });
+    }
 
     const {
       // ---------- USER ----------
@@ -615,9 +654,19 @@ export const updateUserAndOrganization = async (req, res) => {
         .json({ success: false, message: 'User not found' });
     }
 
+    // 🔒 3. Privilege Escalation Guard: Only authorized admins can modify user roles
+    if (role !== undefined && role !== user.role) {
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: Only administrators can modify user roles',
+        });
+      }
+      user.role = role;
+    }
+
     if (fullName !== undefined) user.fullName = fullName;
     if (email !== undefined) user.email = email;
-    if (role !== undefined) user.role = role;
     if (TimeZone !== undefined) user.TimeZone = TimeZone;
     if (organizationName !== undefined) {
       user.organizationName = organizationName;
@@ -690,7 +739,7 @@ export const updateUserAndOrganization = async (req, res) => {
         : 'User and Organization updated successfully',
       imageUpdated,
       data: {
-        user,
+        user: sanitizeUser(user),
         organization,
       },
     });
@@ -719,7 +768,7 @@ export const verifyUser = async (req, res) => {
 
     res.status(200).json({
       message: 'User verified successfully',
-      data: user,
+      data: sanitizeUser(user),
     });
   } catch (error) {
     console.error('Error verifying user:', error);
@@ -1396,15 +1445,16 @@ export const googleLogin = async (req, res) => {
       return res.status(200).json({
         message: 'Successfully logged in with Google',
         token,
-        data: user,
+        data: sanitizeUser(user),
       });
     }
 
     // --- CREATE NEW USER ---
+    const randomPassword = `OAuth_${Date.now()}_${Math.floor(Math.random() * 1000000)}A1!`;
     user = new authModel({
       fullName,
       email,
-      password: await bcrypt.hash(Date.now().toString() + Math.random(), 10), // random password
+      password: randomPassword,
       country: 'Unknown',
       PartnerLink: '',
       isVerified: true, // automatically verified since it's from Google
@@ -1529,7 +1579,7 @@ export const googleLogin = async (req, res) => {
     return res.status(200).json({
       message: 'Successfully registered and logged in with Google',
       token,
-      data: savedUser,
+      data: sanitizeUser(savedUser),
     });
   } catch (error) {
     console.error('Google login error:', error);
@@ -1584,6 +1634,16 @@ export const sendEmail = async (connection, to, subject, body) => {
 export const getConnections = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // 🔒 BOLA / IDOR Ownership check
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's connections",
+      });
+    }
+
     const connections = await ConnectionModel.find({ userId });
     res.json(connections);
   } catch (err) {
@@ -1594,7 +1654,16 @@ export const getConnections = async (req, res) => {
 
 export const setupTwoFactor = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+    const userId = req.body.userId || authUserId;
+
+    // 🔒 BOLA / IDOR 2FA protection
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot setup 2FA for another user",
+      });
+    }
 
     if (!userId) {
       return res.status(400).json({
@@ -1640,7 +1709,17 @@ export const setupTwoFactor = async (req, res) => {
 
 export const verifyTwoFactorSetup = async (req, res) => {
   try {
-    const { userId, token } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+    const userId = req.body.userId || authUserId;
+    const { token } = req.body;
+
+    // 🔒 BOLA / IDOR 2FA protection
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot verify 2FA setup for another user",
+      });
+    }
 
     if (!userId || !token) {
       return res.status(400).json({
@@ -1697,7 +1776,17 @@ export const verifyTwoFactorSetup = async (req, res) => {
 
 export const disableTwoFactor = async (req, res) => {
   try {
-    const { userId, token } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+    const userId = req.body.userId || authUserId;
+    const { token } = req.body;
+
+    // 🔒 BOLA / IDOR 2FA protection
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot disable 2FA for another user",
+      });
+    }
 
     if (!userId) {
       return res.status(400).json({
@@ -1809,7 +1898,7 @@ export const verifyLoginTwoFactor = async (req, res) => {
       success: true,
       message: 'Successfully logged in',
       token: loginToken,
-      data: user,
+      data: sanitizeUser(user),
     });
   } catch (error) {
     console.error('verifyLoginTwoFactor error:', error);
@@ -1866,9 +1955,7 @@ export const updatePassword = async (req, res) => {
       });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
-
+    user.password = newPassword;
     await user.save();
 
     return res.status(200).json({
@@ -2398,12 +2485,9 @@ export const setPassword = async (req, res) => {
 
     console.log('👤 User found:', { id: user._id, email: user.email });
 
-    // 🔹 Hash new password
-    const hashed = await bcrypt.hash(password, 10);
-    console.log('🔐 Password hashed successfully.');
-
     // 🔹 Update user password
-    await authModel.findByIdAndUpdate(userId, { password: hashed });
+    user.password = password;
+    await user.save();
     console.log('✅ Password updated in database for user:', userId);
 
     // 🔹 Send response
@@ -3341,6 +3425,9 @@ export const purgeUserData = async (userIdsInput) => {
 
 export const deleteUser = async (req, res) => {
   try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin privileges required.' });
+    }
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -3365,6 +3452,9 @@ export const deleteUser = async (req, res) => {
 
 export const bulkDeleteUsers = async (req, res) => {
   try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin privileges required.' });
+    }
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -3381,6 +3471,9 @@ export const bulkDeleteUsers = async (req, res) => {
 
 export const giveProPlan = async (req, res) => {
   try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin privileges required.' });
+    }
     const { id } = req.params;
     const { durationInDays } = req.body;
 
@@ -3734,7 +3827,7 @@ export const loginAsUserByAdmin = async (req, res) => {
       success: true,
       message: 'Logged in as user successfully',
       token,
-      data: user,
+      data: sanitizeUser(user),
     });
   } catch (error) {
     console.error('🔥 [loginAsUserByAdmin] ERROR:', error);
@@ -3925,6 +4018,184 @@ export const acceptInvitation = async (req, res) => {
   } catch (error) {
     console.error('Error accepting invitation:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getDashboardSummary = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // 🔒 BOLA / IDOR Authorization Check
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's dashboard summary",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format',
+      });
+    }
+
+    const userObjId = new mongoose.Types.ObjectId(userId);
+
+    // 1. Fetch user document
+    const userDoc = await authModel.findById(userId).lean();
+    if (!userDoc) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const organizationName = userDoc.organizationName || userDoc.companyName || 'My Organization';
+
+    // 2. Compute subscription details
+    const plan = (userDoc.subscription?.plan || 'Explore').toLowerCase();
+    const baseLimit =
+      plan === 'elevate' ? 500 :
+      plan === 'unite' ? 1000 :
+      50;
+    const extra = userDoc.subscription?.extraAiReplies || 0;
+    const aiRepliesTotal = baseLimit + extra;
+    const aiRepliesUsed = userDoc.subscription?.aiRepliesUsed || 0;
+    const aiRepliesLeft = Math.max(0, aiRepliesTotal - aiRepliesUsed);
+    const aiRepliesPct = Math.min(100, Math.round((aiRepliesUsed / (aiRepliesTotal || 1)) * 100));
+
+    // 3. Fetch user connections to match root email threads accurately
+    const userConnections = await ConnectionModel.find({
+      $or: [
+        { userId: userId },
+        { userId: userObjId },
+        ...(userDoc.email ? [{ email: userDoc.email }] : []),
+      ],
+    }).select('_id email').lean();
+
+    const connIds = userConnections.map((c) => c._id);
+    const userEmailAddresses = Array.from(
+      new Set(
+        [userDoc.email, userDoc.mailhook, ...userConnections.map((c) => c.email)]
+          .filter(Boolean)
+          .map((e) => e.trim().toLowerCase())
+      )
+    );
+
+    const queryConditions = [
+      { userId: userId },
+      { userId: userObjId },
+      ...(connIds.length > 0 ? [{ connectionId: { $in: connIds } }] : []),
+      ...(userEmailAddresses.length > 0
+        ? [
+            { recipientAddress: { $in: userEmailAddresses } },
+            { senderAddress: { $in: userEmailAddresses } },
+          ]
+        : []),
+    ];
+
+    const threadMatchQuery = {
+      $or: queryConditions,
+      $and: [
+        {
+          $or: [
+            { parentEmailId: null },
+            { parentEmailId: { $exists: false } },
+            { parentEmailId: '' },
+          ],
+        },
+      ],
+    };
+
+    // Fetch raw thread root candidates matching user criteria
+    const rawThreads = await EmailModel.find(threadMatchQuery)
+      .select('_id subject senderAddress recipientAddress leadStatus direction replies conversation discussion createdAt date lastActivityAt forwardedMeta textBody conversationId providerThreadId threadId messageId')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Filter out system welcome / onboarding emails
+    const validThreads = rawThreads.filter(
+      (e) => !e.subject || !/^Welcome to Replex Engine/i.test(e.subject.trim())
+    );
+
+    // Deduplicate multiple raw entries belonging to the same lead thread
+    const uniqueLeadMap = new Map();
+    for (const email of validThreads) {
+      const sender = (email.senderAddress || '').toLowerCase();
+      const cleanSubj = (email.subject || '')
+        .replace(/^((re|fwd|fw|\[external\]):\s*)+/i, '')
+        .trim()
+        .toLowerCase();
+      const cleanMsgId = email.messageId ? email.messageId.replace(/^<|>$/g, '').trim() : '';
+
+      const threadKey =
+        email.conversationId ||
+        email.providerThreadId ||
+        email.threadId ||
+        (sender && cleanSubj ? `lead-${sender}-${cleanSubj}` : `msg-${cleanMsgId || email._id.toString()}`);
+
+      if (!uniqueLeadMap.has(threadKey)) {
+        uniqueLeadMap.set(threadKey, email);
+      } else {
+        const existing = uniqueLeadMap.get(threadKey);
+        if (new Date(email.createdAt || email.date) < new Date(existing.createdAt || existing.date)) {
+          uniqueLeadMap.set(threadKey, email);
+        }
+      }
+    }
+
+    const deduplicatedLeadThreads = Array.from(uniqueLeadMap.values());
+
+    const total = deduplicatedLeadThreads.length;
+    const secured = deduplicatedLeadThreads.filter((e) => e.leadStatus === 'secured').length;
+    const replied = deduplicatedLeadThreads.filter((e) => {
+      const msgs = e.replies || e.conversation || e.discussion || [];
+      const last = msgs.length > 0 ? msgs[msgs.length - 1] : e;
+      if (e.leadStatus === 'replied' || e.leadStatus === 'customer_replied') return true;
+      return last.direction === 'incoming';
+    }).length;
+    const pending = Math.max(0, total - secured - replied);
+
+    // 4. Fetch user scenarios efficiently
+    const userScenarios = await scenarioModel
+      .find({
+        $or: [{ userId: userId }, { userId: userObjId }],
+      })
+      .select('_id name description scenarioActive type createdAt updatedAt')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const activeScenariosCount = userScenarios.filter((s) => s.scenarioActive).length;
+
+    // Set recentEmails to deduplicated lead threads
+    const recentEmails = deduplicatedLeadThreads.slice(0, 5);
+
+    return res.status(200).json({
+      success: true,
+      organizationName,
+      user: sanitizeUser(userDoc),
+      stats: {
+        total,
+        secured,
+        replied,
+        pending,
+      },
+      subscription: {
+        plan: userDoc.subscription?.plan || 'Explore',
+        aiRepliesLeft,
+        aiRepliesTotal,
+        aiRepliesPct,
+        aiRepliesUsed,
+      },
+      activeScenariosCount,
+      recentScenarios: userScenarios,
+      recentEmails,
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard summary:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while loading dashboard summary',
+      error: error.message,
+    });
   }
 };
 

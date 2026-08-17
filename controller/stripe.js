@@ -1,6 +1,8 @@
 import Stripe from 'stripe';
 import { authModel } from '../Models/auth.js';
 import { PaymentHistoryModel } from '../Models/PaymentHistory.js';
+import { isOwnerOrAdmin } from '../middleware/authmiddleware.js';
+import { sanitizeUser } from './auth.js';
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key';
 const stripe = new Stripe(stripeSecret);
@@ -9,6 +11,10 @@ const stripe = new Stripe(stripeSecret);
 export const getPaymentHistory = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: You cannot access another user's payment history" });
+    }
+
     let payments = await PaymentHistoryModel.find({ userId }).sort({ createdAt: -1 }).lean();
 
     if (!payments || payments.length === 0) {
@@ -42,6 +48,9 @@ export const getPaymentHistory = async (req, res) => {
 export const createCheckoutSession = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: You cannot create checkout sessions for another user" });
+    }
     const { planName, quantity, billingCycle } = req.body;
 
     const user = await authModel.findById(userId);
@@ -136,6 +145,9 @@ export const createCheckoutSession = async (req, res) => {
 export const updateUserPlanDirect = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: You cannot update another user's plan" });
+    }
     const { planName, action, quantity } = req.body;
 
     const user = await authModel.findById(userId);
@@ -181,7 +193,7 @@ export const updateUserPlanDirect = async (req, res) => {
       success: true,
       message: action === 'buy_credits' ? `Added ${quantity} extra AI replies!` : `Upgraded to ${planName} plan!`,
       data: user.subscription,
-      user,
+      user: sanitizeUser(user),
     });
   } catch (err) {
     console.error('Update plan error:', err);
@@ -193,6 +205,9 @@ export const updateUserPlanDirect = async (req, res) => {
 export const cancelSubscription = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: You cannot cancel another user's subscription" });
+    }
     const { reason } = req.body;
 
     const user = await authModel.findById(userId);
@@ -214,7 +229,7 @@ export const cancelSubscription = async (req, res) => {
       success: true,
       message: 'Subscription canceled successfully. Reverted to Explore (Free) plan.',
       data: user.subscription,
-      user,
+      user: sanitizeUser(user),
     });
   } catch (err) {
     console.error('Cancel subscription error:', err);

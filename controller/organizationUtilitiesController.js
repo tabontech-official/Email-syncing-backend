@@ -1,9 +1,14 @@
 import { OrganizationModel } from '../Models/Organization.js';
+import { isOwnerOrAdmin } from '../middleware/authmiddleware.js';
 
 /* ================== SAVE ORGANIZATION UTILITIES ================== */
 export const saveOrganizationUtilities = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot modify organization utilities for another user" });
+    }
+
     const { scenarioProperties, notificationOptions } = req.body;
 
     let org = await OrganizationModel.findOne({ userId });
@@ -38,6 +43,10 @@ export const saveOrganizationUtilities = async (req, res) => {
 export const getOrganizationUtilities = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot access organization utilities for another user" });
+    }
+
     const org = await OrganizationModel.findOne({ userId });
     return res.json({
       success: true,
@@ -77,6 +86,10 @@ export const getOrganizationUtilities = async (req, res) => {
 export const savePaymentMethod = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot save payment method for another user" });
+    }
+
     const { cardholderName, cardNumber, expMonth, expYear, cvc, billingAddress, country } = req.body;
 
     let org = await OrganizationModel.findOne({ userId });
@@ -121,6 +134,10 @@ export const savePaymentMethod = async (req, res) => {
 export const getPaymentMethod = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot access payment method for another user" });
+    }
+
     const org = await OrganizationModel.findOne({ userId });
     return res.json({
       success: true,

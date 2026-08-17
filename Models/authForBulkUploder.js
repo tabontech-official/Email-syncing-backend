@@ -19,6 +19,11 @@ const authBulkUploaderSchema = new mongoose.Schema(
 authBulkUploaderSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
 
+  const isBcryptHash = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(this.password);
+  if (isBcryptHash) {
+    return next();
+  }
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();

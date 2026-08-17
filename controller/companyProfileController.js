@@ -1,10 +1,18 @@
 import mongoose from "mongoose";
 import { CompanyProfileModel } from "../Models/CompanyProfile.js";
+import { isOwnerOrAdmin } from "../middleware/authmiddleware.js";
 
 // GET /api/company-profile/:userId
 export const getCompanyProfile = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's company profile",
+      });
+    }
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
@@ -81,6 +89,14 @@ export const getCompanyProfile = async (req, res) => {
 export const saveCompanyProfile = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot modify another user's company profile",
+      });
+    }
+
     const updateData = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {

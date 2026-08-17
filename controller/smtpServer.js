@@ -112,13 +112,16 @@ IMPORTANT:
   return result.response.text().trim();
 };
 
-const OPENROUTER_API_KEY =
-  process.env.OPENROUTER_API_KEY ||
-  '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';
 const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b-it:free';
 
 export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }) => {
   try {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      console.warn('⚠️ OPENROUTER_API_KEY is not set in backend process.env');
+      return null;
+    }
+
     const profileDoc = await CompanyProfileModel.findOne({ userId: user._id }).lean();
     const cp = profileDoc?.company || {};
     const knowledge = profileDoc?.companyKnowledge || '';
@@ -202,7 +205,7 @@ Write the structured, high-converting email response now:`;
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://replex-engine.vercel.app',
         'X-Title': 'Replex Engine Automated AI Scenario Reply',
@@ -232,9 +235,46 @@ Write the structured, high-converting email response now:`;
   } catch (err) {
     console.error('❌ OpenRouter Gemma reply generation error in backend:', err.message);
   }
+  return null;
+};
 
-  // Fallback to Gemini if OpenRouter fails
-  return generateGeminiReply({ from, subject, body, user });
+export const generateAiReplyEndpoint = async (req, res) => {
+  try {
+    const { userId, customerEmail, customerName, subject } = req.body;
+
+    if (!customerEmail) {
+      return res.status(400).json({ success: false, message: 'customerEmail is required' });
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ success: false, message: 'OPENROUTER_API_KEY is not configured on backend server' });
+    }
+
+    let userObj = null;
+    if (userId) {
+      userObj = await authModel.findById(userId).lean().catch(() => null);
+    }
+    if (!userObj) {
+      userObj = { _id: userId, fullName: customerName || 'Support' };
+    }
+
+    const replyText = await generateOpenRouterGemmaReply({
+      from: customerName || 'Customer',
+      subject: subject || 'Inquiry',
+      body: customerEmail,
+      user: userObj,
+    });
+
+    if (!replyText) {
+      return res.status(500).json({ success: false, message: 'Failed to generate AI reply' });
+    }
+
+    return res.json({ success: true, reply: replyText });
+  } catch (err) {
+    console.error('❌ Error in generateAiReplyEndpoint:', err.message);
+    return res.status(500).json({ success: false, message: 'Server error generating AI reply' });
+  }
 };
 
 function checkCondition(condition, email) {
@@ -2451,6 +2491,22 @@ export const updateLeadStatus = async (req, res) => {
   try {
     const { emailId } = req.params;
     const { leadStatus } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+
+    const existingEmail = await EmailModel.findById(emailId);
+    if (!existingEmail) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    if (!authUserId || (String(existingEmail.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot modify another user's lead status",
+      });
+    }
 
     const allowedStatuses = ['new_lead', 'awaiting', 'replied', 'secured', 'closed'];
 
@@ -2466,13 +2522,6 @@ export const updateLeadStatus = async (req, res) => {
       { leadStatus },
       { new: true }
     );
-
-    if (!email) {
-      return res.status(404).json({
-        success: false,
-        message: 'Email not found',
-      });
-    }
 
     return res.status(200).json({
       success: true,
@@ -2491,6 +2540,22 @@ export const updateLeadStatus = async (req, res) => {
 export const deleteSingleLead = async (req, res) => {
   try {
     const { emailId } = req.params;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+
+    const existingEmail = await EmailModel.findById(emailId);
+    if (!existingEmail) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found',
+      });
+    }
+
+    if (!authUserId || (String(existingEmail.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot delete another user's email",
+      });
+    }
 
     const email = await EmailModel.findByIdAndUpdate(
       emailId,
@@ -2521,6 +2586,7 @@ export const deleteSingleLead = async (req, res) => {
 export const deleteMultipleLeads = async (req, res) => {
   try {
     const { emailIds } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
 
     if (!Array.isArray(emailIds) || emailIds.length === 0) {
       return res.status(400).json({
@@ -2535,13 +2601,20 @@ export const deleteMultipleLeads = async (req, res) => {
 
     const validObjectIds = validIds.map((id) => new mongoose.Types.ObjectId(id));
 
-    // Permanently delete root lead emails AND all associated child replies/conversation items from MongoDB
-    const result = await EmailModel.deleteMany({
+    // BOLA check: enforce deleting only emails belonging to the caller unless admin
+    const deleteFilter = {
       $or: [
         { _id: { $in: validObjectIds } },
         { parentEmailId: { $in: validObjectIds } },
       ],
-    });
+    };
+
+    if (req.user?.role !== 'admin') {
+      deleteFilter.userId = authUserId;
+    }
+
+    // Permanently delete root lead emails AND all associated child replies/conversation items from MongoDB
+    const result = await EmailModel.deleteMany(deleteFilter);
 
     console.log(`🗑️ Permanently deleted ${result.deletedCount} email document(s) from DB.`);
 
@@ -2590,9 +2663,10 @@ export const addLeadDiscussion = async (req, res) => {
 
   try {
     const { emailId } = req.params;
-    const { message, userId, connectionId: manualConnectionId } = req.body;
+    const { message } = req.body;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
 
-    log('API called', { emailId, userId });
+    log('API called', { emailId, authUserId });
 
     if (!message?.trim()) {
       return res.status(400).json({
@@ -2609,7 +2683,14 @@ export const addLeadDiscussion = async (req, res) => {
     if (!rootEmail) {
       return res.status(404).json({
         success: false,
-        message: 'Email not found',
+        message: 'Root email thread not found',
+      });
+    }
+
+    if (!authUserId || (String(rootEmail.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot reply to another user's email thread",
       });
     }
 
@@ -4975,6 +5056,16 @@ export const getLatestServiceEmail = async (req, res) => {
 export const getEmailsForUsers = async (req, res) => {
   try {
     const { userId } = req.params;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+
+    // 🔒 BOLA / IDOR Protection
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's emails",
+      });
+    }
+
     const { page = 1, limit = 10 } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -5160,6 +5251,16 @@ export const getEmailsForUsers = async (req, res) => {
 export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
+
+    // 🔒 BOLA / IDOR Protection
+    if (!authUserId || (String(userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's emails",
+      });
+    }
+
     console.log('\n=======================================');
     console.log(`📥 GET /mailhook/getAllEmailsData Triggered for User ID: ${userId}`);
 
@@ -5926,6 +6027,7 @@ export const getTestEmailData = async (req, res) => {
 export const deleteConnectionById = async (req, res) => {
   try {
     const { id } = req.params;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
 
     if (!id) {
       return res
@@ -5938,6 +6040,13 @@ export const deleteConnectionById = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: 'Connection not found.' });
+    }
+
+    if (!authUserId || (String(existing.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot delete another user's connection",
+      });
     }
 
     await ConnectionModel.findByIdAndDelete(id);
@@ -5958,6 +6067,7 @@ export const deleteConnectionById = async (req, res) => {
 export const updateConnectionById = async (req, res) => {
   try {
     const { id } = req.params;
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
 
     const { email, name, verified, status, smtp } = req.body;
 
@@ -5974,6 +6084,13 @@ export const updateConnectionById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Connection not found.',
+      });
+    }
+
+    if (!authUserId || (String(existing.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot update another user's connection",
       });
     }
 
@@ -6247,12 +6364,20 @@ export const verifyConnection = async (req, res) => {
 
 export const getConnectionById = async (req, res) => {
   try {
+    const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
     const connection = await ConnectionModel.findById(req.params.id);
 
     if (!connection) {
       return res
         .status(404)
         .json({ success: false, message: 'Connection not found' });
+    }
+
+    if (!authUserId || (String(connection.userId) !== authUserId && req.user?.role !== 'admin')) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's connection",
+      });
     }
 
     res.status(200).json(connection); // includes "verified"

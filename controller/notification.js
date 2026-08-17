@@ -1,9 +1,14 @@
 import mongoose from 'mongoose';
 import { notificationModel } from '../Models/Notifications.js';
+import { isOwnerOrAdmin } from '../middleware/authmiddleware.js';
 
 export const addNotification = async (req, res) => {
   try {
     const { userId, message,source } = req.body;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot add notification for another user" });
+    }
 
     if (!userId || !message) {
       return res.status(400).json({ error: 'userId and message are required' });
@@ -27,6 +32,10 @@ export const addNotification = async (req, res) => {
 export const getNotificationByUserId = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot access another user's notifications" });
+    }
 
     const result = await notificationModel.aggregate([
       {
@@ -72,6 +81,10 @@ export const getNotificationByUserId = async (req, res) => {
 export const updateSeen=async(req,res)=>{
    try {
     const { userId } = req.params;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot update another user's notifications" });
+    }
     await notificationModel.updateMany({ userId, seen: false }, { seen: true });
     res.status(200).json({ message: "Marked all as seen" });
   } catch (err) {

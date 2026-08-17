@@ -2,9 +2,18 @@ import { TemplateModel } from '../Models/Template.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { authModel } from '../Models/auth.js';
 import { OrganizationModel } from '../Models/Organization.js';
+import { isOwnerOrAdmin, getAuthUserId } from '../middleware/authmiddleware.js';
+
 export const addTemplate = async (req, res) => {
   try {
-    const { userId, platform, service, conditions, content } = req.body;
+    const authUserId = getAuthUserId(req);
+    const userId = req.body.userId || authUserId;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot create templates for another user" });
+    }
+
+    const { platform, service, conditions, content } = req.body;
 
     // Basic validation
     if (!userId || !platform || !content) {
@@ -38,16 +47,17 @@ export const addTemplate = async (req, res) => {
 
 export const getTemplates = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const authUserId = getAuthUserId(req);
+    const requestedUserId = req.query.userId || authUserId;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
+    if (!isOwnerOrAdmin(req, requestedUserId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot access another user's templates" });
     }
 
     // 👉 Sirf Shopify templates fetch karo
     const templates = await TemplateModel.find({
-      userId,
-      platform: 'shopify', // <--- added filter
+      userId: requestedUserId,
+      platform: 'shopify',
     });
 
     res.json(templates);
@@ -59,16 +69,16 @@ export const getTemplates = async (req, res) => {
 
 export const getCustomTemplates = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const authUserId = getAuthUserId(req);
+    const requestedUserId = req.query.userId || authUserId;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
+    if (!isOwnerOrAdmin(req, requestedUserId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot access another user's custom templates" });
     }
 
-    // 👉 Sirf Shopify templates fetch karo
     const templates = await TemplateModel.find({
-      userId,
-      platform: 'other', // <--- added filter
+      userId: requestedUserId,
+      platform: 'other',
     });
 
     res.json(templates);
@@ -81,13 +91,18 @@ export const getCustomTemplates = async (req, res) => {
 export const updateTemplate = async (req, res) => {
   try {
     const { id } = req.params;
+    const existing = await TemplateModel.findById(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (!isOwnerOrAdmin(req, existing.userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot update another user's template" });
+    }
+
     const updated = await TemplateModel.findByIdAndUpdate(id, req.body, {
       new: true,
     });
-
-    if (!updated) {
-      return res.status(404).json({ error: 'Template not found' });
-    }
 
     res.json({
       success: true,
@@ -101,11 +116,16 @@ export const updateTemplate = async (req, res) => {
 export const deleteTemplate = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await TemplateModel.findByIdAndDelete(id);
-
-    if (!deleted) {
+    const existing = await TemplateModel.findById(id);
+    if (!existing) {
       return res.status(404).json({ error: 'Template not found' });
     }
+
+    if (!isOwnerOrAdmin(req, existing.userId)) {
+      return res.status(403).json({ error: "Forbidden: You cannot delete another user's template" });
+    }
+
+    await TemplateModel.findByIdAndDelete(id);
 
     res.json({ success: true, msg: 'Template deleted' });
   } catch (err) {

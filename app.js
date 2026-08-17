@@ -38,22 +38,27 @@ import aiConfigRouter from './Routes/aiConfigRoutes.js';
 import teamRouter from './Routes/team.js';
 import organizationUtilitiesRouter from './Routes/organizationUtilitiesRoutes.js';
 import { outlookWebhook } from './middleware/outlookWebhook.js';
+import { adminPlatformRouter } from './Routes/adminPlatform.js';
 import { authModel } from './Models/auth.js';
 import { OrganizationModel } from './Models/Organization.js';
 import mongoose from 'mongoose';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
+import { generalApiLimiter } from './middleware/rateLimiter.js';
 
 const app = express();
+app.set('trust proxy', 1);
 setupSwagger(app);
 
-// ⚠️ STRIPE WEBHOOK — RAW BODY ONLY
+// ⚠️ STRIPE WEBHOOK — RAW BODY ONLY (EXCLUDED FROM RATE LIMITING & BODY PARSER DEFAULT LIMITS)
 app.post(
   '/stripe/webhook',
-  express.raw({ type: 'application/json' }),
+  express.raw({ type: 'application/json', limit: '2mb' }),
   stripeWebhook
 );
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+
+// Bounded JSON & URL-encoded request body limits (10MB max)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(morgan('combined'));
 app.use(helmet());
@@ -61,8 +66,19 @@ app.use(compression());
 app.use(cors());
 
 app.use('/uploads', express.static('uploads'));
-app.use(express.json({ limit: '5000000mb' }));
+
+// Apply general API rate limiter to standard resource routes
+app.use('/product', generalApiLimiter, productRouter);
+app.use('/order', generalApiLimiter, orderRouter);
+app.use('/template', generalApiLimiter, templateRouter);
+app.use('/scenario', generalApiLimiter, scenarioRouter);
+app.use('/organization', generalApiLimiter, organizationUtilitiesRouter);
+app.use('/api/connection', generalApiLimiter, connectionRouter);
+app.use('/api/company-profile', generalApiLimiter, companyProfileRouter);
+app.use('/api/ai-config', generalApiLimiter, aiConfigRouter);
+
 app.use('/auth', authRouter);
+app.use('/admin', adminPlatformRouter);
 app.use('/team', teamRouter);
 app.use('/stripe', stripeRouter);
 app.use('/talk', SalesRouter);
@@ -183,6 +199,18 @@ app.use((req, res, next) => {
 
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Express Error Handling Middleware for Payload Size & Entity Too Large Errors
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({
+      success: false,
+      error: 'Payload Too Large: The request payload exceeds the maximum allowed limit of 10MB.',
+      message: 'Payload Too Large: The request payload exceeds the maximum allowed limit of 10MB.',
+    });
+  }
+  next(err);
 });
 
 const initializeApplication = async () => {

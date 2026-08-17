@@ -9,15 +9,15 @@ import {
   getSingleCategory,
 } from '../controller/category.js';
 import { cpUpload } from '../middleware/cloudinary.js';
-import { verifyToken } from '../middleware/verifyToken.js';
+import { authMiddleware } from '../middleware/authmiddleware.js';
 
 const categoryRouter = express.Router();
-categoryRouter.post('/createCategory', verifyToken, cpUpload, createCategory);
+categoryRouter.post('/createCategory', authMiddleware, cpUpload, createCategory);
 
-categoryRouter.get('/getCategory',verifyToken, getCategory);
-categoryRouter.get('/getCollection/:userId',  getCollectionData);
-categoryRouter.get('/category/:categoryId', verifyToken, getSingleCategory);
-categoryRouter.get('/getCsvForCategories', exportCsvForCategories);
-categoryRouter.delete('/deleteCategory', verifyToken, deleteCollection);
-categoryRouter.delete('/', delet);
+categoryRouter.get('/getCategory', authMiddleware, getCategory);
+categoryRouter.get('/getCollection/:userId', authMiddleware, getCollectionData);
+categoryRouter.get('/category/:categoryId', authMiddleware, getSingleCategory);
+categoryRouter.get('/getCsvForCategories', authMiddleware, exportCsvForCategories);
+categoryRouter.delete('/deleteCategory', authMiddleware, deleteCollection);
+categoryRouter.delete('/', authMiddleware, delet);
 export default categoryRouter;

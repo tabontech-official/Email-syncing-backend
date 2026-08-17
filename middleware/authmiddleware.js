@@ -49,3 +49,28 @@ export const authMiddleware = (req, res, next) => {
     });
   }
 };
+
+export const adminMiddleware = (req, res, next) => {
+  authMiddleware(req, res, () => {
+    if (req.user && req.user.role === "admin") {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      message: "Access denied. Admin privileges required.",
+    });
+  });
+};
+
+export const getAuthUserId = (req) => {
+  if (!req.user) return null;
+  return String(req.user._id || req.user.id || req.user.userId || '');
+};
+
+export const isOwnerOrAdmin = (req, resourceUserId) => {
+  if (!req.user) return false;
+  const authUserId = getAuthUserId(req);
+  if (!authUserId) return false;
+  if (req.user.role === 'admin') return true;
+  return authUserId === String(resourceUserId || '');
+};

@@ -1,8 +1,15 @@
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const clearDatabase = async () => {
   try {
-    const mongoUri = "mongodb+srv://email-sync:email123@cluster0.3ufwdcd.mongodb.net/";
+    const mongoUri = process.env.DB_URL || process.env.DB_URI;
+    if (!mongoUri) {
+      console.error('❌ DB_URL or DB_URI is missing in process.env');
+      process.exit(1);
+    }
     console.log('Connecting to MongoDB...');
     await mongoose.connect(mongoUri);
     console.log('🧹 Clearing DB collections...');

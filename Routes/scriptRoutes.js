@@ -1,5 +1,6 @@
 import express from 'express';
 import { getScripts, saveScripts } from '../controller/scriptController.js';
+import { adminMiddleware } from '../middleware/authmiddleware.js';
 
 const scriptRouter = express.Router();
 
@@ -7,11 +8,6 @@ const scriptRouter = express.Router();
 scriptRouter.get('/', getScripts);
 
 // Admin only
-scriptRouter.put(
-  '/',
-  // verifyToken,
-  // isAdmin,
-  saveScripts
-);
+scriptRouter.put('/', adminMiddleware, saveScripts);
 
 export default scriptRouter;

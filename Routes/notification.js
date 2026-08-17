@@ -1,7 +1,10 @@
-import express from 'express'
+import express from 'express';
 import { addNotification, getNotificationByUserId, updateSeen } from '../controller/notification.js';
-const notificationRouter=express.Router()
-notificationRouter.post('/addNotofication',addNotification)
-notificationRouter.get("/getNotificationByUserId/:userId",getNotificationByUserId)
-notificationRouter.put('/markAllSeen/:userId',updateSeen)
+import { authMiddleware } from '../middleware/authmiddleware.js';
+
+const notificationRouter = express.Router();
+notificationRouter.post('/addNotofication', authMiddleware, addNotification);
+notificationRouter.get("/getNotificationByUserId/:userId", authMiddleware, getNotificationByUserId);
+notificationRouter.put('/markAllSeen/:userId', authMiddleware, updateSeen);
+
 export default notificationRouter;
