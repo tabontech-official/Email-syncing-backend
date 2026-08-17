@@ -670,20 +670,12 @@ export const getAdminLeads = async (req, res) => {
     const query = {};
     if (status && status !== 'all') {
       if (status === 'new_leads' || status === 'new_lead') {
-        query.$or = [
-          { leadStatus: { $in: ['new_lead', 'awaiting'] } },
-          { status: { $in: ['new_lead', 'awaiting_customer_reply'] } },
-        ];
+        query.leadStatus = { $in: ['new_lead', 'awaiting'] };
+        query.scenarioExecuted = true;
       } else if (status === 'secured' || status === 'secured_leads') {
-        query.$or = [
-          { leadStatus: { $in: ['secured', 'replied', 'customer_replied'] } },
-          { status: { $in: ['secured', 'customer_replied', 'replied'] } },
-        ];
+        query.leadStatus = 'secured';
       } else if (status === 'closed' || status === 'closed_leads') {
-        query.$or = [
-          { leadStatus: 'closed' },
-          { status: 'closed' },
-        ];
+        query.leadStatus = 'closed';
       } else {
         query.leadStatus = status;
       }
