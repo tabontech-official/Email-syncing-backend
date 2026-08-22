@@ -22,14 +22,12 @@ import {
   googleAuth,
   googleAuthCallback,
   logout,
-  outlookOAuthCallback,
   requestLogin,
   revokeProPlan,
   setPassword,
   signIn,
   signUp,
   skipAllSteps,
-  startOutlookOAuth,
   toggleAiReplies,
   updateAiStatus,
   updateGuideStatus,
@@ -54,6 +52,11 @@ import { authMiddleware, adminMiddleware } from '../middleware/authmiddleware.js
 import { authLimiter, sensitiveAuthLimiter } from '../middleware/rateLimiter.js';
 import { addLeadDiscussion, deleteMultipleLeads, deleteSingleLead, updateLeadStatus } from '../controller/smtpServer.js';
 import { connectGmailWithAppPassword } from '../controller/gmailAppPasswordController.js';
+import { connectMicrosoftWithAppPassword } from '../controller/microsoftAppPasswordController.js';
+import {
+  startMicrosoftOAuth,
+  microsoftOAuthCallback,
+} from '../controller/microsoftOAuthController.js';
 import { generateAiReplyEndpoint } from '../controller/smtpServer.js';
 
 const authRouter = express.Router();
@@ -64,8 +67,17 @@ authRouter.post('/signUp', sensitiveAuthLimiter, signUp);
 authRouter.post('/google-login', authLimiter, googleLogin);
 authRouter.get('/google', googleAuth);
 authRouter.get('/google/callback', googleAuthCallback);
-authRouter.get('/outlook', startOutlookOAuth);
-authRouter.get('/outlook/callback', outlookOAuthCallback);
+/*
+ * Microsoft OAuth2 via MSAL — the only Outlook/Microsoft OAuth flow.
+ *
+ * The callback path must stay exactly /auth/outlook/callback: that is
+ * the redirect URI registered in Azure. The previous simple-oauth2
+ * handlers (startOutlookOAuth / outlookOAuthCallback) were retired —
+ * they never worked in production (they posted a dead ngrok tunnel as
+ * the Graph subscription notificationUrl) and created zero records.
+ */
+authRouter.get('/outlook/connect', startMicrosoftOAuth);
+authRouter.get('/outlook/callback', microsoftOAuthCallback);
 authRouter.post('/forgot-password', sensitiveAuthLimiter, forgotPassword);
 authRouter.post('/set-password', sensitiveAuthLimiter, setPassword);
 authRouter.post('/request-login', sensitiveAuthLimiter, requestLogin);
@@ -87,6 +99,7 @@ authRouter.post("/2fa/verify-setup", authMiddleware, authLimiter, verifyTwoFacto
 authRouter.post("/2fa/disable", authMiddleware, authLimiter, disableTwoFactor);
 authRouter.put("/change-password", authMiddleware, sensitiveAuthLimiter, updatePassword);
 authRouter.post("/gmail/app-password", authMiddleware, connectGmailWithAppPassword);
+authRouter.post("/microsoft/app-password", authMiddleware, connectMicrosoftWithAppPassword);
 authRouter.put('/setup/:id', authMiddleware, completeSetup);
 authRouter.get('/setup/:id', authMiddleware, getSetupProgress);
 authRouter.put('/updateUserAndOrganization/:id', authMiddleware, cpUpload, updateUserAndOrganization);

@@ -19,6 +19,22 @@ const emailSchema = new mongoose.Schema(
     textBody: String,
     htmlBody: String,
     cc: [String],
+    /*
+     * Which mail provider delivered this message. Copied from
+     * connection.provider, so the enum mirrors that field exactly — a
+     * narrower list here would throw a ValidationError on save and lose
+     * the email.
+     *
+     * Distinct from  below, which is a BUSINESS category
+     * (Troubleshooting, General, SEO...). Provider values must never be
+     * written into service.
+     */
+    provider: {
+      type: String,
+      enum: ['gmail', 'microsoft', 'microsoft-oauth', 'smtp', 'outlook'],
+    },
+
+    /* Business service category — NOT a mail provider. */
     service: {
       type: String,
     },

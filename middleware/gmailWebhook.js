@@ -22,13 +22,19 @@
 
 
 import { processGmailEmail } from "./gmailService.js";
+import { redactHeaders } from './requestLogger.js';
 
 export const gmailWebhook = async (req, res) => {
   try {
     console.log("🚀 [WEBHOOK HIT] Gmail webhook received");
 
-    console.log("📦 Request headers:", req.headers);
-    console.log("📨 Request body:", req.body);
+    /*
+     * Headers and body are NOT logged here. Pub/Sub push sends an
+     * Authorization: Bearer <OIDC token> header, and message.data is the
+     * mailbox payload. See SENSITIVE_BODY_PATHS in requestLogger.js.
+     */
+    console.log("📦 Request headers:", redactHeaders(req.headers));
+    console.log("📨 Request body: [REDACTED — sensitive webhook payload]");
 
     const message = req.body.message;
 
@@ -37,11 +43,12 @@ export const gmailWebhook = async (req, res) => {
       return res.status(400).send("No message found");
     }
 
-    console.log("📩 Encoded message received:", message);
+    console.log("📩 Encoded message received: [REDACTED]");
 
     const decodedData = Buffer.from(message.data, "base64").toString();
 
-    console.log("🔓 Decoded base64 data:", decodedData);
+    /* Decoded payload identifies the mailbox — log only that it parsed. */
+    console.log("🔓 Decoded base64 data: [REDACTED]");
 
     const data = JSON.parse(decodedData);
 

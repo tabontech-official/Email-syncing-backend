@@ -1,12 +1,18 @@
 import { ConnectionModel } from "../Models/Connection.js";
 import { processOutlookEmail } from "./gmailService.js";
 import { htmlToText } from "html-to-text";
+import { redactBody } from './requestLogger.js';
 export const outlookWebhook = async (req, res) => {
   console.log('🚨===============================');
   console.log('📩 [OUTLOOK WEBHOOK HIT]');
   console.log('⏰ Time:', new Date().toISOString());
   console.log('📦 Query:', req.query);
-  console.log('📦 Body:', JSON.stringify(req.body, null, 2));
+  /*
+   * The notification body carries clientState (our shared secret), so
+   * it is never dumped. Only its shape is logged. See
+   * SENSITIVE_BODY_PATHS in requestLogger.js.
+   */
+  console.log('📦 Body:', redactBody(req.path, req.body), '| notifications:', Array.isArray(req.body?.value) ? req.body.value.length : 0);
   console.log('🚨===============================');
 
   const validationToken = req.query.validationToken;
@@ -31,7 +37,12 @@ export const outlookWebhook = async (req, res) => {
       // -------------------------------
       // CLIENT STATE CHECK
       // -------------------------------
-      console.log('👉 clientState:', notification.clientState);
+      /*
+       * clientState is our shared secret (MS_CLIENT_STATE). Logging its
+       * value would let anyone with log access forge notifications that
+       * pass this very check, so only the outcome is recorded.
+       */
+      console.log('👉 clientState match:', notification.clientState === process.env.MS_CLIENT_STATE);
 
       if (notification.clientState !== process.env.MS_CLIENT_STATE) {
         console.log('❌ INVALID CLIENT STATE');

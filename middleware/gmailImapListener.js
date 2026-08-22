@@ -5,6 +5,13 @@ import { EmailModel } from '../Models/Email.js';
 import { executeScenarios, saveIncomingReplyIfExists } from '../controller/smtpServer.js';
 import { decrypt } from './encryption.js';
 import { uploadBufferToCloudinary } from './cloudinary.js';
+import { MANAGED_PROVIDERS } from '../config/providerConfigs.js';
+
+/*
+ * Providers this listener can watch over IMAP. Driven by the provider
+ * registry so adding a managed provider needs no change here.
+ */
+const IMAP_LISTENER_PROVIDERS = MANAGED_PROVIDERS;
 
 /*
  * All currently running Gmail listeners.
@@ -41,12 +48,28 @@ const getConnectionPassword = (connection) => {
   return decrypt(encryptedPassword);
 };
 
-const processIncomingGmailEmail = async ({
+/*
+ * Shared incoming-email pipeline: parse -> dedupe -> save -> attach reply
+ * -> executeScenarios. Exported so non-IMAP providers (Microsoft Graph
+ * polling) can feed messages through the EXACT same path Gmail uses,
+ * rather than reimplementing dedupe, threading and scenario matching.
+ *
+ *  is a raw RFC822 buffer/string.  is IMAP-only — pass null
+ * for providers without one and dedupe falls back to Message-ID.
+ */
+export const processIncomingEmail = async ({
   connection,
   source,
   uid,
 }) => {
   const parsed = await simpleParser(source);
+
+  /*
+   * Stamp the originating provider (gmail, microsoft, ...) on the stored
+   * email. Falls back to gmail so historical behaviour is unchanged for
+   * any record whose connection predates multi-provider support.
+   */
+  const connectionProvider = String(connection.provider || 'gmail').toLowerCase();
 
   const senderAddress = normalizeEmail(
     parsed.from?.value?.[0]?.address
@@ -216,8 +239,14 @@ const processIncomingGmailEmail = async ({
       references: parsed.references || [],
 
       direction: 'incoming',
-      provider: 'gmail',
-      service: 'gmail',
+      provider: connectionProvider,
+
+      /*
+       *  is deliberately NOT set here. It holds a business
+       * category (Troubleshooting, General, SEO) that reporting reads;
+       * stamping a provider name into it made those reports show "gmail"
+       * where a service was expected.
+       */
 
       imapUid: uid,
 
@@ -266,6 +295,9 @@ const processIncomingGmailEmail = async ({
     'Scenario execution completed:',
     parsed.subject
   );
+
+  /* Tells callers a message was genuinely stored, not skipped. */
+  return true;
 };
 
 export const startGmailListener = async (
@@ -312,9 +344,14 @@ export const startGmailListener = async (
     connection.provider || ''
   ).toLowerCase();
 
-  if (provider !== 'gmail') {
+  /*
+   * This listener is provider-agnostic: host/port/secure are read from
+   * the stored connection below, so it serves every IMAP app-password
+   * provider. Only managed providers are accepted.
+   */
+  if (!IMAP_LISTENER_PROVIDERS.includes(provider)) {
     throw new Error(
-      'Selected connection is not Gmail'
+      `Selected connection provider "${provider}" does not support IMAP listening`
     );
   }
 
@@ -456,7 +493,7 @@ export const startGmailListener = async (
               envelope: true,
             }
           )) {
-            await processIncomingGmailEmail({
+            await processIncomingEmail({
               connection,
               source: message.source,
               uid: message.uid,
@@ -537,9 +574,9 @@ export const startAllGmailListeners =
   async () => {
     const connections =
       await ConnectionModel.find({
-        provider: 'gmail',
+        provider: { $in: IMAP_LISTENER_PROVIDERS },
         status: 'active',
-      }).select('_id email');
+      }).select('_id email provider');
 
     console.log(
       `Starting ${connections.length} Gmail listener(s)`

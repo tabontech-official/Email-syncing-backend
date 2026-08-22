@@ -60,11 +60,25 @@ const connectionSchema = new mongoose.Schema(
       required: true,
     },
 
+    /*
+     * Managed providers (gmail, microsoft) have their host/port supplied
+     * server-side from config/providerConfigs.js. "smtp" / "outlook" are
+     * legacy + customer-configured ("Other Email") connections.
+     *
+     * A future OAuth-based Microsoft integration should be added as its
+     * own provider value (e.g. "microsoft-oauth") so existing "microsoft"
+     * app-password records need no migration.
+     */
     provider: {
       type: String,
       required: true,
+      enum: ["gmail", "microsoft", "microsoft-oauth", "smtp", "outlook"],
     },
 
+    /*
+     * Distinguishes auth strategies within one provider, e.g.
+     * "google-app-password" vs "microsoft-app-password".
+     */
     subProvider: {
       type: String,
       default: null,
@@ -192,6 +206,30 @@ const connectionSchema = new mongoose.Schema(
       },
     },
 
+    /*
+     * Microsoft OAuth2 (MSAL) credentials — provider "microsoft-oauth".
+     *
+     * Deliberately NOT the snake_case { access_token, refresh_token,
+     * expires_at } shape used by the retired simple-oauth2 flow.
+     *
+     * accessToken/refreshToken are encrypted at rest with the same
+     * encrypt() helper used for Gmail app passwords, and are select:false
+     * so an ordinary query can never serialise them into a response.
+     *
+     * expiresOn is stored in the clear on purpose: expiry must be
+     * comparable without decrypting anything.
+     */
+    microsoftOAuth: {
+      accessToken: { type: String, select: false },
+      refreshToken: { type: String, select: false },
+      expiresOn: { type: Date, default: null },
+      account: { type: String },
+      tenantId: { type: String },
+      scopesGranted: { type: [String], default: [] },
+      /* High-water mark for Graph polling; drives the receivedDateTime filter. */
+      lastPolledAt: { type: Date, default: null },
+    },
+
     gmailWatch: {
       historyId: {
         type: String,
@@ -214,9 +252,14 @@ const connectionSchema = new mongoose.Schema(
       default: null,
     },
 
+    /*
+     * reauth_required: the OAuth refresh token was rejected (revoked,
+     * expired, or consent withdrawn). Not broken config — the user must
+     * sign in with Microsoft again.
+     */
     status: {
       type: String,
-      enum: ["active", "disconnected"],
+      enum: ["active", "disconnected", "reauth_required"],
       default: "active",
     },
   },

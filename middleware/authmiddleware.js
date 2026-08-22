@@ -1,5 +1,22 @@
 import jwt from "jsonwebtoken";
 
+/*
+ * Decoded JWT claims can carry email, name and other PII, and this runs
+ * on EVERY authenticated request — printing the whole object would put
+ * that in the logs continuously. Role plus a truncated id is enough to
+ * debug an authorization problem without identifying the person.
+ */
+export const summarizeClaims = (claims) => {
+  if (!claims || typeof claims !== "object") return { role: null, id: null };
+
+  const id = String(claims._id || claims.id || claims.userId || "");
+
+  return {
+    role: claims.role || null,
+    id: id ? id.slice(0, 8) + "…" : null,
+  };
+};
+
 export const authMiddleware = (req, res, next) => {
   try {
     console.log("====================================");
@@ -31,11 +48,11 @@ export const authMiddleware = (req, res, next) => {
 
     const decoded = jwt.verify(token, secret);
 
-    console.log("✅ Decoded token:", decoded);
+    console.log("✅ Decoded token:", summarizeClaims(decoded.payLoad || decoded));
 
     req.user = decoded.payLoad || decoded;
 
-    console.log("✅ req.user set:", req.user);
+    console.log("✅ req.user set:", summarizeClaims(req.user));
     console.log("====================================");
 
     next();

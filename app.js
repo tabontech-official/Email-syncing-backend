@@ -3,7 +3,10 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import bodyParser from 'body-parser';
-import morgan from 'morgan';
+import {
+  requestLogger,
+  markSensitiveBodies,
+} from './middleware/requestLogger.js';
 import authRouter from './Routes/auth.js';
 import productRouter from './Routes/product.js';
 import orderRouter from './Routes/order.js';
@@ -43,6 +46,7 @@ import { authModel } from './Models/auth.js';
 import { OrganizationModel } from './Models/Organization.js';
 import mongoose from 'mongoose';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
+import { startMicrosoftPollingScheduler } from './middleware/microsoftGraphService.js';
 import { generalApiLimiter } from './middleware/rateLimiter.js';
 
 const app = express();
@@ -60,7 +64,13 @@ app.post(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use(morgan('combined'));
+/*
+ * Tags requests whose BODY carries secrets (webhook payloads, mailbox
+ * credentials) as req.sensitiveBody, so any body-logging added later
+ * can skip them by default. See requestLogger.js for the rationale.
+ */
+app.use(markSensitiveBodies);
+app.use(requestLogger);
 app.use(helmet());
 app.use(compression());
 app.use(cors());
@@ -269,6 +279,12 @@ const initializeApplication = async () => {
     console.log(
       `Gmail listeners initialized: ${successfulListeners.length} successful, ${failedListeners.length} failed`
     );
+
+    /*
+     * Microsoft Graph inbox polling. Unlike the Gmail IMAP listeners this
+     * is a scheduled sweep rather than a live connection per mailbox.
+     */
+    startMicrosoftPollingScheduler();
 
     if (failedListeners.length > 0) {
       console.error(

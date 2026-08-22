@@ -15,10 +15,10 @@ import { AutomationStatusModel } from '../Models/AutomationStatus.js';
 import { TestEmailDataModel } from '../Models/TestEmailDataModel.js';
 import { validationModel } from '../Models/ValidationEmail.js';
 import { mailhookModel } from '../Models/MailhookSchema.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
 import { CompanyProfileModel } from '../Models/CompanyProfile.js';
+import { sendMicrosoftEmail } from '../middleware/microsoftGraphService.js';
 import {
   cleanMessageId,
   formatMessageId,
@@ -26,90 +26,11 @@ import {
   formatReferencesHeader,
   resolveAndAttachIncomingReply,
 } from '../utils/threadingHelper.js';
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const extractEmail = (value = '') => {
   if (!value) return '';
   const match = String(value).match(/<(.+?)>/);
   return (match ? match[1] : String(value)).trim().toLowerCase();
-};
-
-// export const generateGeminiReply = async ({ from, subject, body }) => {
-//   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
-//   const prompt = `
-// You are a professional business email assistant.
-
-// Write a polite, helpful, and clear email reply.
-
-// Incoming Email:
-// F
-// Subjectrom: ${from}: ${subject}
-// Message:
-// ${body}
-
-// Reply only with the email body. No explanations.
-// `;
-
-//   const result = await model.generateContent(prompt);
-//   const response = result.response.text();
-
-//   return response;
-// };
-
-export const generateGeminiReply = async ({ from, subject, body, user }) => {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
-  });
-
-  const prompt = `
-You are a senior business email consultant for a Shopify agency.
-
-You are replying on behalf of:
-Name: ${user.fullName}
-Company: ${user.organizationName}
-Email: ${user.email}
-Country: ${user.country}
-
-Agency Context:
-- Certified Shopify Experts & Partners
-- Services: Shopify design, development, migration, SEO, marketing
-- Clients worldwide
-- High-ticket, professional clientele
-- Communication must sound 100% human-written and professional
-- No emojis, no AI indicators
-
-Business Rules:
-- Never mention prices unless the client shares a budget
-- If budget is mentioned, slightly stretch it by adding value
-- If no budget, ask for budget range and suggest a call
-- Always be polite, clear, and consultative
-- Medium-length response (not short, not verbose)
-
-Incoming Email:
-From: ${from}
-Subject: ${subject}
-
-Message:
-${body}
-
-Write a complete professional email reply.
-
-End the email with a proper signature using this format:
-
-Best regards,
-${user.fullName}
-Founder | ${user.organizationName}
-
-
-IMPORTANT:
-- Reply ONLY with the email body
-- Do NOT explain anything
-- Do NOT include markdown
-`;
-
-  const result = await model.generateContent(prompt);
-  return result.response.text().trim();
 };
 
 const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b-it:free';
@@ -2323,6 +2244,42 @@ export const sendEmailModule = async (
     }
 
     // =====================================================================
+    // ------------------ 🔷 MICROSOFT OAUTH (GRAPH) ------------------------
+    // =====================================================================
+    //
+    // Same provider branch point every other transport uses, so callers of
+    // sendEmailModule() never need to know Graph is underneath.
+    //
+    // Unlike the branches around it, a failure here is rethrown rather than
+    // only logged: a silent Graph failure would look like a delivered email.
+    else if (connection.provider === 'microsoft-oauth') {
+      try {
+        log('🔷 Sending via Microsoft Graph...');
+
+        await sendMicrosoftEmail(connection._id, {
+          to,
+          cc,
+          bcc,
+          subject: safeSubject,
+          body: emailBody,
+          isHtml: true,
+        });
+
+        log('✅ [MICROSOFT GRAPH] Email sent successfully!');
+
+        /*
+         * Graph sendMail returns 202 with no body, so there is no provider
+         * message id to record here. The generated fallback id is used.
+         */
+        sentProviderMessageId = null;
+        sentOk = true;
+      } catch (err) {
+        log('❌ [MICROSOFT GRAPH] Send Error:', err.message);
+        throw err;
+      }
+    }
+
+    // =====================================================================
     // ------------------------ 🟠 SMTP PROVIDER ----------------------------
     // =====================================================================
     else if (connection.provider === 'smtp') {
@@ -2891,7 +2848,6 @@ export const addLeadDiscussion = async (req, res) => {
     });
   }
 };
-
 
 // export const RunTestMode = async (req, res) => {
 //   const startedAt = new Date();

@@ -1,5 +1,4 @@
 import { TemplateModel } from '../Models/Template.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { authModel } from '../Models/auth.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import { isOwnerOrAdmin, getAuthUserId } from '../middleware/authmiddleware.js';
@@ -522,18 +521,44 @@ export const getAllTemplatesByQuery = async (req, res) => {
   }
 };
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) throw new Error('GEMINI_API_KEY is missing in env');
+const OPENROUTER_TEMPLATE_MODEL = 'google/gemma-4-26b-a4b-it:free';
 
-const genAI = new GoogleGenerativeAI(apiKey);
+export async function generateTemplateWithOpenRouter(prompt) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.warn('OPENROUTER_API_KEY is not set; cannot generate template');
+    return '';
+  }
 
-export async function generateTemplateWithGemini(prompt) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://replex-engine.vercel.app',
+        'X-Title': 'Replex Engine AI Template Generation',
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_TEMPLATE_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 2048,
+      }),
+    });
 
-  const result = await model.generateContent(prompt);
-  const text = result?.response?.text?.() || '';
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn('OpenRouter API error during template generation:', response.status, errText);
+      return '';
+    }
 
-  return text.trim();
+    const data = await response.json();
+    return (data.choices?.[0]?.message?.content || '').trim();
+  } catch (err) {
+    console.error('OpenRouter template generation error:', err.message);
+    return '';
+  }
 }
 
 // export const generateTemplateWithAI = async (req, res) => {
@@ -645,7 +670,7 @@ export async function generateTemplateWithGemini(prompt) {
 // Return HTML suitable for ReactQuill editor.
 // `;
 
-//     const aiHtml = await generateTemplateWithGemini(prompt);
+//     const aiHtml = await generateTemplateWithOpenRouter(prompt);
 
 //     if (!aiHtml) {
 //       template.aiInProgress = false;
@@ -800,7 +825,7 @@ ${conditionsText}
 Return HTML suitable for ReactQuill editor.
 `;
 
-    const aiHtml = await generateTemplateWithGemini(prompt);
+    const aiHtml = await generateTemplateWithOpenRouter(prompt);
 
     if (!aiHtml) {
       template.aiInProgress = false;
