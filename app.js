@@ -73,13 +73,72 @@ app.use(markSensitiveBodies);
 app.use(requestLogger);
 app.use(helmet());
 app.use(compression());
-app.use(cors());
+/*
+|--------------------------------------------------------------------------
+| CORS
+|--------------------------------------------------------------------------
+|
+| Was cors() with no options: every origin allowed. The API carries a
+| bearer token rather than cookies, so this is not classic CSRF — but it
+| does let any website on the internet call this API directly from a
+| victim's browser with a token it has obtained, and it removes a useful
+| layer of defence for no benefit.
+|
+| Origins come from CORS_ORIGINS (comma separated). With none configured
+| the previous permissive behaviour is kept, so nothing breaks before the
+| variable is set — the startup warning says what to do.
+*/
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  console.warn(
+    '⚠️  CORS_ORIGINS is not set — allowing all origins. Set it to your frontend URL(s), comma separated.'
+  );
+}
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      /* No Origin header: same-origin, curl, server-to-server, health checks. */
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.length === 0) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+    },
+    credentials: true,
+  })
+);
 
 app.use('/uploads', express.static('uploads'));
 
 // Apply general API rate limiter to standard resource routes
-app.use('/product', generalApiLimiter, productRouter);
-app.use('/order', generalApiLimiter, orderRouter);
+
+/*
+|--------------------------------------------------------------------------
+| DISABLED: marketplace routers (dead code from a previous product)
+|--------------------------------------------------------------------------
+|
+| These routers serve a dropshipping/marketplace app, not Replex Engine.
+| The frontend makes ZERO requests to any of them, yet they exposed roughly
+| 80 endpoints with no authentication at all — including unauthenticated
+| destructive operations:
+|
+|   DELETE /product/deleteAll   -> listingModel.deleteMany()   (all users)
+|   DELETE /order/              -> orderModel.deleteMany()     (all users)
+|   DELETE /promo/              -> deletes every promotion
+|
+| Unmounted rather than deleted, so the code is still in the repo if any of
+| it turns out to be needed. Re-enabling any of these requires adding
+| authMiddleware and ownership checks first.
+*/
+// app.use('/product', generalApiLimiter, productRouter);   // disabled: unused + unauthenticated
+// app.use('/order', generalApiLimiter, orderRouter);   // disabled: unused + unauthenticated
 app.use('/template', generalApiLimiter, templateRouter);
 app.use('/scenario', generalApiLimiter, scenarioRouter);
 app.use('/organization', generalApiLimiter, organizationUtilitiesRouter);
@@ -92,14 +151,14 @@ app.use('/admin', adminPlatformRouter);
 app.use('/team', teamRouter);
 app.use('/stripe', stripeRouter);
 app.use('/talk', SalesRouter);
-app.use('/product', productRouter);
-app.use('/order', orderRouter);
-app.use('/promo', promoRouter);
-app.use('/consultation', consultationRouter);
+// app.use('/product', productRouter);   // disabled: unused + unauthenticated
+// app.use('/order', orderRouter);   // disabled: unused + unauthenticated
+// app.use('/promo', promoRouter);   // disabled: unused + unauthenticated
+// app.use('/consultation', consultationRouter);   // disabled: unused + unauthenticated
 app.use('/generateAcessKeys', apiCredentialsRouter);
 app.use('/notifications', notificationRouter);
-app.use('/category', categoryRouter);
-app.use('/approval', approvalRouter);
+// app.use('/category', categoryRouter);   // disabled: unused + unauthenticated
+// app.use('/approval', approvalRouter);   // disabled: unused + unauthenticated
 app.use('/template', templateRouter);
 app.use('/mailhook', emailRouter);
 app.use('/scenario', scenarioRouter);

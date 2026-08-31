@@ -35,6 +35,25 @@ const ModuleSchema = new mongoose.Schema({
 
   emailType: { type: String, default: "" },
 
+  /*
+   * How this module produces its reply.
+   *
+   * "manual" sends the template as written. "ai" has the model write from
+   * a company profile — which one is companyProfileId, falling back to the
+   * user's default profile when unset.
+   */
+  replyMode: {
+    type: String,
+    enum: ["manual", "ai"],
+    default: "manual",
+  },
+
+  companyProfileId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "CompanyProfile",
+    default: null,
+  },
+
   filter: {
     label: String,
     conditions: [ConditionSchema],
@@ -67,6 +86,19 @@ const IncomingLeadSchema = new mongoose.Schema(
     connectionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Connection",
+      default: null,
+    },
+
+    /*
+     * A mailhook trigger has no Connection document behind it: mail is
+     * delivered straight to the user's mailhook address and the webhook
+     * runs the scenario. Kept in its own field so connectionId stays a
+     * real Connection ref — it doubles as the reply-sender fallback
+     * during execution, and a mailhook id there would break sending.
+     */
+    mailhookId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Mailhook",
       default: null,
     },
 

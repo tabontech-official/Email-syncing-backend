@@ -108,6 +108,15 @@ const authSchema = new mongoose.Schema(
       type: String,
       default: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     },
+    /*
+     * Whether TimeZone is still managed automatically.
+     *
+     * True (the default) means nobody has chosen a zone, so the client
+     * may adopt the browser's. It goes false the moment someone picks a
+     * zone in settings, and detection leaves it alone from then on — a
+     * deliberate choice must not be undone by travelling.
+     */
+    TimeZoneAuto: { type: Boolean, default: true },
     lastLogin: { type: Date, default: null },
     lastLogout: { type: Date, default: null },
     Ai: {

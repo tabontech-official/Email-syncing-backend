@@ -1,17 +1,12 @@
 import { consultationModel } from '../Models/consultation.js';
-import nodemailer from 'nodemailer';
+import { sendPlatformMail } from '../utils/platformMailer.js';
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'aydimarketplace@gmail.com',
-    pass: 'ijeg fypl llry kftw',
-  },
-  secure: true,
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+/*
+ * This file used to build its own Gmail transport from an address and app
+ * password written directly into the source, and sent as a third address
+ * again in the From header. It now sends as the configured platform
+ * mailbox (master admin -> Platform Email) like every other system mail.
+ */
 
 export const addConsultation = async (req, res) => {
   try {
@@ -28,7 +23,6 @@ export const addConsultation = async (req, res) => {
     });
 
     const mailOptions = {
-      from: 'medsparecovery@gmail.com',
       to: email,
       subject: 'Consultation Booked Successfully',
       html: `
@@ -42,7 +36,7 @@ export const addConsultation = async (req, res) => {
         `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendPlatformMail(mailOptions);
 
     res.status(201).json({
       message: 'Consultation booked and email sent.',

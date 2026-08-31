@@ -7,6 +7,7 @@ import { ConnectionModel } from '../Models/Connection.js';
 import { EmailModel } from '../Models/Email.js';
 import { htmlToText } from "html-to-text";
 import { resolveAndAttachIncomingReply } from '../utils/threadingHelper.js';
+import { normalizeIncomingBody } from "../utils/emailBody.js";
 
 // ------------------------------
 // BODY EXTRACTOR (SAFE)
@@ -211,8 +212,8 @@ export async function processGmailEmail(emailAddress, historyId) {
           cc: cc ? cc.split(',') : [],
           bcc: bcc ? bcc.split(',') : [],
           subject,
-          textBody: body,
-          htmlBody: htmlContent,
+          /* Text only — see utils/emailBody.js. */
+          ...normalizeIncomingBody({ text: body, html: htmlContent }),
           threadId: payload?.threadId || null,
           inReplyTo: inReplyTo || null,
           references: references ? references.split(' ') : [],
@@ -393,8 +394,11 @@ export const processOutlookEmail = async (notification, connection) => {
       senderAddress: from,
       recipientAddress: to,
       subject,
-      textBody: cleanBody,
-      htmlBody: email.body?.content || "",
+      /* Text only — see utils/emailBody.js. */
+      ...normalizeIncomingBody({
+        text: cleanBody,
+        html: email.body?.contentType === "html" ? email.body?.content : "",
+      }),
       direction: "incoming",
       connectionId: connection._id,
       date: msgDate,

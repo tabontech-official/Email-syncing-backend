@@ -158,6 +158,19 @@ import { sendEmailModule } from "./smtpServer.js";
 import { DelayJobModel } from "../Models/DelayJob.js";
 import { AutomationStatusModel } from "../Models/AutomationStatus.js";
 import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
+import { scenarioModel } from "../Models/Scenario.js";
+import {
+  applyLeadIdentity,
+  identityFieldsFromName,
+} from "../utils/leadIdentity.js";
+import {
+  parseShopifyInquiry,
+  resolveLeadReplyAddress,
+} from "../utils/shopifyInquiry.js";
+import {
+  loadPlatformRules,
+  triggerForType,
+} from "../utils/platformScenarioConfig.js";
 
 export function fillTemplate(template = "", fields = {}) {
   return template.replace(/{{(.*?)}}/g, (_, key) => {
@@ -166,6 +179,11 @@ export function fillTemplate(template = "", fields = {}) {
   });
 }
 
+/*
+ * Scenario-neutral, matching its twin in smtpServer.js: the Shopify
+ * reading of a relayed inquiry is applied by the caller and only when
+ * the job belongs to a Shopify scenario.
+ */
 export function extractFieldsFromEmail(emailObj = {}) {
   const fields = {};
 
@@ -293,6 +311,50 @@ export const startDelayWorker = () => {
       for (const job of jobs) {
         console.log(`⏰ [DelayWorker] Processing delayed job ${job._id} for user ${job.userId}`);
 
+        /*
+         * Respect the scenario's On/Off toggle.
+         *
+         * A follow-up queued while the scenario was running would still
+         * fire minutes or hours later, after the user had switched it Off
+         * — so turning a scenario off did not stop mail already in flight.
+         * The job is cancelled rather than left pending, so it does not
+         * fire the moment the scenario is switched back on.
+         */
+        /*
+         * The relay handling below is Shopify-only, so the job has to
+         * know which kind of scenario queued it. Unknown (a job with no
+         * scenarioId, from before these were linked) is treated as NOT
+         * Shopify — the conservative side, since it means replying to
+         * whoever sent the mail rather than to an address guessed out of
+         * its body.
+         */
+        let isShopifyJob = false;
+
+        if (job.scenarioId) {
+          const owningScenario = await scenarioModel
+            .findById(job.scenarioId)
+            .select("scenarioActive name type")
+            .lean();
+
+          isShopifyJob = owningScenario?.type === "shopify";
+
+          if (!owningScenario || owningScenario.scenarioActive === false) {
+            console.log(
+              `⏸️ [DelayWorker] Scenario "${owningScenario?.name || job.scenarioId}" is switched OFF — cancelling job ${job._id}.`
+            );
+
+            /*
+             * Deleted rather than flagged: the query above re-matches any
+             * status that is not "processing", so a cancelled row would be
+             * picked up again on every tick and never clear. Completed jobs
+             * are deleted the same way.
+             */
+            await DelayJobModel.deleteOne({ _id: job._id });
+
+            continue;
+          }
+        }
+
         await DelayJobModel.updateOne(
           { _id: job._id },
           {
@@ -303,6 +365,35 @@ export const startDelayWorker = () => {
           }
         );
 
+        /*
+         * The administrator's configured trigger subject, used only by
+         * the Shopify identity step below. Cached, so this costs nothing
+         * per job.
+         */
+        const delayRules = isShopifyJob ? await loadPlatformRules() : null;
+
+        /*
+         * Where this follow-up actually goes.
+         *
+         * executeScenarios() stamped replyTo on the job when the lead
+         * arrived through a relay, so the follow-up reaches the same
+         * person the first reply did. Older jobs queued before that
+         * existed carry no replyTo, so the body is re-read; failing
+         * both, the sender stands.
+         */
+        const followUpTo =
+          (isShopifyJob
+            ? job.emailData?.replyTo ||
+              resolveLeadReplyAddress(job.emailData?.body || "", {
+                fromAddress: job.emailData?.from || "",
+                receivedAt: job.emailData?.to || "",
+              })
+            : null) || job.emailData?.from;
+
+        if (followUpTo && followUpTo !== job.emailData?.from) {
+          console.log(`↪️ [DelayWorker] Follow-up goes to ${followUpTo}, not the sender ${job.emailData?.from}.`);
+        }
+
         const extractedFields = extractFieldsFromEmail(
           job.emailData?.parsedEmailObj || {
             text: job.emailData?.body,
@@ -310,6 +401,53 @@ export const startDelayWorker = () => {
             from: job.emailData?.from,
           }
         );
+
+        /*
+         * The contact form again, for the same reason the immediate reply
+         * reads it: it holds the store, country, budget and enquiry text
+         * the follow-up templates reference. A follow-up that says
+         * "your store" where the first reply said "My Store" reads like
+         * two different senders.
+         */
+        const followUpInquiry = isShopifyJob
+          ? parseShopifyInquiry(job.emailData?.body || "")
+          : {};
+
+        /*
+         * A relayed lead is named in the subject, not the From header, so
+         * a Shopify follow-up reads the name the same way its initial
+         * reply did. A follow-up that greets someone differently from the
+         * first reply reads like a different sender.
+         */
+        if (isShopifyJob) {
+          applyLeadIdentity(
+            extractedFields,
+            job.emailData?.subject || "",
+            triggerForType(delayRules, "shopify")?.subjectFilter || ""
+          );
+        }
+
+        if (followUpInquiry.fullName) {
+          Object.assign(
+            extractedFields,
+            identityFieldsFromName(followUpInquiry.fullName)
+          );
+        }
+
+        if (followUpInquiry.businessEmail)
+          extractedFields.BusinessEmail = followUpInquiry.businessEmail;
+        if (followUpInquiry.storeName)
+          extractedFields.StoreName = followUpInquiry.storeName;
+        if (followUpInquiry.storeUrl)
+          extractedFields.StoreURL = followUpInquiry.storeUrl;
+        if (followUpInquiry.country)
+          extractedFields.Country = followUpInquiry.country;
+        if (followUpInquiry.budget)
+          extractedFields.Budget = followUpInquiry.budget;
+        if (followUpInquiry.problemGoal)
+          extractedFields.ProblemGoal = followUpInquiry.problemGoal;
+        if (followUpInquiry.service)
+          extractedFields.Service = followUpInquiry.service;
 
         const emailModules = (job.modulesLeft || []).filter((m) => {
           const t = (m.type || m.app?.name || "").toLowerCase();
@@ -387,7 +525,7 @@ export const startDelayWorker = () => {
                 ...module,
                 template: finalTemplate,
               },
-              job.emailData.from,
+              followUpTo,
               job.emailData.subject,
               job.emailId
             );

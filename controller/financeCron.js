@@ -1,30 +1,21 @@
 import dayjs from 'dayjs';
-import nodemailer from 'nodemailer';
+import {
+  platformFromAddress,
+  sendPlatformMail,
+} from '../utils/platformMailer.js';
 import { authModel } from '../Models/auth.js';
 import { listingModel } from '../Models/Listing.js';
 import { orderModel } from '../Models/order.js';
 import { PayoutConfig } from '../Models/finance.js';
 import cron from "node-cron"
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'aydimarketplace@gmail.com',
-    pass: 'ijeg fypl llry kftw', 
-  },
-  secure: true,
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
-
+/*
+ * This file used to build its own Gmail transport from an address and app
+ * password written directly into the source. It now sends as the
+ * configured platform mailbox (master admin -> Platform Email).
+ */
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    await transporter.sendMail({
-      from: '"AYDI Marketplace" <aydimarketplace@gmail.com>',
-      to,
-      subject,
-      html,
-    });
+    await sendPlatformMail({ to, subject, html });
     console.log('📩 Email sent successfully to', to);
   } catch (err) {
     console.error('❌ Email send failed:', err.message);
@@ -187,8 +178,12 @@ export const financeCron = () => {
       });
       emailBody += '</ul>';
 
+      /*
+       * Internal report. Addressed to the configured platform mailbox
+       * rather than a literal that predates this project.
+       */
       await sendEmail({
-        to: 'aydimarketplace@gmail.com',
+        to: await platformFromAddress(),
         subject: `Payout Summary - ${today.format('MMM D, YYYY')}`,
         html: emailBody,
       });

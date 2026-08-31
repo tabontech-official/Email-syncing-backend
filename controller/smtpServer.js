@@ -3,7 +3,39 @@ import { SMTPServer } from 'smtp-server';
 import { simpleParser } from 'mailparser';
 import { authModel } from '../Models/auth.js';
 import { EmailModel } from '../Models/Email.js';
+import {
+  findMatchingScenario,
+  hasAnyScenarioCriteria,
+  scenarioMatchesEmail,
+  /* Aliased: threadingHelper exports a normalizeSubject that PREPENDS
+     "Re: " for building reply headers. This one strips prefixes for
+     comparison — same name, opposite job. */
+  normalizeSubject as normalizeLeadSubject,
+  threadMatchesScenarios,
+} from '../utils/scenarioMatch.js';
+import {
+  getCachedRules,
+  isExcludedFromInbox,
+  isInternalAddress,
+  loadPlatformRules,
+  matchService,
+  triggerForType,
+} from '../utils/platformScenarioConfig.js';
+import {
+  platformFromAddress,
+  platformFromHeader,
+  sendPlatformMail,
+} from '../utils/platformMailer.js';
 import { TemplateModel } from '../Models/Template.js';
+import {
+  applyLeadIdentity,
+  identityFieldsFromName,
+  parseLeadIdentity,
+} from '../utils/leadIdentity.js';
+import {
+  parseShopifyInquiry,
+  resolveLeadReplyAddress,
+} from '../utils/shopifyInquiry.js';
 import { google } from 'googleapis';
 import { ConnectionModel } from '../Models/Connection.js';
 import multer from 'multer';
@@ -18,6 +50,7 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
 import { CompanyProfileModel } from '../Models/CompanyProfile.js';
+import { resolveDefaultProfile } from './companyProfileController.js';
 import { sendMicrosoftEmail } from '../middleware/microsoftGraphService.js';
 import {
   cleanMessageId,
@@ -26,6 +59,7 @@ import {
   formatReferencesHeader,
   resolveAndAttachIncomingReply,
 } from '../utils/threadingHelper.js';
+import { htmlToText, normalizeIncomingBody } from '../utils/emailBody.js';
 
 const extractEmail = (value = '') => {
   if (!value) return '';
@@ -35,7 +69,19 @@ const extractEmail = (value = '') => {
 
 const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b-it:free';
 
-export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }) => {
+/*
+ * `companyProfileId` names which profile the model writes from. A user can
+ * keep several — one per brand or client — and a scenario module chooses
+ * one. Unset falls back to their default profile, which is what every
+ * caller did before profiles could be plural.
+ */
+export const generateOpenRouterGemmaReply = async ({
+  from,
+  subject,
+  body,
+  user,
+  companyProfileId = null,
+}) => {
   try {
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
@@ -43,18 +89,34 @@ export const generateOpenRouterGemmaReply = async ({ from, subject, body, user }
       return null;
     }
 
-    const profileDoc = await CompanyProfileModel.findOne({ userId: user._id }).lean();
-    const cp = profileDoc?.company || {};
-    const knowledge = profileDoc?.companyKnowledge || '';
-    const services = (profileDoc?.services || [])
+    const profileDoc = companyProfileId
+      ? await CompanyProfileModel.findOne({
+          _id: companyProfileId,
+          /* Scoped to the owner: an id from a saved scenario must never
+             read another account's profile. */
+          userId: user._id,
+        }).lean()
+      : await resolveDefaultProfile(user._id);
+
+    if (companyProfileId && !profileDoc) {
+      console.warn(
+        `[AI reply] Company profile ${companyProfileId} not found for user ${user._id} — falling back to the default.`
+      );
+    }
+
+    const resolvedProfile =
+      profileDoc || (await resolveDefaultProfile(user._id));
+    const cp = resolvedProfile?.company || {};
+    const knowledge = resolvedProfile?.companyKnowledge || '';
+    const services = (resolvedProfile?.services || [])
       .map((s) => `- ${s.name || s.title || ''}${s.description ? ': ' + s.description : ''}`)
       .join('\n');
-    const faqs = (profileDoc?.faqs || [])
+    const faqs = (resolvedProfile?.faqs || [])
       .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
       .join('\n\n');
-    const policies = profileDoc?.policies || {};
-    const timelines = profileDoc?.timelines || {};
-    const writingStyle = profileDoc?.writingStyle || {};
+    const policies = resolvedProfile?.policies || {};
+    const timelines = resolvedProfile?.timelines || {};
+    const writingStyle = resolvedProfile?.writingStyle || {};
 
     const senderName = user.fullName || 'Samiullah Qureshi';
     const companyName = cp.companyName || user.organizationName || user.companyName || 'Summit Digital Solutions';
@@ -866,8 +928,12 @@ export const mailHookWebhook = async (req, res) => {
       senderAddress,
       recipientAddress: mailhookAddress,
       subject: parsed.subject,
-      textBody: parsed.text,
-      htmlBody: parsed.html,
+      /*
+       * Text only — see utils/emailBody.js. The reading pane renders our
+       * own HTML from this, so the sender's markup was stored, shipped
+       * and then overridden.
+       */
+      ...normalizeIncomingBody({ text: parsed.text, html: parsed.html }),
       date: rootDate,
       lastActivityAt: rootDate,
       messageId: parsed.messageId || '',
@@ -913,6 +979,12 @@ function fillTemplate(template, fields) {
   });
 }
 
+/*
+ * The ordinary field extraction: From header, plus whatever the body
+ * yields. Scenario-neutral on purpose — the Shopify-specific reading of
+ * a relayed inquiry is applied by the caller, to Shopify scenarios only,
+ * so a custom scenario gets exactly what it always got.
+ */
 function extractFieldsFromEmail(emailObj = {}) {
   const fields = {};
 
@@ -968,7 +1040,33 @@ export const executeScenarios = async (emailData) => {
     console.log('📩 Incoming Email Data:', emailData);
     console.log('=======================================');
 
-    const { userId, from, subject, body, emailId, parsedEmailObj } = emailData;
+    const {
+      userId,
+      from,
+      subject,
+      body,
+      emailId,
+      parsedEmailObj,
+      /*
+       * Replay controls, set only when a paused scenario's queue is
+       * released. See releaseScenarioQueue() in controller/scenarioQueue.js.
+       *
+       * onlyScenarioId limits the run to the scenario the message was
+       * queued for. Without it, releasing a backlog would also re-run
+       * every OTHER scenario the user owns — and those already ran when
+       * the message first arrived, so each release would send a second
+       * copy of their replies.
+       */
+      onlyScenarioId = null,
+      /*
+       * The scenarioExecuted lock was already taken when the message
+       * arrived, so a replay would always be refused by it. Release
+       * claims each queued message atomically instead (clearing
+       * queuedForScenarioId is the claim), which serves the same purpose:
+       * two concurrent releases cannot both replay the same message.
+       */
+      replayQueued = false,
+    } = emailData;
 
     const rawMsgId = parsedEmailObj?.messageId || emailData.messageId || emailData.emailId;
     const targetMsgId = rawMsgId ? String(rawMsgId).replace(/^<|>$/g, '').trim() : '';
@@ -991,7 +1089,7 @@ export const executeScenarios = async (emailData) => {
       lockConditions.push({ rfcMessageId: `<${cleanEId}>` });
     }
 
-    if (lockConditions.length > 0) {
+    if (lockConditions.length > 0 && !replayQueued) {
       const updated = await EmailModel.findOneAndUpdate(
         {
           $or: lockConditions,
@@ -1007,12 +1105,143 @@ export const executeScenarios = async (emailData) => {
       }
     }
 
+    /*
+     * Loaded before the fields are built: the identity parser matches on
+     * the administrator's configured trigger subject, so it has to be in
+     * hand first. It was previously loaded a few lines further down.
+     */
+    const platformRules = await loadPlatformRules();
+
+    /*
+     * The baseline fields, derived the ordinary way: name and address off
+     * the From header, the rest scraped out of the body. This is what a
+     * CUSTOM scenario uses, unchanged — its leads come straight from the
+     * person who wrote them, so the From header is the truth.
+     */
     const extractedFields = extractFieldsFromEmail(
       parsedEmailObj || { text: body, subject, from }
     );
 
+    /*
+     * Which mailbox this arrived at, so the Shopify resolver below can
+     * refuse to reply to the partner's own address if it appears in the
+     * body. Not every caller passes `to` (the mailhook webhook does not),
+     * so it is read off the stored message when the caller did not supply
+     * it — this guards against mailing the wrong person, so it is worth
+     * one lookup.
+     */
+    let receivedAtAddress = emailData.to || '';
+
+    if (!receivedAtAddress && lockConditions.length > 0) {
+      const storedDoc = await EmailModel.findOne({ $or: lockConditions })
+        .select('recipientAddress')
+        .lean();
+
+      receivedAtAddress = storedDoc?.recipientAddress || '';
+    }
+
+    /*
+     * ---------------------------------------------------------------
+     * Shopify-only lead handling
+     * ---------------------------------------------------------------
+     *
+     * Everything below describes a Partner Directory inquiry, and it is
+     * applied ONLY to scenarios of type 'shopify'. A custom scenario must
+     * behave exactly as it always has: reply to whoever sent the mail,
+     * with the fields read off the message itself.
+     *
+     * Two things are specific to the directory, and both are wrong
+     * anywhere else:
+     *
+     *   - the mail is RELAYED, so partners@shopify.com is the sender and
+     *     replying there reaches Shopify's relay, not the lead. Their
+     *     stored reply is literally "this email address is not
+     *     monitored". The lead's own address is in the body's contact
+     *     form, and the relay's own text says to use it.
+     *
+     *   - that same form carries the name, store, country, budget and
+     *     enquiry text the templates reference, in a layout nothing else
+     *     produces.
+     *
+     * Lazy and memoised: nothing here runs for an account with no
+     * Shopify scenario, and it runs at most once when there is more than
+     * one. Called from the Shopify branch of the loop below, and from
+     * nowhere else.
+     */
+    let shopifyLeadCache = null;
+
+    const getShopifyLead = () => {
+      if (shopifyLeadCache) return shopifyLeadCache;
+
+      const fields = { ...extractedFields };
+
+      /* The lead's name, which the subject carries and the From does not. */
+      applyLeadIdentity(
+        fields,
+        subject,
+        triggerForType(platformRules, 'shopify')?.subjectFilter || ''
+      );
+
+      const inquiry = parseShopifyInquiry(body);
+
+      /*
+       * The form's own "Full name" beats the subject parse — same value
+       * in practice, but read from a labelled field rather than from
+       * between two phrases, so a subject-wording change cannot break it.
+       */
+      if (inquiry.fullName) {
+        Object.assign(fields, identityFieldsFromName(inquiry.fullName));
+      }
+
+      if (inquiry.businessEmail) fields.BusinessEmail = inquiry.businessEmail;
+      if (inquiry.storeName) fields.StoreName = inquiry.storeName;
+      if (inquiry.storeUrl) fields.StoreURL = inquiry.storeUrl;
+      if (inquiry.country) fields.Country = inquiry.country;
+      if (inquiry.budget) fields.Budget = inquiry.budget;
+      if (inquiry.problemGoal) fields.ProblemGoal = inquiry.problemGoal;
+      if (inquiry.service) fields.Service = inquiry.service;
+
+      const resolved = resolveLeadReplyAddress(body, {
+        fromAddress: from,
+        receivedAt: receivedAtAddress,
+      });
+
+      shopifyLeadCache = { fields, replyAddress: resolved };
+
+      return shopifyLeadCache;
+    };
+
     const scenarios = await scenarioModel.find({ userId }).lean();
     console.log(`📚 Found ${scenarios.length} total scenario(s)`);
+
+    /*
+     * Record whether this message meets any scenario's criteria before
+     * running any of them. The Lead Inbox reads this to separate real
+     * leads from the rest of the mailbox a connection syncs, and it must
+     * be written even for scenarios that go on to match no branch.
+     */
+    if (lockConditions.length > 0) {
+      const matchedScenario = findMatchingScenario(
+        scenarios,
+        {
+          subject,
+          textBody: body,
+          senderAddress: from,
+        },
+        platformRules
+      );
+
+      if (matchedScenario) {
+        console.log(`🏷️ Email matches scenario criteria: ${matchedScenario.name || matchedScenario._id}`);
+
+        await EmailModel.updateOne(
+          { $or: lockConditions },
+          { $set: { matchedScenarioId: matchedScenario._id } }
+        );
+      } else {
+        console.log('🏷️ Email meets no scenario criteria — kept out of the Lead Inbox.');
+      }
+    }
 
     if (!scenarios.length) {
       console.log('⚠️ No scenarios found — stopping execution.');
@@ -1020,9 +1249,74 @@ export const executeScenarios = async (emailData) => {
     }
 
     for (const scenario of scenarios) {
+      /* A queue release replays exactly the scenario it was queued for. */
+      if (onlyScenarioId && String(scenario._id) !== String(onlyScenarioId)) {
+        continue;
+      }
+
       console.log('=======================================');
       console.log(`Executing Scenario: ${scenario.name} (${scenario.type})`);
       console.log('=======================================');
+
+      /*
+       * The On/Off toggle.
+       *
+       * This check did not exist: every scenario the user owned ran on
+       * every incoming lead regardless of its state, so switching a
+       * scenario Off changed a database field and nothing else — replies
+       * kept going out to real customers.
+       *
+       * Deliberately checked HERE rather than in the query above, because
+       * the classification pass that runs before this loop still needs
+       * inactive scenarios: they define what counts as a lead for the
+       * Lead Inbox even while their automation is paused.
+       */
+      if (scenario.scenarioActive === false) {
+        console.log(`⏸️ Scenario "${scenario.name}" is switched OFF — skipping execution.`);
+
+        /*
+         * Skipping is not the same as discarding.
+         *
+         * The lead still arrived, still met this scenario's criteria, and
+         * is sitting in the Lead Inbox unanswered. Record that so turning
+         * the scenario back on can offer the backlog rather than leaving
+         * it to rot: see getScenarioQueue()/releaseScenarioQueue().
+         *
+         * Only messages this scenario would actually have answered are
+         * queued — a message that met no criteria was never going to get
+         * a reply, and offering it on resume would be a lie.
+         */
+        if (lockConditions.length > 0) {
+          const wouldHaveMatched = scenarioMatchesEmail(
+            scenario,
+            { subject, textBody: body, senderAddress: from },
+            platformRules
+          );
+
+          if (wouldHaveMatched) {
+            await EmailModel.updateOne(
+              { $or: lockConditions, queuedForScenarioId: null },
+              {
+                $set: {
+                  queuedForScenarioId: scenario._id,
+                  queuedAt: new Date(),
+                },
+              }
+            );
+            console.log(`📥 Held in "${scenario.name}"'s queue — released or discarded when it is switched back on.`);
+          }
+        }
+
+        continue;
+      }
+      /*
+       * Defaults that describe a CUSTOM scenario: reply to whoever sent
+       * the mail, using the fields read off the mail itself. The Shopify
+       * branch below swaps both — nothing else does.
+       */
+      let leadFields = extractedFields;
+      let replyTo = from;
+
       const runStartedAt = new Date();
       const runSteps = [];
       let runLogDoc = null;
@@ -1189,15 +1483,60 @@ export const executeScenarios = async (emailData) => {
 
       console.log('🛍 Running Shopify Scenario Logic...');
 
-      const subjectLower = (subject || '').toLowerCase().trim();
+      /*
+       * Shopify only, and only from here down. See the shopifyLead block
+       * above for why a directory lead needs different handling; a custom
+       * scenario never reaches this line.
+       */
+      const shopifyLead = getShopifyLead();
 
-      const isShopifyInquiry = subjectLower.startsWith(
-        'shopify partner directory: new service inquiry from'
-      );
+      leadFields = shopifyLead.fields;
+      replyTo = shopifyLead.replyAddress || from;
+
+      if (shopifyLead.replyAddress && shopifyLead.replyAddress !== from) {
+        console.log(`↪️ Relayed lead: replies go to ${shopifyLead.replyAddress}, not the sender ${from}.`);
+      }
+
+      /*
+       * The subject that identifies a Partner Directory lead is set by the
+       * platform owner (master admin → Scenario Triggers), with the
+       * scenario's own subject filter taking precedence when the user has
+       * customised it. It used to be hardcoded here, which meant a change
+       * on Shopify's side needed a deploy to keep leads flowing.
+       */
+      const scenarioSubjectFilter = String(
+        scenario.incomingLead?.subjectFilter || ''
+      )
+        .trim()
+        .toLowerCase();
+
+      const platformTrigger = triggerForType(platformRules, 'shopify');
+
+      const shopifyFilter =
+        scenarioSubjectFilter || platformTrigger?.subjectFilter?.toLowerCase() || '';
+
+      if (!shopifyFilter) {
+        console.log(
+          '⛔ No Shopify trigger subject configured — skipping Shopify scenario.'
+        );
+        continue;
+      }
+
+      /* Prefix-stripped so a forwarded or replied lead still qualifies. */
+      const subjectLower = normalizeLeadSubject(subject, platformRules);
+
+      const matchMode = scenarioSubjectFilter
+        ? 'contains'
+        : platformTrigger?.matchMode || 'contains';
+
+      const isShopifyInquiry =
+        matchMode === 'startsWith'
+          ? subjectLower.startsWith(shopifyFilter)
+          : subjectLower.includes(shopifyFilter);
 
       if (!isShopifyInquiry) {
         console.log(
-          '⛔ Not a Shopify Partner Directory inquiry — skipping Shopify scenario only.'
+          `⛔ Subject does not match the Shopify trigger ("${shopifyFilter}") — skipping Shopify scenario only.`
         );
         continue;
       }
@@ -1366,44 +1705,12 @@ export const executeScenarios = async (emailData) => {
                 const textToSearch =
                   `${subject || ''} ${body || ''}`.toLowerCase();
 
-                const defaultServices = [
-                  'General',
-                  'Troubleshooting',
-                  'Theme customization',
-                  'Store build or redesign',
-                  'Store migration',
-                  'Website and marketing content',
-                  'SEO',
-                  'Site performance and speed',
-                  'Custom apps and integrations',
-                  'Store settings configuration',
-                  'Product and collection setup',
-                  'Social media marketing',
-                  'Product descriptions',
-                  'Search engine advertising',
-                  'POS setup and migration',
-                  'Custom domain setup',
-                  'Conversion rate optimization',
-                  'Analytics and tracking',
-                  'Sales channel setup',
-                  'Logo and visual branding',
-                  'Business strategy guidance',
-                  'Website audit and optimization strategy',
-                  'Sales tax guidance',
-                  'Product photography',
-                  'Email marketing',
-                  '3D modelling',
-                  'Banner ads',
-                  'Video and illustrations',
-                  'Content marketing',
-                  'Product sourcing guidance',
-                ];
-
-                let matchedService = defaultServices.find((s) =>
-                  textToSearch.includes(s.toLowerCase())
-                );
-
-                matchedService = matchedService || 'General';
+                /*
+                 * The router's service condition. The list and its ORDER are set by
+                 * the platform owner (master admin -> Scenario Triggers): first match
+                 * wins, so a broad term above a specific one shadows it.
+                 */
+                const matchedService = matchService(textToSearch, platformRules.services);
 
                 let tpl = await TemplateModel.findOne({
                   userId,
@@ -1447,7 +1754,7 @@ export const executeScenarios = async (emailData) => {
                 }
 
                 if (tpl) {
-                  templateContent = fillTemplate(tpl.content, extractedFields);
+                  templateContent = fillTemplate(tpl.content, leadFields);
 
                   console.log('✅ Delayed module template content resolved:', {
                     moduleId: delayedModule.id || delayedModule._id,
@@ -1459,21 +1766,39 @@ export const executeScenarios = async (emailData) => {
                     preview: templateContent.slice(0, 200),
                   });
                 } else {
-                  templateContent = fillTemplate(
-                    templateContent,
-                    extractedFields
-                  );
-
+                  /*
+                   * Same reason as the immediate send path: the fallback
+                   * here was delayedModule.template, which is a template
+                   * NAME, so a follow-up with nothing active queued the
+                   * word "First Follow-up" as its body and mailed it
+                   * hours later. Drop the module instead — a follow-up
+                   * with no content is not a follow-up.
+                   */
                   console.log(
-                    '⚠️ Template not found for delayed module. Using fallback/direct template:',
+                    '⛔ No active template for delayed module — dropped, nothing will be sent for it:',
                     {
                       moduleId: delayedModule.id || delayedModule._id,
                       originalTemplateName: delayedModule.template,
                       matchedService,
                       stepType,
-                      preview: templateContent.slice(0, 200),
                     }
                   );
+
+                  addRunStep({
+                    stepKey: 'delay-module-skip',
+                    stepName: 'Delayed Follow-up Skipped',
+                    status: 'failed',
+                    message: `No active ${stepType} template for "${matchedService}" or General — this follow-up was not scheduled.`,
+                    issue: 'No active template matched this follow-up.',
+                    suggestion: `Switch on a ${stepType} template under Templates, for "${matchedService}" or for General.`,
+                    meta: {
+                      moduleId: delayedModule.id || delayedModule._id,
+                      matchedService,
+                      stepType,
+                    },
+                  });
+
+                  continue;
                 }
 
                 remainingModules.push({
@@ -1532,7 +1857,7 @@ export const executeScenarios = async (emailData) => {
                 service:
                   runSteps.find((s) => s.meta?.service)?.meta?.service || '',
                 businessEmail: from || '',
-                customerName: extractedFields.FullName || '',
+                customerName: leadFields.FullName || '',
                 parentEmailId: emailId || null,
                 replyEmailId:
                   runSteps.find((s) => s.meta?.replyEmailId)?.meta
@@ -1555,7 +1880,13 @@ export const executeScenarios = async (emailData) => {
 
               const delayJob = await DelayJobModel.create({
                 userId,
-                emailData,
+                /*
+                 * replyTo travels with the job so a follow-up sent hours
+                 * later goes to the same person the first reply did.
+                 * Kept alongside `from` rather than replacing it — the
+                 * record of who actually sent the mail stays intact.
+                 */
+                emailData: { ...emailData, replyTo },
                 emailId,
                 scenarioId: scenario._id,
                 runLogId: runLogDoc._id,
@@ -1630,44 +1961,27 @@ export const executeScenarios = async (emailData) => {
 
               const textToSearch = (subject + ' ' + body).toLowerCase();
 
-              const defaultServices = [
-                'General',
-                'Troubleshooting',
-                'Theme customization',
-                'Store build or redesign',
-                'Store migration',
-                'Website and marketing content',
-                'SEO',
-                'Site performance and speed',
-                'Custom apps and integrations',
-                'Store settings configuration',
-                'Product and collection setup',
-                'Social media marketing',
-                'Product descriptions',
-                'Search engine advertising',
-                'POS setup and migration',
-                'Custom domain setup',
-                'Conversion rate optimization',
-                'Analytics and tracking',
-                'Sales channel setup',
-                'Logo and visual branding',
-                'Business strategy guidance',
-                'Website audit and optimization strategy',
-                'Sales tax guidance',
-                'Product photography',
-                'Email marketing',
-                '3D modelling',
-                'Banner ads',
-                'Video and illustrations',
-                'Content marketing',
-                'Product sourcing guidance',
-              ];
+              /*
+               * The router's service condition. The list and its ORDER are set by
+               * the platform owner (master admin -> Scenario Triggers): first match
+               * wins, so a broad term above a specific one shadows it.
+               */
+              const matchedService = matchService(textToSearch, platformRules.services);
 
-              let matchedService = defaultServices.find((s) =>
-                textToSearch.includes(s.toLowerCase())
-              );
-              matchedService = matchedService || 'General';
-
+              /*
+               * `active: true` matters here.
+               *
+               * This query used to ignore it, so switching a template off
+               * changed nothing: the engine still found the service's
+               * seeded default and mailed its placeholder text to the
+               * customer, while the user's edited General template — the
+               * only one left switched on — was never reached, because
+               * the fallback only runs when the first query finds
+               * NOTHING. An inactive template counted as something.
+               *
+               * The delayed-module path a few hundred lines up already
+               * filtered on active; these two were simply out of step.
+               */
               let tpl = await TemplateModel.findOne({
                 userId,
                 platform: 'shopify',
@@ -1684,10 +1998,11 @@ export const executeScenarios = async (emailData) => {
                     ),
                   },
                 ],
+                active: true,
               });
 
               if (!tpl) {
-                console.log(`⚠️ Active template for service "${matchedService}" not found. Falling back to General template...`);
+                console.log(`⚠️ No ACTIVE template for service "${matchedService}". Falling back to the active General template...`);
                 tpl = await TemplateModel.findOne({
                   userId,
                   platform: 'shopify',
@@ -1704,12 +2019,42 @@ export const executeScenarios = async (emailData) => {
                       ),
                     },
                   ],
+                  active: true,
                 });
               }
 
-              if (tpl) templateContent = tpl.content;
+              /*
+               * With nothing active to send, stop.
+               *
+               * module.template holds a template NAME ("Initial Email"),
+               * not body text — the module dialog has no content field.
+               * So the old fallback mailed the customer the literal word
+               * "Initial Email". Recording the reason and sending nothing
+               * is the honest outcome: the run log says the reply was
+               * skipped and why, instead of a customer receiving a stub.
+               */
+              if (!tpl) {
+                console.log(`⛔ No active template for service "${matchedService}" or General (${stepType}) — reply skipped.`);
 
-              templateContent = fillTemplate(templateContent, extractedFields);
+                addRunStep({
+                  stepKey: 'reply-email-send',
+                  stepName: 'Reply Email Send',
+                  status: 'failed',
+                  message: `No active ${stepType} template for "${matchedService}" or General — nothing was sent.`,
+                  issue: 'No active template matched this lead.',
+                  suggestion: `Switch on an ${stepType} template under Templates, for "${matchedService}" or for General.`,
+                  location: replyTo,
+                  meta: {
+                    moduleId: module.id || module._id,
+                    matchedService,
+                    stepType,
+                  },
+                });
+
+                continue;
+              }
+
+              templateContent = fillTemplate(tpl.content, leadFields);
 
               const targetConnId =
                 module.connectionId || scenario.incomingLead?.connectionId;
@@ -1727,7 +2072,12 @@ export const executeScenarios = async (emailData) => {
                   stepType,
                   templateAiEnabled: tpl ? (tpl.aiResponse !== false) : true,
                 },
-                from,
+                /*
+                 * The lead, not the relay. `from` is partners@shopify.com
+                 * on a directory inquiry; replyTo falls back to `from`
+                 * when the mail was not relayed.
+                 */
+                replyTo,
                 subject,
                 emailId
               );
@@ -1738,7 +2088,7 @@ export const executeScenarios = async (emailData) => {
                   stepName: 'Reply Email Send',
                   status: 'success',
                   message: 'Reply email sent successfully.',
-                  location: from,
+                  location: replyTo,
                   meta: {
                     moduleId: module.id || module._id,
                     replyEmailId: sendResult.replyEmailId,
@@ -1805,8 +2155,8 @@ export const executeScenarios = async (emailData) => {
               ? 'Live scenario executed successfully.'
               : 'Scenario matched but no executable step completed.',
           service: runSteps.find((s) => s.meta?.service)?.meta?.service || '',
-          businessEmail: from || '',
-          customerName: extractedFields.FullName || '',
+          businessEmail: replyTo || from || '',
+          customerName: leadFields.FullName || '',
           parentEmailId: emailId || null,
           replyEmailId:
             runSteps.find((s) => s.meta?.replyEmailId)?.meta?.replyEmailId ||
@@ -1901,7 +2251,27 @@ export const sendEmailModule = async (
 
     const isManualReply = module.stepType === 'Manual Reply' || module.isManual === true || module.isManualReply === true;
     const isTemplateAiEnabled = module.templateAiEnabled !== false;
-    const isAIActive = !isManualReply && (module.templateAiEnabled === true || user?.Ai === true || user?.subscription?.aiRepliesActive === true);
+
+    /*
+     * The module's own reply mode wins when it is set. It is chosen in the
+     * scenario builder ("Manual" or "AI"), which is more specific than the
+     * account-wide AI flags below and must be able to override them in
+     * both directions.
+     */
+    const moduleWantsAi =
+      module.replyMode === 'ai'
+        ? true
+        : module.replyMode === 'manual'
+          ? false
+          : null;
+
+    const isAIActive =
+      !isManualReply &&
+      (moduleWantsAi !== null
+        ? moduleWantsAi
+        : module.templateAiEnabled === true ||
+          user?.Ai === true ||
+          user?.subscription?.aiRepliesActive === true);
 
     if (isAIActive) {
       log('🤖 AI REPLIES ENABLED for automated step → OpenRouter Gemma 4 26B generating high-converting email response');
@@ -1911,6 +2281,8 @@ export const sendEmailModule = async (
         subject: originalSubject,
         body: module.template || '',
         user,
+        /* Which company profile this module writes from. */
+        companyProfileId: module.companyProfileId || null,
       });
 
       if (aiReply) {
@@ -2339,7 +2711,19 @@ export const sendEmailModule = async (
 
     if (sentOk) {
       const now = new Date();
-      const plainTextBody = (emailBody || '').replace(/<\/?[^>]+(>|$)/g, '');
+      /*
+       * A bare tag strip collapsed the whole reply into one line:
+       * "<p>Hi Kim,</p><p>Thank you..." became "Hi Kim,Thank you...",
+       * with no space where the paragraph break had been. The stored text
+       * was then unreadable — and it is what the inbox falls back to
+       * whenever the html body is not loaded, which is how a correctly
+       * rendered thread turned into a wall of run-on text a few seconds
+       * after opening.
+       *
+       * htmlToText understands block boundaries, so paragraphs stay
+       * paragraphs. Same converter the incoming path uses.
+       */
+      const plainTextBody = htmlToText(emailBody || '');
       const textPreview = plainTextBody.replace(/\s+/g, ' ').trim().slice(0, 150);
       const rootDoc = ultimateRoot || parentEmailDoc;
       const rootId = rootDoc ? rootDoc._id : null;
@@ -2607,20 +2991,24 @@ export const addLeadDiscussion = async (req, res) => {
 
     if (!matches?.length) return null;
 
-    return matches.find((item) => {
-      const lower = item.toLowerCase();
+    /* Skip our own addresses — the lead is the other one. */
+    const inboxRules = getCachedRules().inbox;
 
-      return (
-        !lower.includes('replexengine.com') &&
-        !lower.includes('mail.replexengine.com') &&
-        !lower.includes('shopifyexpertsteam.com')
-      );
-    });
+    return matches.find((item) => !isInternalAddress(item, inboxRules));
   };
 
   try {
     const { emailId } = req.params;
-    const { message } = req.body;
+
+    /*
+     * manualConnectionId was read twice further down but never declared,
+     * so every manual reply threw a ReferenceError and came back as
+     * "Reply Failed — Server error". It is the connection the user picks
+     * when a thread has no previous outgoing message to infer one from,
+     * and it is optional: undefined simply means "work it out".
+     */
+    const { message, connectionId: manualConnectionId } = req.body;
+
     const authUserId = String(req.user?._id || req.user?.id || req.user?.userId || '');
 
     log('API called', { emailId, authUserId });
@@ -2744,10 +3132,34 @@ export const addLeadDiscussion = async (req, res) => {
     // -------------------------------
     // CUSTOMER EMAIL RESOLUTION
     // -------------------------------
+    /*
+     * Where a manual reply goes.
+     *
+     * The relay comes first in the thread, so rootEmail.senderAddress is
+     * partners@shopify.com on a Partner Directory lead — replying there
+     * reaches Shopify's unmonitored mailbox, not the customer. The same
+     * resolver the scenario replies use reads the address out of the
+     * body's contact form, and returns null for mail that was not
+     * relayed, where the sender IS the customer.
+     */
+    const relayedLeadAddress = resolveLeadReplyAddress(
+      `${rootEmail.textBody || ''}
+${rootEmail.htmlBody || ''}`,
+      {
+        fromAddress: rootEmail.senderAddress || '',
+        receivedAt: rootEmail.recipientAddress || '',
+      }
+    );
+
     const customerEmail =
+      relayedLeadAddress ||
       extractEmail(rootEmail.senderAddress) ||
       extractCustomerEmailFromBody(rootEmail) ||
       extractEmail(lastOutgoingChild?.recipientAddress);
+
+    if (relayedLeadAddress && relayedLeadAddress !== extractEmail(rootEmail.senderAddress)) {
+      log(`Relayed lead: replying to ${relayedLeadAddress}, not the sender ${rootEmail.senderAddress}`);
+    }
 
     if (!customerEmail) {
       return res.status(400).json({
@@ -4195,19 +4607,18 @@ export const RunTestMode = async (req, res) => {
      */
     let parentSendInfo = { messageId: formatMessageId(`test-parent-${Date.now()}`) };
 
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    /*
+     * Platform-sent test lead. Guarded on the resolved sending address so
+     * it reflects the configured mailbox, not the env vars it used to
+     * read directly.
+     */
+    const platformSender = await platformFromAddress();
+
+    if (platformSender) {
       try {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-          },
-        });
+        const fromAddress = `Replex Engine <${platformSender}>`;
 
-        const fromAddress = `Replex Engine <${process.env.EMAIL_USER}>`;
-
-        const sentInfo = await transporter.sendMail({
+        const sentInfo = await sendPlatformMail({
           from: fromAddress,
           to: incomingLeadEmail,
           replyTo: businessEmail,
@@ -4863,18 +5274,10 @@ export const RunCustomTestMode = async (req, res) => {
 
     const textBody = body;
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
     const emailId = `custom-test-${Date.now()}`;
-    const fromAddress = `Replex Engine <${process.env.EMAIL_USER}>`;
+    const fromAddress = `Replex Engine <${await platformFromAddress()}>`;
 
-    await transporter.sendMail({
+    await sendPlatformMail({
       from: fromAddress,
       to: mailhook,
       subject,
@@ -4885,7 +5288,7 @@ export const RunCustomTestMode = async (req, res) => {
     const savedEmail = await EmailModel.create({
       userId,
       senderFirstName: partnerName,
-      senderAddress: process.env.EMAIL_USER,
+      senderAddress: fromAddress.replace(/^.*<|>$/g, ''),
       recipientAddress: mailhook,
       subject,
       textBody,
@@ -4905,7 +5308,9 @@ export const RunCustomTestMode = async (req, res) => {
       emailId,
       parsedEmailObj: {
         from: {
-          value: [{ name: 'Replex Engine', address: process.env.EMAIL_USER }],
+          value: [
+            { name: 'Replex Engine', address: fromAddress.replace(/^.*<|>$/g, '') },
+          ],
         },
         subject,
         text: textBody,
@@ -5204,6 +5609,98 @@ export const getEmailsForUsers = async (req, res) => {
 //   }
 // };
 
+/*
+ * GET /mailhook/thread/:rootId
+ *
+ * The message bodies for one conversation.
+ *
+ * The list endpoint omits htmlBody because it is most of the payload and
+ * is only ever read once a thread is opened. This fetches it for the one
+ * thread the user actually opened — a few kilobytes on demand instead of
+ * megabytes on every poll.
+ */
+export const getThreadMessages = async (req, res) => {
+  try {
+    const { rootId } = req.params;
+    const authUserId = String(
+      req.user?._id || req.user?.id || req.user?.userId || ''
+    );
+
+    if (!mongoose.Types.ObjectId.isValid(rootId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid thread id' });
+    }
+
+    const root = await EmailModel.findById(rootId)
+      .select('userId conversationId providerThreadId threadId')
+      .lean();
+
+    if (!root) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Thread not found' });
+    }
+
+    /* Same ownership rule as the list endpoint. */
+    if (
+      !authUserId ||
+      (String(root.userId) !== authUserId && req.user?.role !== 'admin')
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot access another user's emails",
+      });
+    }
+
+    const threadKeys = [
+      root.conversationId,
+      root.providerThreadId,
+      root.threadId,
+    ].filter(Boolean);
+
+    const messages = await EmailModel.find({
+      $or: [
+        { _id: root._id },
+        { rootEmailId: root._id },
+        { parentEmailId: root._id },
+        { parentEmailId: String(root._id) },
+        ...(threadKeys.length
+          ? [
+              { conversationId: { $in: threadKeys } },
+              { providerThreadId: { $in: threadKeys } },
+              { threadId: { $in: threadKeys } },
+            ]
+          : []),
+      ],
+      isDeleted: { $ne: true },
+    })
+      .select('_id htmlBody textBody')
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        rootId,
+        /* Keyed by id so the client can merge without matching on order. */
+        bodies: messages.reduce((acc, message) => {
+          acc[String(message._id)] = {
+            htmlBody: message.htmlBody || '',
+            textBody: message.textBody || '',
+          };
+          return acc;
+        }, {}),
+      },
+    });
+  } catch (error) {
+    console.error('❌ getThreadMessages error:', error);
+    return res
+      .status(500)
+      .json({ success: false, message: 'Could not load the conversation' });
+  }
+};
+
+
 export const getEmailDataforUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -5283,15 +5780,32 @@ export const getEmailDataforUser = async (req, res) => {
       }
     });
 
+    /*
+     * The list payload deliberately leaves out htmlBody.
+     *
+     * It is 69% of this collection's bytes and nothing in the list uses
+     * it — the row snippet comes from textBody. It is only needed once a
+     * thread is opened, which is what getThreadMessages() below is for.
+     * Sending it with every poll made the inbox wait on ~1.7 MB of mail
+     * bodies that were then thrown away.
+     *
+     * The two populate() calls that used to be here are gone as well:
+     * they issued four extra round trips per request to attach a user
+     * document and a template document that no caller reads.
+     */
     const initialEmailsRaw = await EmailModel.find({ $or: queryConditions })
-      .populate('userId', 'name email')
-      .populate('templateId')
+      .select('-htmlBody')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Filter out system welcome / onboarding emails from Lead Inbox
+    /*
+     * Platform-level inbox exclusions (onboarding mail, muted senders).
+     * Configured by the SaaS owner — master admin -> Scenario Triggers.
+     */
+    const platformRules = await loadPlatformRules();
+
     const initialEmails = initialEmailsRaw.filter(
-      (e) => !e.subject || !/^Welcome to Replex Engine/i.test(e.subject.trim())
+      (e) => !isExcludedFromInbox(e, platformRules.inbox)
     );
 
     const rootIdStrs = initialEmails.map((e) => e._id.toString());
@@ -5307,8 +5821,7 @@ export const getEmailDataforUser = async (req, res) => {
         { parentEmailId: { $in: rootIdStrs } },
       ],
     })
-      .populate('userId', 'name email')
-      .populate('templateId')
+      .select('-htmlBody')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -5335,16 +5848,23 @@ export const getEmailDataforUser = async (req, res) => {
     }
 
     // 3.5 AUTO-STITCH ORPHANED REPLIES TO PRIMARY LEAD THREADS
+    /*
+     * Which side of the conversation is the lead. Mail from one of our own
+     * domains is us, so the thread is keyed by the other party — get this
+     * wrong and a lead's replies split into separate threads. The domain
+     * list is configured by the SaaS owner.
+     */
     const getLeadEmail = (item) => {
       const s = extractEmail(item.senderAddress || '').toLowerCase();
       const r = extractEmail(item.recipientAddress || '').toLowerCase();
-      const isSupportSender =
-        s.includes('2014tabontech') ||
-        s.includes('replexengine') ||
-        s.includes('shopifyexpertsteam');
-      if (item.direction === 'outgoing' || isSupportSender) {
+
+      if (
+        item.direction === 'outgoing' ||
+        isInternalAddress(s, platformRules.inbox)
+      ) {
         return r || s;
       }
+
       return s || r;
     };
 
@@ -5367,10 +5887,12 @@ export const getEmailDataforUser = async (req, res) => {
     for (const email of rawRoots) {
       const emailLead = getLeadEmail(email);
       const cleanMsgId = email.messageId ? email.messageId.replace(/^<|>$/g, '').trim() : '';
-      const cleanSubj = (email.subject || '')
-        .replace(/^((re|fwd|fw|\[external\]):\s*)+/i, '')
-        .trim()
-        .toLowerCase();
+      /*
+       * Must use the same prefix list the matcher does. A configured
+       * prefix stripped in one place and not the other would key a reply
+       * differently from its own root and split the thread.
+       */
+      const cleanSubj = normalizeLeadSubject(email.subject, platformRules);
 
       const rootKey =
         email.conversationId ||
@@ -5395,7 +5917,7 @@ export const getEmailDataforUser = async (req, res) => {
     const emailsWithThreads = deduplicatedRoots.map((root) => {
       const rootIdStr = root._id.toString();
       const cleanRootSender = extractEmail(root.senderAddress || '').toLowerCase();
-      const cleanRootSubj = (root.subject || '').replace(/^re:\s*|^fwd:\s*/i, '').trim().toLowerCase();
+      const cleanRootSubj = normalizeLeadSubject(root.subject, platformRules);
       const cleanRootMsgId = root.messageId ? root.messageId.replace(/^<|>$/g, '').trim() : '';
 
       const thread = userEmails.filter((e) => {
@@ -5460,8 +5982,22 @@ export const getEmailDataforUser = async (req, res) => {
       const latestSender = newestMessage.senderAddress || root.senderAddress;
       const stepType = newestMessage.stepType || root.stepType || null;
       const unreadCount = deduplicatedThread.filter((m) => m.direction === 'incoming' && !m.isRead).length;
-      const computedStatus = newestMessage.direction === 'incoming' ? 'customer_replied' : 'awaiting_customer_reply';
-      const awaitingReply = newestMessage.direction === 'outgoing';
+      /*
+       * Whose turn it is, decided by the newest message in the thread.
+       *
+       * An incoming newest message means the ball is with us: either
+       * nobody has replied yet, or the customer has written back since we
+       * did. An outgoing one means we have answered and are waiting on
+       * them.
+       */
+      const newestDirection = newestMessage.direction === 'outgoing'
+        ? 'outgoing'
+        : 'incoming';
+
+      const computedStatus =
+        newestDirection === 'incoming' ? 'customer_replied' : 'awaiting_customer_reply';
+
+      const awaitingReply = newestDirection === 'outgoing';
 
       return {
         ...root,
@@ -5477,27 +6013,227 @@ export const getEmailDataforUser = async (req, res) => {
         unreadCount,
         messageCount: deduplicatedThread.length,
         status: root.status || computedStatus,
-        awaitingReply: root.awaitingReply !== undefined ? root.awaitingReply : awaitingReply,
+        /*
+         * Computed, never read off the root document.
+         *
+         * It used to prefer `root.awaitingReply` whenever that was not
+         * undefined — and the schema defaults it to false, so it was
+         * never undefined and the computed value was dead code. Every
+         * thread reported awaitingReply:false, which made "New Emails"
+         * show the entire inbox including leads already answered.
+         *
+         * The root's own flag describes one message. This describes the
+         * thread, which is what the inbox lists.
+         */
+        awaitingReply,
+        newestDirection,
+        /*
+         * Who a reply to this thread actually goes to, and what to call
+         * them.
+         *
+         * Resolved here so the composer shows the same address the send
+         * will use. A relayed Partner Directory lead arrives from
+         * partners@shopify.com, so the sender is not the customer — the
+         * reply header used to name the relay, and there was no way to
+         * tell from the UI where a reply would land.
+         */
+        ...(() => {
+          const source = `${root.textBody || ''}
+${root.htmlBody || ''}`;
+
+          const relayed = resolveLeadReplyAddress(source, {
+            fromAddress: root.senderAddress || '',
+            receivedAt: root.recipientAddress || '',
+          });
+
+          const identity = parseLeadIdentity(
+            root.subject || '',
+            triggerForType(platformRules, 'shopify')?.subjectFilter || ''
+          );
+
+          return {
+            leadReplyAddress: relayed || root.senderAddress || '',
+            leadIsRelayed: Boolean(relayed && relayed !== root.senderAddress),
+            leadName: identity.matched && !identity.isEmail ? identity.fullName : '',
+            leadFirstName:
+              identity.matched && !identity.isEmail ? identity.firstName : '',
+          };
+        })(),
         conversation: deduplicatedThread,
       };
     });
 
+    /*
+     * 5. LEAD INBOX FILTER
+     *
+     * A connection syncs an entire mailbox, so most of what is stored is
+     * not a lead. Keep only threads that meet the criteria of one of this
+     * user's scenarios.
+     *
+     * The test runs over the whole conversation, not just the root, so a
+     * reply — "Re:" subject, stitched by threadId / conversationId /
+     * In-Reply-To — is never dropped from the lead it belongs to.
+     *
+     * With no scenario criteria configured there is nothing to filter
+     * against, and hiding everything would read as a broken inbox, so the
+     * full list is returned unchanged.
+     */
+    const userScenarios = await scenarioModel
+      .find({ userId: userObjId })
+      .select('type incomingLead routerBranches name')
+      .lean();
+
+    let visibleThreads = emailsWithThreads;
+
+    if (hasAnyScenarioCriteria(userScenarios, platformRules)) {
+      visibleThreads = emailsWithThreads.filter((thread) =>
+        threadMatchesScenarios(
+          userScenarios,
+          [thread, ...(thread.conversation || [])],
+          platformRules
+        )
+      );
+
+      console.log(
+        `🎯 Lead filter: ${visibleThreads.length}/${emailsWithThreads.length} thread(s) meet the criteria of ${userScenarios.length} scenario(s)`
+      );
+    } else {
+      console.log('🎯 Lead filter skipped — no scenario criteria configured for this user.');
+    }
+
     // Sort root threads by latest activity descending (Gmail-style)
-    emailsWithThreads.sort((a, b) => {
+    visibleThreads.sort((a, b) => {
       const timeA = new Date(a.lastActivityAt || a.date || a.createdAt || 0).getTime();
       const timeB = new Date(b.lastActivityAt || b.date || b.createdAt || 0).getTime();
       return timeB - timeA;
     });
 
-    console.log(`✅ Returning ${emailsWithThreads.length} Thread(s) sorted by lastActivityAt to Inbox UI`);
-    console.log('=======================================\n');
+    /*
+     * ---------------------------------------------------------------
+     * Views, stubs and paging
+     * ---------------------------------------------------------------
+     *
+     * The endpoint used to answer one question — "give me everything" —
+     * and every caller paid for it: the sidebar re-downloaded the whole
+     * inbox once a minute just to print counts, and the inbox page
+     * waited on the entire mailbox before it could draw a single row.
+     *
+     *   ?stubs=1        ids and metadata only, no bodies and no
+     *                   conversation — what the sidebar counts need
+     *   ?view=new       only threads waiting on a reply from us
+     *   ?page= &limit=  one page at a time, newest first
+     *
+     * All three are opt-in, so a caller that sends none of them still
+     * receives the full list exactly as before.
+     */
+    const requestedView = String(req.query.view || 'all').toLowerCase();
+
+    /*
+     * "New" means the ball is in our court: nobody has replied yet, or
+     * the customer has written back since we did. awaitingReply is set
+     * when the newest message in a thread is outgoing, so the threads
+     * needing attention are the ones where it is NOT set.
+     */
+    const needsAttention = (thread) =>
+      thread.newestDirection === 'incoming' &&
+      thread.leadStatus !== 'secured' &&
+      thread.leadStatus !== 'closed';
+
+    /*
+     * Archived threads are filed away and are out of every view except
+     * the one that exists to show them.
+     *
+     * The server was returning them in view=all while the client filtered
+     * them out, so the header said "8 leads" over a list of 7 — and with
+     * paging that drift would compound page by page.
+     */
+    const includeArchived = String(req.query.includeArchived || '') === '1';
+
+    const activeThreads = includeArchived
+      ? visibleThreads
+      : visibleThreads.filter((thread) => thread.isArchived !== true);
+
+    const archivedCount = visibleThreads.filter(
+      (thread) => thread.isArchived === true
+    ).length;
+
+    const newCount = activeThreads.filter(needsAttention).length;
+
+    if (String(req.query.stubs || '') === '1') {
+      /*
+       * Everything the sidebar's counting and matching needs, and
+       * nothing else — no bodies, no thread messages.
+       */
+      /* Stubs always carry everything — the sidebar counts each view. */
+      const stubs = visibleThreads.map((thread) => ({
+        _id: thread._id,
+        subject: thread.subject || '',
+        senderAddress: thread.senderAddress || '',
+        recipientAddress: thread.recipientAddress || '',
+        matchedScenarioId: thread.matchedScenarioId || null,
+        connectionId: thread.connectionId || null,
+        service: thread.service || null,
+        stepType: thread.stepType || null,
+        leadStatus: thread.leadStatus || 'new_lead',
+        status: thread.status || null,
+        direction: thread.direction || 'incoming',
+        awaitingReply: thread.awaitingReply === true,
+        newestDirection: thread.newestDirection || 'incoming',
+        isArchived: thread.isArchived === true,
+        isDeleted: thread.isDeleted === true,
+        lastActivityAt: thread.lastActivityAt || thread.date || null,
+        messageCount: thread.messageCount || 1,
+        leadReplyAddress: thread.leadReplyAddress || '',
+      }));
+
+      console.log(`✅ Returning ${stubs.length} thread stub(s) for counts`);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          userId,
+          totalThreads: stubs.length,
+          activeCount: activeThreads.length,
+          archivedCount,
+          newCount,
+          threads: stubs,
+          stubs: true,
+        },
+      });
+    }
+
+    const inView =
+      requestedView === 'new'
+        ? activeThreads.filter(needsAttention)
+        : activeThreads;
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    /* No limit given means "everything", which is the old behaviour. */
+    const pageThreads = limit
+      ? inView.slice((page - 1) * limit, page * limit)
+      : inView;
+
+    console.log(
+      `✅ Returning ${pageThreads.length} of ${inView.length} thread(s) [view=${requestedView}]`
+    );
 
     return res.status(200).json({
       success: true,
       data: {
         userId,
-        totalThreads: emailsWithThreads.length,
-        threads: emailsWithThreads,
+        /* Total in the requested view, not just this page. */
+        totalThreads: inView.length,
+        /* Totals across every view, so the sidebar can show both. */
+        allCount: activeThreads.length,
+        archivedCount,
+        newCount,
+        view: requestedView,
+        page: limit ? page : 1,
+        limit: limit || inView.length,
+        hasMore: limit ? page * limit < inView.length : false,
+        threads: pageThreads,
       },
     });
 
@@ -5581,6 +6317,19 @@ export const getLatestVerificationEmail = async (req, res) => {
 
     // 🔹 Build response with safe defaults
     const result = {
+      /*
+       * _id is what the callers use to tell a newly arrived message from
+       * the one they already showed. Without it every poll looked like the
+       * same undefined id and the "new email" handling never re-fired.
+       */
+      _id: email._id,
+      /*
+       * The address the message was originally addressed to — i.e. the
+       * mailbox that forwards into the mailhook. Only present when the
+       * forwarded headers preserved it; null rather than a guess, so the
+       * UI does not prefill a wrong forwarding address.
+       */
+      toEmail: email.forwardedMeta?.to || null,
       subject: email.subject || '(No Subject)',
       date: email.date || email.createdAt,
       sender: email.senderAddress || 'Unknown Sender',
@@ -5649,16 +6398,8 @@ If you receive this email, your mail forwarding is active and functioning.
 
 — Replex Engine Team`;
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
+    await sendPlatformMail({
+      from: `"Replex Engine" <${await platformFromAddress()}>`,
       to: toEmail,
       subject: testSubject,
       text: testBody,
@@ -5875,7 +6616,8 @@ export const getTestEmailData = async (req, res) => {
         $regex: 'Replex Engine Forwarding Validation Test',
         $options: 'i',
       },
-      senderAddress: { $regex: process.env.EMAIL_USER, $options: 'i' },
+      /* Mail sent by the platform, whichever address it is configured with. */
+      senderAddress: { $regex: await platformFromAddress(), $options: 'i' },
     })
       .sort({ createdAt: -1 })
       .lean();
@@ -6129,19 +6871,11 @@ export const sendTestEmail = async (req, res) => {
         .json({ success: false, message: 'Missing email or user ID' });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+
 
     const mailOptions = {
       from:
-        process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
+        await platformFromHeader(),
       to: toEmail,
       subject: 'Replex Engine Test Email',
       text: `Hello,
@@ -6155,7 +6889,7 @@ Replex Engine Team`,
     };
 
     // 🔹 Send the
-    await transporter.sendMail(mailOptions);
+    await sendPlatformMail(mailOptions);
 
     return res.json({
       success: true,

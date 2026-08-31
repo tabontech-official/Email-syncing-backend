@@ -1,20 +1,9 @@
-import nodemailer from "nodemailer";
+import { sendPlatformMail } from "../utils/platformMailer.js";
 
-export const welComeEmail = async ({ to, subject, html }) => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER, 
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  return transporter.sendMail({
-    from: `"Replex Engine" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    html,
-  });
-};
+/*
+ * Welcome mail goes out as the platform, so it uses the configured
+ * platform mailbox (master admin -> Platform Email) rather than its own
+ * hardcoded Gmail transport. `from` is filled in by the mailer.
+ */
+export const welComeEmail = async ({ to, subject, html }) =>
+  sendPlatformMail({ to, subject, html });

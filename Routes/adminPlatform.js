@@ -16,6 +16,11 @@ import {
   getAuditLogs,
   getAdminLeads,
   getAdminLeadThread,
+  getScenarioTriggerConfig,
+  updateScenarioTriggerConfig,
+  getPlatformEmailConfig,
+  updatePlatformEmailConfig,
+  testPlatformEmailConfig,
 } from '../controller/adminPlatform.js';
 import { adminMiddleware } from '../middleware/authmiddleware.js';
 
@@ -51,6 +56,15 @@ adminPlatformRouter.delete('/organizations/:name', deleteOrganizationByAdmin);
 // Platform Leads & Thread Reports
 adminPlatformRouter.get('/leads', getAdminLeads);
 adminPlatformRouter.get('/leads/thread/:id', getAdminLeadThread);
+
+// Scenario Trigger Configuration (platform-wide defaults)
+adminPlatformRouter.get('/scenario-triggers', getScenarioTriggerConfig);
+adminPlatformRouter.put('/scenario-triggers', updateScenarioTriggerConfig);
+
+// Platform Email (the mailbox Replex Engine sends its own mail from)
+adminPlatformRouter.get('/platform-email', getPlatformEmailConfig);
+adminPlatformRouter.put('/platform-email', updatePlatformEmailConfig);
+adminPlatformRouter.post('/platform-email/test', testPlatformEmailConfig);
 
 // Audit Logging
 adminPlatformRouter.get('/audit-logs', getAuditLogs);

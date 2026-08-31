@@ -2,12 +2,44 @@ import mongoose from "mongoose";
 
 const CompanyProfileSchema = new mongoose.Schema(
   {
+    /*
+     * No longer unique: a user keeps several profiles — one per brand,
+     * client or product line — and picks which one an AI reply writes
+     * from. The unique index that used to be here is what limited every
+     * account to a single profile.
+     */
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true,
       index: true,
+    },
+
+    /* How the profile is named in pickers. Falls back to the company name. */
+    profileName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    /*
+     * Used when a scenario asks for AI replies without naming a profile,
+     * and for accounts that predate multi-profile support.
+     */
+    isDefault: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    /*
+     * An inactive profile is kept but not offered to scenarios — a brand
+     * you have paused, or a client you no longer write for. Distinct from
+     * deleting it, which would break scenarios still pointing at it.
+     */
+    isActive: {
+      type: Boolean,
+      default: true,
     },
 
     // 1. Company Information

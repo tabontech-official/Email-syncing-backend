@@ -7,6 +7,22 @@ import { AuditLogModel } from '../Models/AuditLog.js';
 import { PaymentHistoryModel } from '../Models/PaymentHistory.js';
 import { sanitizeUser } from './auth.js';
 import { encrypt, decrypt } from '../middleware/encryption.js';
+import { ScenarioTriggerConfigModel } from '../Models/ScenarioTriggerConfig.js';
+import {
+  BUILT_IN_INBOX_RULES,
+  BUILT_IN_REPLY_RULES,
+  BUILT_IN_SERVICE_ROUTING,
+  BUILT_IN_TRIGGERS,
+  invalidateTriggerDefaults,
+  loadPlatformRules,
+} from '../utils/platformScenarioConfig.js';
+import { scenarioModel } from '../Models/Scenario.js';
+import { PlatformEmailConfigModel } from '../Models/PlatformEmailConfig.js';
+import {
+  invalidatePlatformMailer,
+  loadPlatformEmailSettings,
+  verifyPlatformEmail,
+} from '../utils/platformMailer.js';
 
 // Helper for recording SaaS Owner / Admin audit logs
 export const recordAuditLog = async ({
@@ -797,5 +813,619 @@ export const getAdminLeadThread = async (req, res) => {
   } catch (error) {
     console.error('Error fetching lead thread for admin:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Scenario trigger configuration (SaaS owner)
+|--------------------------------------------------------------------------
+|
+| Every account ships with a built-in Shopify scenario, and the subject
+| that identifies a Partner Directory lead used to be hardcoded. These two
+| endpoints put it in the owner's hands: change the subject Shopify sends,
+| and leads keep flowing without a deploy.
+|
+| See utils/platformScenarioConfig.js for how the values are consumed and
+| cached on the mail path.
+*/
+export const getScenarioTriggerConfig = async (req, res) => {
+  try {
+    const config = await ScenarioTriggerConfigModel.findOne({}).lean();
+
+    /*
+     * Present the built-ins for any scenario type the owner has not
+     * configured, so the page always shows what the platform is actually
+     * doing rather than an empty form.
+     */
+    const configured = new Map(
+      (config?.triggers || []).map((t) => [
+        String(t.scenarioType || '').toLowerCase(),
+        t,
+      ])
+    );
+
+    const triggers = [...BUILT_IN_TRIGGERS, ...(config?.triggers || [])].reduce(
+      (acc, trigger) => {
+        const key = String(trigger.scenarioType || '').toLowerCase();
+        if (!key || acc.some((t) => t.scenarioType === key)) return acc;
+
+        const source = configured.get(key) || trigger;
+
+        acc.push({
+          scenarioType: key,
+          label: source.label || trigger.label || '',
+          subjectFilter: source.subjectFilter || '',
+          matchMode: source.matchMode === 'startsWith' ? 'startsWith' : 'contains',
+          enabled: source.enabled !== false,
+          isCustomised: configured.has(key),
+        });
+
+        return acc;
+      },
+      []
+    );
+
+    return res.status(200).json({
+      success: true,
+      config: {
+        triggers,
+        reply: { ...BUILT_IN_REPLY_RULES, ...(config?.reply || {}) },
+        inbox: { ...BUILT_IN_INBOX_RULES, ...(config?.inbox || {}) },
+        services: config?.services?.list?.length
+          ? config.services
+          : BUILT_IN_SERVICE_ROUTING,
+        updatedAt: config?.updatedAt || null,
+      },
+      /* Shown in the UI so an owner can see what they are diverging from. */
+      builtIn: {
+        reply: BUILT_IN_REPLY_RULES,
+        inbox: BUILT_IN_INBOX_RULES,
+        services: BUILT_IN_SERVICE_ROUTING,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [getScenarioTriggerConfig] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load scenario trigger configuration',
+      error: error.message,
+    });
+  }
+};
+
+export const updateScenarioTriggerConfig = async (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.triggers) ? req.body.triggers : null;
+
+    if (!incoming) {
+      return res.status(400).json({
+        success: false,
+        message: 'triggers must be an array',
+      });
+    }
+
+    const seen = new Set();
+    const triggers = [];
+
+    for (const trigger of incoming) {
+      const scenarioType = String(trigger?.scenarioType || '')
+        .trim()
+        .toLowerCase();
+
+      if (!scenarioType) {
+        return res.status(400).json({
+          success: false,
+          message: 'Every trigger needs a scenario type.',
+        });
+      }
+
+      if (seen.has(scenarioType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Duplicate trigger for scenario type "${scenarioType}".`,
+        });
+      }
+
+      const subjectFilter = String(trigger?.subjectFilter || '').trim();
+      const enabled = trigger?.enabled !== false;
+
+      /*
+       * An enabled trigger with no subject would match every message and
+       * turn the Lead Inbox back into a raw mailbox. Disabling it is the
+       * supported way to switch a trigger off.
+       */
+      if (enabled && !subjectFilter) {
+        return res.status(400).json({
+          success: false,
+          message: `"${scenarioType}" is enabled but has no subject filter. Add one, or disable the trigger.`,
+        });
+      }
+
+      seen.add(scenarioType);
+
+      triggers.push({
+        scenarioType,
+        label: String(trigger?.label || '').trim(),
+        subjectFilter,
+        matchMode: trigger?.matchMode === 'startsWith' ? 'startsWith' : 'contains',
+        enabled,
+      });
+    }
+
+    /*
+     * Captured before the write so scenarios still carrying the OUTGOING
+     * default can be identified below.
+     */
+    const previousRules = await loadPlatformRules();
+
+    /*
+     * Reply and inbox rules are optional in the request: a client editing
+     * only the triggers must not silently reset them, so an absent section
+     * keeps what is stored.
+     */
+    const cleanList = (values) =>
+      Array.isArray(values)
+        ? values.map((v) => String(v || '').trim()).filter(Boolean)
+        : null;
+
+    const replyInput = req.body?.reply;
+    const inboxInput = req.body?.inbox;
+
+    const update = {
+      triggers,
+      updatedBy: req.user?._id || null,
+    };
+
+    if (replyInput && typeof replyInput === 'object') {
+      const prefixes = cleanList(replyInput.subjectPrefixes);
+
+      /*
+       * With no prefixes nothing is ever recognised as a reply and every
+       * response starts its own thread. Refuse rather than accept a
+       * setting that quietly breaks threading.
+       */
+      if (prefixes && prefixes.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'At least one reply prefix is required — without one, replies would each start a new thread.',
+        });
+      }
+
+      const seconds = Number(replyInput.duplicateWindowSeconds);
+
+      if (
+        replyInput.duplicateWindowSeconds !== undefined &&
+        (!Number.isFinite(seconds) || seconds < 0 || seconds > 600)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Duplicate window must be between 0 and 600 seconds.',
+        });
+      }
+
+      update.reply = {
+        subjectPrefixes:
+          prefixes || BUILT_IN_REPLY_RULES.subjectPrefixes,
+        stripBracketTags: replyInput.stripBracketTags !== false,
+        requireReplyMarkerForSubjectMatch:
+          replyInput.requireReplyMarkerForSubjectMatch !== false,
+        duplicateWindowSeconds: Number.isFinite(seconds)
+          ? seconds
+          : BUILT_IN_REPLY_RULES.duplicateWindowSeconds,
+      };
+    }
+
+    if (inboxInput && typeof inboxInput === 'object') {
+      const internalDomains = cleanList(inboxInput.internalDomains);
+
+      /*
+       * The internal-domain list decides which side of a conversation is
+       * the lead. Emptying it would make our own replies look like new
+       * leads and split every thread.
+       */
+      if (internalDomains && internalDomains.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'At least one internal domain is required — it identifies your own replies inside a thread.',
+        });
+      }
+
+      update.inbox = {
+        excludedSubjects: cleanList(inboxInput.excludedSubjects) || [],
+        excludedSenders: cleanList(inboxInput.excludedSenders) || [],
+        internalDomains:
+          internalDomains || BUILT_IN_INBOX_RULES.internalDomains,
+      };
+    }
+
+    const servicesInput = req.body?.services;
+
+    if (servicesInput && typeof servicesInput === 'object') {
+      const list = cleanList(servicesInput.list);
+
+      /*
+       * An empty list classifies every lead as the fallback, collapsing
+       * all routing onto a single template.
+       */
+      if (list && list.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'At least one service is required — an empty list routes every lead to the fallback template.',
+        });
+      }
+
+      const fallback = String(servicesInput.fallback || '').trim();
+
+      if (!fallback) {
+        return res.status(400).json({
+          success: false,
+          message: 'A fallback service is required for leads that name none.',
+        });
+      }
+
+      /*
+       * Templates are looked up by service name, so a fallback outside the
+       * list has no template behind it and every unmatched lead would find
+       * nothing to send.
+       */
+      const effectiveList = list || BUILT_IN_SERVICE_ROUTING.list;
+
+      if (
+        !effectiveList.some(
+          (service) => service.toLowerCase() === fallback.toLowerCase()
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `The fallback "${fallback}" must also appear in the service list.`,
+        });
+      }
+
+      update.services = { list: effectiveList, fallback };
+    }
+
+    const config = await ScenarioTriggerConfigModel.findOneAndUpdate(
+      {},
+      { $set: update },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    /* Take effect immediately in this process rather than at TTL expiry. */
+    invalidateTriggerDefaults();
+
+    /*
+     * Earlier versions of the scenario builder saved the hardcoded subject
+     * onto every scenario, and a stored filter takes precedence over the
+     * platform default. Those scenarios would ignore this change forever.
+     *
+     * Clear the stored value on scenarios still holding the exact previous
+     * default: an empty filter means "follow the platform trigger", so they
+     * pick up this change and every future one. Scenarios whose owner typed
+     * something different are left alone — that is a deliberate override.
+     */
+    let realignedScenarios = 0;
+
+    for (const trigger of triggers) {
+      const previousFilter =
+        previousRules?.triggers?.[trigger.scenarioType]?.subjectFilter;
+
+      if (!previousFilter || previousFilter === trigger.subjectFilter) continue;
+
+      const result = await scenarioModel.updateMany(
+        {
+          type: trigger.scenarioType,
+          'incomingLead.subjectFilter': previousFilter,
+        },
+        { $set: { 'incomingLead.subjectFilter': '' } }
+      );
+
+      realignedScenarios += result.modifiedCount || 0;
+    }
+
+    if (realignedScenarios > 0) {
+      console.log(
+        `🔁 Realigned ${realignedScenarios} scenario(s) still pinned to the previous trigger subject.`
+      );
+    }
+
+    await recordAuditLog({
+      adminId: req.user._id,
+      adminEmail: req.user.email,
+      action: 'UPDATE_SCENARIO_TRIGGERS',
+      targetType: 'SCENARIO_TRIGGER_CONFIG',
+      targetId: config?._id?.toString() || '',
+      details: {
+        realignedScenarios,
+        triggers: triggers.map((t) => ({
+          scenarioType: t.scenarioType,
+          subjectFilter: t.subjectFilter,
+          matchMode: t.matchMode,
+          enabled: t.enabled,
+        })),
+        reply: update.reply || 'unchanged',
+        inbox: update.inbox || 'unchanged',
+        services: update.services
+          ? { count: update.services.list.length, fallback: update.services.fallback }
+          : 'unchanged',
+      },
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        realignedScenarios > 0
+          ? `Scenario triggers updated. ${realignedScenarios} scenario(s) realigned to the new subject.`
+          : 'Scenario triggers updated.',
+      realignedScenarios,
+      config: {
+        triggers,
+        reply: config?.reply || BUILT_IN_REPLY_RULES,
+        inbox: config?.inbox || BUILT_IN_INBOX_RULES,
+        services: config?.services || BUILT_IN_SERVICE_ROUTING,
+        updatedAt: config?.updatedAt || new Date(),
+      },
+    });
+  } catch (error) {
+    console.error('❌ [updateScenarioTriggerConfig] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update scenario trigger configuration',
+      error: error.message,
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Platform email configuration (SaaS owner)
+|--------------------------------------------------------------------------
+|
+| The mailbox Replex Engine sends its own mail from. See
+| utils/platformMailer.js for how these values are resolved and cached, and
+| for the environment fallback that applies until this is enabled.
+*/
+const maskAddress = (address = '') => {
+  const [local = '', domain = ''] = String(address).split('@');
+  if (!local || !domain) return address || '';
+  const head = local.slice(0, 2);
+  return `${head}${'•'.repeat(Math.max(1, local.length - 2))}@${domain}`;
+};
+
+export const getPlatformEmailConfig = async (req, res) => {
+  try {
+    const config = await PlatformEmailConfigModel.findOne({}).lean();
+
+    /*
+     * Passwords are never returned — only whether one is stored, so the
+     * form can show "leave blank to keep" instead of an empty field that
+     * looks like no password is set.
+     */
+    return res.status(200).json({
+      success: true,
+      config: {
+        enabled: Boolean(config?.enabled),
+        fromName: config?.fromName || 'Replex Engine',
+        fromEmail: config?.fromEmail || '',
+        replyTo: config?.replyTo || '',
+        smtp: {
+          host: config?.smtp?.host || '',
+          port: config?.smtp?.port ?? 587,
+          secure: Boolean(config?.smtp?.secure),
+          username: config?.smtp?.username || '',
+          hasPassword: Boolean(config?.smtp?.passwordEncrypted),
+          rejectUnauthorized: config?.smtp?.rejectUnauthorized !== false,
+        },
+        inbound: {
+          protocol: config?.inbound?.protocol || 'none',
+          host: config?.inbound?.host || '',
+          port: config?.inbound?.port ?? 993,
+          secure: config?.inbound?.secure !== false,
+          username: config?.inbound?.username || '',
+          hasPassword: Boolean(config?.inbound?.passwordEncrypted),
+          rejectUnauthorized: config?.inbound?.rejectUnauthorized !== false,
+        },
+        lastTestedAt: config?.lastTestedAt || null,
+        lastTestOk: config?.lastTestOk ?? null,
+        lastTestError: config?.lastTestError || '',
+        updatedAt: config?.updatedAt || null,
+      },
+      /*
+       * What is in effect right now, so an owner can see whether the
+       * platform is running on this config or still on the environment.
+       */
+      active: {
+        source: config?.enabled && config?.smtp?.host ? 'config' : 'env',
+        envFrom: maskAddress(process.env.EMAIL_USER || ''),
+      },
+    });
+  } catch (error) {
+    console.error('[getPlatformEmailConfig] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load platform email configuration',
+      error: error.message,
+    });
+  }
+};
+
+export const updatePlatformEmailConfig = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const smtp = body.smtp || {};
+    const inbound = body.inbound || {};
+
+    const enabled = Boolean(body.enabled);
+    const fromEmail = String(body.fromEmail || '').trim();
+    const host = String(smtp.host || '').trim();
+
+    const existing = await PlatformEmailConfigModel.findOne({});
+
+    /*
+     * Enabling without a complete configuration would send every system
+     * mail into a failed transport, so the requirements are checked here
+     * rather than discovered by a user who never gets a password reset.
+     */
+    if (enabled) {
+      if (!fromEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'A from address is required to enable platform email.',
+        });
+      }
+
+      if (!host) {
+        return res.status(400).json({
+          success: false,
+          message: 'An SMTP host is required to enable platform email.',
+        });
+      }
+
+      const hasPassword =
+        Boolean(smtp.password) || Boolean(existing?.smtp?.passwordEncrypted);
+
+      if (!hasPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'An SMTP password is required to enable platform email.',
+        });
+      }
+    }
+
+    const port = Number(smtp.port);
+    const inboundPort = Number(inbound.port);
+
+    const update = {
+      enabled,
+      fromName: String(body.fromName || 'Replex Engine').trim(),
+      fromEmail,
+      replyTo: String(body.replyTo || '').trim(),
+      smtp: {
+        host,
+        port: Number.isFinite(port) && port > 0 ? port : 587,
+        secure: Boolean(smtp.secure),
+        username: String(smtp.username || '').trim(),
+        rejectUnauthorized: smtp.rejectUnauthorized !== false,
+        /* Blank keeps the stored password — see the read endpoint. */
+        passwordEncrypted: smtp.password
+          ? encrypt(String(smtp.password))
+          : existing?.smtp?.passwordEncrypted || '',
+      },
+      inbound: {
+        protocol: ['imap', 'pop3'].includes(inbound.protocol)
+          ? inbound.protocol
+          : 'none',
+        host: String(inbound.host || '').trim(),
+        port:
+          Number.isFinite(inboundPort) && inboundPort > 0 ? inboundPort : 993,
+        secure: inbound.secure !== false,
+        username: String(inbound.username || '').trim(),
+        rejectUnauthorized: inbound.rejectUnauthorized !== false,
+        passwordEncrypted: inbound.password
+          ? encrypt(String(inbound.password))
+          : existing?.inbound?.passwordEncrypted || '',
+      },
+      updatedBy: req.user?._id || null,
+    };
+
+    await PlatformEmailConfigModel.findOneAndUpdate(
+      {},
+      { $set: update },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    /* Drop the pooled transport built on the old credentials. */
+    invalidatePlatformMailer();
+
+    await recordAuditLog({
+      adminId: req.user._id,
+      adminEmail: req.user.email,
+      action: 'UPDATE_PLATFORM_EMAIL',
+      targetType: 'PLATFORM_EMAIL_CONFIG',
+      details: {
+        enabled,
+        fromEmail,
+        smtpHost: host,
+        smtpPort: update.smtp.port,
+        smtpSecure: update.smtp.secure,
+        inboundProtocol: update.inbound.protocol,
+        passwordChanged: Boolean(smtp.password),
+      },
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: enabled
+        ? 'Platform email saved and enabled.'
+        : 'Platform email saved. It is disabled, so system mail still uses the environment settings.',
+    });
+  } catch (error) {
+    console.error('[updatePlatformEmailConfig] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to save platform email configuration',
+      error: error.message,
+    });
+  }
+};
+
+/*
+ * Verifies the SMTP credentials and optionally sends a test message.
+ *
+ * Tests what is SAVED, so the result reflects what system mail will
+ * actually do — testing unsaved form values could report success for a
+ * configuration that is never used.
+ */
+export const testPlatformEmailConfig = async (req, res) => {
+  try {
+    const recipient = String(req.body?.to || '').trim();
+
+    const settings = await loadPlatformEmailSettings({ force: true });
+
+    if (!settings.smtp.host || !settings.smtp.username) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'No platform email settings to test. Save an SMTP host and password first.',
+      });
+    }
+
+    const result = await verifyPlatformEmail(settings, recipient);
+
+    await PlatformEmailConfigModel.findOneAndUpdate(
+      {},
+      {
+        $set: {
+          lastTestedAt: new Date(),
+          lastTestOk: result.ok,
+          lastTestError: result.ok
+            ? ''
+            : String(result.error || '').slice(0, 500),
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.status(200).json({
+      success: result.ok,
+      message: result.ok
+        ? recipient
+          ? `Connection verified and a test message was sent to ${recipient}.`
+          : 'Connection verified.'
+        : `Could not connect: ${result.error}`,
+      usingSource: settings.source,
+    });
+  } catch (error) {
+    console.error('[testPlatformEmailConfig] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to test platform email configuration',
+      error: error.message,
+    });
   }
 };

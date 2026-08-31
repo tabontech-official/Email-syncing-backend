@@ -17,6 +17,7 @@ import {
   updateTemplateStatus,
   toggleTemplateAiResponse,
   bulkToggleTemplateAiResponse,
+  restoreDefaultTemplates,
 } from '../controller/template.js';
 
 import { authMiddleware } from '../middleware/authmiddleware.js';
@@ -26,6 +27,7 @@ const templateRouter = express.Router();
 // --- Authenticated User Endpoints ---
 templateRouter.post('/create', authMiddleware, addTemplate);
 templateRouter.get('/all/', authMiddleware, getTemplates);
+templateRouter.post('/restore-defaults', authMiddleware, restoreDefaultTemplates);
 templateRouter.get('/all/custom', authMiddleware, getCustomTemplates);
 templateRouter.post('/save/other', authMiddleware, saveOtherTemplate);
 templateRouter.get('/alltemplates/query', authMiddleware, getAllTemplatesByQuery);

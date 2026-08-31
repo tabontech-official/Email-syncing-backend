@@ -31,7 +31,11 @@ stripeRouter.post(
   cancelSubscription
 );
 
-// --- Public Webhook ---
-stripeRouter.post("/webhook", stripeWebhook);
+/*
+ * The webhook is mounted in app.js instead, before express.json(), because
+ * signature verification needs the RAW body. A second registration here
+ * would receive an already-parsed body and always fail verification.
+ */
+// stripeRouter.post("/webhook", stripeWebhook);
 
 export default stripeRouter;

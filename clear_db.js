@@ -3,6 +3,24 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+/*
+|--------------------------------------------------------------------------
+| DESTRUCTIVE — requires an explicit confirmation flag
+|--------------------------------------------------------------------------
+|
+| This wipes emails, connections and automation statuses for EVERY account,
+| unscoped. It used to run the moment the file was executed, so a stray
+| `node clear_db.js` destroyed all customer data with no confirmation.
+|
+| Usage:  node clear_db.js --yes-delete-everything
+*/
+if (!process.argv.includes('--yes-delete-everything')) {
+  console.error('Refusing to run.');
+  console.error('This deletes ALL emails, connections and automation statuses for EVERY user.');
+  console.error('Re-run with --yes-delete-everything if that is genuinely what you want.');
+  process.exit(1);
+}
+
 const clearDatabase = async () => {
   try {
     const mongoUri = process.env.DB_URL || process.env.DB_URI;

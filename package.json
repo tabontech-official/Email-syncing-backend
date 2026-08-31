@@ -51,6 +51,7 @@
     "googleapis": "^160.0.0",
     "helmet": "^7.1.0",
     "html-to-text": "^10.0.0",
+    "htmlparser2": "^10.1.0",
     "http-status": "^1.7.4",
     "https": "^1.0.0",
     "imapflow": "^1.5.0",

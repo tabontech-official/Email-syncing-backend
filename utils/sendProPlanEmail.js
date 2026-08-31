@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { sendPlatformMail } from '../utils/platformMailer.js';
 
 const formatDate = (date) => {
   if (!date) return "N/A";
@@ -102,15 +102,7 @@ export const sendProPlanActivatedEmail = async ({
     throw new Error("Recipient email is required");
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === "true",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+
 
   const html = buildProPlanEmailHtml({
     name,
@@ -126,7 +118,7 @@ export const sendProPlanActivatedEmail = async ({
     endDate,
   });
 
-  return transporter.sendMail({
+  return sendPlatformMail({
     from: process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
     to,
     subject: "Your Pro plan is now active",

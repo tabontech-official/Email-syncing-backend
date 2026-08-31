@@ -6,6 +6,7 @@ import { executeScenarios, saveIncomingReplyIfExists } from '../controller/smtpS
 import { decrypt } from './encryption.js';
 import { uploadBufferToCloudinary } from './cloudinary.js';
 import { MANAGED_PROVIDERS } from '../config/providerConfigs.js';
+import { normalizeIncomingBody } from '../utils/emailBody.js';
 
 /*
  * Providers this listener can watch over IMAP. Driven by the provider
@@ -227,8 +228,8 @@ export const processIncomingEmail = async ({
       recipientAddress,
 
       subject: parsed.subject || '',
-      textBody: parsed.text || '',
-      htmlBody: parsed.html || '',
+      /* Text only — see utils/emailBody.js. */
+      ...normalizeIncomingBody({ text: parsed.text, html: parsed.html }),
 
       date: msgDate,
       lastActivityAt: msgDate,

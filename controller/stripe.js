@@ -239,9 +239,44 @@ export const cancelSubscription = async (req, res) => {
 
 /* ================== STRIPE WEBHOOK ================== */
 export const stripeWebhook = async (req, res) => {
-  const event = req.body;
+  /*
+   |--------------------------------------------------------------------
+   | Signature verification
+   |--------------------------------------------------------------------
+   |
+   | This handler used to do `const event = req.body` and trust it. The
+   | route is public by necessity, so anyone could POST a forged
+   | checkout.session.completed with any userId and planName and grant
+   | themselves a paid plan or unlimited AI credits.
+   |
+   | It also could not have worked as written: app.js mounts this route
+   | with express.raw(), so req.body is a Buffer and `event.type` was
+   | always undefined — every event fell through unprocessed.
+   |
+   | Fails CLOSED when no secret is configured. An unverifiable payment
+   | webhook is worse than a rejected one.
+   */
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const signature = req.headers['stripe-signature'];
 
-  console.log('🔥 STRIPE EVENT:', event.type);
+  if (!webhookSecret) {
+    console.error(
+      '[stripeWebhook] STRIPE_WEBHOOK_SECRET is not set — rejecting. ' +
+        'Copy the signing secret from the Stripe dashboard webhook settings.'
+    );
+    return res.status(500).send('Webhook secret not configured');
+  }
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
+  } catch (err) {
+    console.error('[stripeWebhook] Signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log('🔥 STRIPE EVENT (verified):', event.type);
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;

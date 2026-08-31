@@ -40,6 +40,16 @@ const OrganizationSchema = new mongoose.Schema(
     country: { type: String, default: "Unknown" },
     TimeZone: { type: String, default: "UTC" },
 
+    /*
+     * Whether TimeZone is still managed automatically.
+     *
+     * True (the default) means nobody has chosen a zone, so the client
+     * may adopt the browser's. It goes false the moment someone picks a
+     * zone in settings, and detection leaves it alone from then on — a
+     * deliberate choice must not be undone by travelling.
+     */
+    TimeZoneAuto: { type: Boolean, default: true },
+
     // ---------------- CONTACT ----------------
     phone: { type: String, default: "" },             // ✅ ADD
     whatsapp: { type: String, default: "" },          // ✅ ADD

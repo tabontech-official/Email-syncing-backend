@@ -1,6 +1,11 @@
 import { scenarioModel } from "../Models/Scenario.js";
 import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
 import { ConnectionModel } from "../Models/Connection.js";
+import { mailhookModel } from "../Models/MailhookSchema.js";
+import {
+  loadPlatformRules,
+  triggerForType,
+} from "../utils/platformScenarioConfig.js";
 import { authModel } from "../Models/auth.js";
 import mongoose from "mongoose";
 import { isOwnerOrAdmin, getAuthUserId } from "../middleware/authmiddleware.js";
@@ -108,6 +113,24 @@ export const updateScenario = async (req, res) => {
         : "";
 
     /*
+     * Mailhook trigger: leads arrive by forwarding to the user's mailhook
+     * address, so there is no Connection to validate. The chosen mailhook
+     * card is checked against the mailhook collection instead, further
+     * down, once the scenario owner is known.
+     */
+    const isMailhookTrigger =
+      (incomingLead.app?.name || "").toLowerCase() === "mailhook";
+
+    const rawIncomingMailhookId = Array.isArray(incomingLead.mailhookId)
+      ? incomingLead.mailhookId[0]
+      : incomingLead.mailhookId;
+
+    const incomingMailhookId =
+      typeof rawIncomingMailhookId === "string"
+        ? rawIncomingMailhookId.trim()
+        : rawIncomingMailhookId?.toString?.().trim() || "";
+
+    /*
      * Saari email connections collect karenge.
      */
     const connectionIds = [];
@@ -123,10 +146,11 @@ export const updateScenario = async (req, res) => {
     const incomingLeadConfigured = Boolean(
       incomingLead.enabled ||
         incomingConnectionId ||
+        incomingMailhookId ||
         incomingSubjectFilter
     );
 
-    if (incomingLeadConfigured) {
+    if (incomingLeadConfigured && !isMailhookTrigger) {
       if (!incomingConnectionId) {
         missingConnectionFound = true;
       } else {
@@ -263,6 +287,46 @@ export const updateScenario = async (req, res) => {
     }
 
     /*
+     * Validate the mailhook trigger the same way connections are validated:
+     * it must belong to this user and be verified. An unverified mailhook
+     * is one nothing has actually been forwarded to, so a scenario built on
+     * it would sit active and never fire.
+     */
+    let validMailhookId = null;
+
+    if (isMailhookTrigger && incomingLeadConfigured) {
+      if (
+        !incomingMailhookId ||
+        !mongoose.Types.ObjectId.isValid(incomingMailhookId)
+      ) {
+        console.warn(
+          "[updateScenario] Mailhook trigger without a valid mailhook ID:",
+          incomingMailhookId
+        );
+
+        missingConnectionFound = true;
+      } else {
+        const mailhookCard = await mailhookModel
+          .findOne({
+            _id: incomingMailhookId,
+            userId: existingScenario.userId,
+          })
+          .select("_id connectionVerified");
+
+        if (!mailhookCard || !mailhookCard.connectionVerified) {
+          console.warn(
+            "[updateScenario] Missing or unverified mailhook:",
+            incomingMailhookId
+          );
+
+          missingConnectionFound = true;
+        } else {
+          validMailhookId = mailhookCard._id.toString();
+        }
+      }
+    }
+
+    /*
      * Check requested active status and enforce user subscription plan limit!
      */
     let requestedActive = req.body.hasOwnProperty("scenarioActive")
@@ -299,11 +363,27 @@ export const updateScenario = async (req, res) => {
      * Agar aap subject filter optional rakhna chahte hain to
      * yahan se incomingSubjectFilter condition remove kar dein.
      */
-    const incomingLeadEnabled = Boolean(
-      incomingConnectionId &&
-        incomingSubjectFilter &&
-        !invalidFormatIds.includes(incomingConnectionId)
-    );
+    /*
+     * A built-in scenario carries no subject filter of its own — it follows
+     * the platform trigger the owner configures in the master admin panel.
+     * Requiring a stored filter here would leave those scenarios permanently
+     * disabled, so the platform default counts as configured.
+     */
+    const platformRules = await loadPlatformRules();
+
+    const effectiveSubjectFilter =
+      incomingSubjectFilter ||
+      triggerForType(platformRules, req.body.type || existingScenario.type)
+        ?.subjectFilter ||
+      "";
+
+    const incomingLeadEnabled = isMailhookTrigger
+      ? Boolean(validMailhookId && effectiveSubjectFilter)
+      : Boolean(
+          incomingConnectionId &&
+            effectiveSubjectFilter &&
+            !invalidFormatIds.includes(incomingConnectionId)
+        );
 
     const updateData = {
       name:
@@ -325,7 +405,11 @@ export const updateScenario = async (req, res) => {
           icon: incomingLead.app?.icon || "",
         },
 
-        connectionId: incomingConnectionId || null,
+        connectionId: isMailhookTrigger
+          ? null
+          : incomingConnectionId || null,
+
+        mailhookId: isMailhookTrigger ? validMailhookId : null,
 
         subjectFilter: incomingSubjectFilter,
 
@@ -401,6 +485,18 @@ export const updateScenario = async (req, res) => {
                   : [],
 
                 connectionId: moduleConnectionId,
+
+                /*
+                 * This mapping is a whitelist — anything not listed is
+                 * dropped on save, so the builder's Manual/AI choice and
+                 * the profile it writes from have to be named here.
+                 */
+                replyMode: module.replyMode === "ai" ? "ai" : "manual",
+
+                companyProfileId:
+                  module.replyMode === "ai" && module.companyProfileId
+                    ? module.companyProfileId
+                    : null,
 
                 template: module.template || "",
 
@@ -632,5 +728,34 @@ export const getScenarioStatsForAdmin = async (req, res) => {
   } catch (error) {
     console.error("Error in scenario stats:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/*
+ * GET /scenario/trigger-defaults
+ *
+ * The platform trigger defaults, readable by any signed-in user. The
+ * scenario builder shows the Shopify subject filter as a read-only field;
+ * without this it would keep displaying a hardcoded string while the
+ * platform matched on whatever the owner configured. No secrets here —
+ * just the subjects that classify a lead.
+ */
+export const getScenarioTriggerDefaults = async (req, res) => {
+  try {
+    const rules = await loadPlatformRules();
+
+    return res.status(200).json({
+      success: true,
+      triggers: Object.values(rules.triggers),
+      /* The router's service condition, shown on the scenario card. */
+      services: rules.services,
+    });
+  } catch (error) {
+    console.error("[getScenarioTriggerDefaults] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load scenario trigger defaults",
+      error: error.message,
+    });
   }
 };

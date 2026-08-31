@@ -1,6 +1,21 @@
 import mongoose from 'mongoose';
 import { EmailModel } from '../Models/Email.js';
 
+/*
+ * Reply-resolution heuristics — which subject prefixes mark a reply, how
+ * wide the duplicate window is, whether the subject fallback is allowed —
+ * are set by the platform owner in the master admin panel. Header-based
+ * matching (In-Reply-To, References, provider thread id) is RFC-defined
+ * and stays in code.
+ */
+import {
+  getCachedRules,
+  hasReplyMarker,
+  loadPlatformRules,
+  subjectPrefixPattern,
+} from './platformScenarioConfig.js';
+import { normalizeIncomingBody } from './emailBody.js';
+
 export const cleanMessageId = (str = '') => {
   if (!str) return '';
   return String(str).replace(/^<|>$/g, '').trim();
@@ -15,9 +30,20 @@ export const formatMessageId = (id) => {
   return `<${clean}>`;
 };
 
-export const normalizeSubject = (subject = '') => {
+/*
+ * Builds the subject for an outgoing reply: strip whatever prefixes are
+ * already there, then add exactly one "Re: ". NOTE the opposite-named
+ * helper in utils/scenarioMatch.js, which strips prefixes for COMPARISON
+ * and adds nothing.
+ */
+export const normalizeSubject = (subject = '', rules = null) => {
   if (!subject) return 'Re: Lead Inquiry';
-  const clean = String(subject).replace(/^((re|fwd):\s*)+/i, '').trim();
+
+  const replyRules = (rules || getCachedRules()).reply;
+  const clean = String(subject)
+    .replace(subjectPrefixPattern(replyRules), '')
+    .trim();
+
   return clean ? `Re: ${clean}` : 'Re: Lead Inquiry';
 };
 
@@ -56,6 +82,9 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
   const { userId } = emailData;
   const incomingMsgId = cleanMessageId(emailData.emailId || emailData.messageId);
   const now = new Date(emailData.date || Date.now());
+
+  const platformRules = await loadPlatformRules();
+  const replyRules = platformRules.reply;
 
   const lockKey = incomingMsgId ? `msg-${incomingMsgId}` : `msg-${emailData.from}-${now.getTime()}`;
   if (activeMessageProcessingLocks.has(lockKey)) {
@@ -101,12 +130,14 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
     .toLowerCase()
     .slice(0, 150);
 
-  if (fromEmail && rawBodyText) {
-    const tenSecondsAgo = new Date(now.getTime() - 10000);
+  const duplicateWindowMs = Math.max(0, (replyRules.duplicateWindowSeconds || 0) * 1000);
+
+  if (fromEmail && rawBodyText && duplicateWindowMs > 0) {
+    const windowStart = new Date(now.getTime() - duplicateWindowMs);
     const existingContent = await EmailModel.findOne({
       senderAddress: new RegExp(fromEmail.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), 'i'),
       direction: 'incoming',
-      createdAt: { $gte: tenSecondsAgo },
+      createdAt: { $gte: windowStart },
     });
 
     if (existingContent) {
@@ -232,13 +263,24 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
   // STAGE 5: Controlled Subject + Mailbox + Participant Fallback Priority
   // -------------------------------------------------------------------------
   const cleanSubj = (emailData.subject || '')
-    .replace(/^((re|fwd|fw|\[external\]):\s*)+/i, '')
+    .replace(subjectPrefixPattern(replyRules), '')
     .trim()
     .toLowerCase();
 
-  const isExplicitReplyHeader = /^((re|fwd|fw):\s*)/i.test((emailData.subject || '').trim());
+  const isExplicitReplyHeader = hasReplyMarker(emailData.subject, replyRules);
 
-  if (!parentEmail && fromEmail && cleanSubj && (isExplicitReplyHeader || emailData.inReplyTo)) {
+  /*
+   * Stage 5 is the only stage that can attach the wrong message, since two
+   * unrelated conversations can share a subject. The owner decides whether
+   * it requires a reply marker (safe) or runs on subject alone (catches
+   * clients that strip headers, at the risk of merging threads).
+   */
+  const subjectFallbackAllowed =
+    replyRules.requireReplyMarkerForSubjectMatch === false ||
+    isExplicitReplyHeader ||
+    Boolean(emailData.inReplyTo);
+
+  if (!parentEmail && fromEmail && cleanSubj && subjectFallbackAllowed) {
     const escapedSubj = cleanSubj.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     console.log(`🔍 Stage 5 Controlled Subject search for reply: "${cleanSubj}" email: "${fromEmail}"`);
 
@@ -332,8 +374,8 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
     senderAddress: emailData.from,
     recipientAddress: emailData.to,
     subject: emailData.subject,
-    textBody: emailData.body,
-    htmlBody: emailData.html || '',
+    /* Text only — see utils/emailBody.js. */
+    ...normalizeIncomingBody({ text: emailData.body, html: emailData.html }),
     date: now,
     direction: 'incoming',
 

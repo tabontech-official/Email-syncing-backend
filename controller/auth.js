@@ -19,6 +19,20 @@ import { TeamModel } from '../Models/Team.js';
 import { OrgMemberModel } from '../Models/OrgMember.js';
 import bcrypt from 'bcrypt';
 import { mailhookModel } from '../Models/MailhookSchema.js';
+import {
+  hasAnyScenarioCriteria,
+  threadMatchesScenarios,
+} from '../utils/scenarioMatch.js';
+import {
+  BUILT_IN_SERVICES,
+  isExcludedFromInbox,
+  loadPlatformRules,
+} from '../utils/platformScenarioConfig.js';
+import {
+  platformFromAddress,
+  sendPlatformMail,
+} from '../utils/platformMailer.js';
+import { normalizeSubject as normalizeLeadSubject } from '../utils/scenarioMatch.js';
 import { sendProPlanActivatedEmail } from '../utils/sendProPlanEmail.js';
 import { sendProPlanRevokedEmail } from '../utils/sendProPlanRevokedEmail.js';
 import mongoose from 'mongoose';
@@ -27,38 +41,12 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { isOwnerOrAdmin, summarizeClaims } from '../middleware/authmiddleware.js';
 
-export const defaultServices = [
-  'General',
-  'Troubleshooting',
-  'Theme customization',
-  'Store build or redesign',
-  'Store migration',
-  'Website and marketing content',
-  'SEO',
-  'Site performance and speed',
-  'Custom apps and integrations',
-  'Store settings configuration',
-  'Product and collection setup',
-  'Social media marketing',
-  'Product descriptions',
-  'Search engine advertising',
-  'POS setup and migration',
-  'Custom domain setup',
-  'Conversion rate optimization',
-  'Analytics and tracking',
-  'Sales channel setup',
-  'Logo and visual branding',
-  'Business strategy guidance',
-  'Website audit and optimization strategy',
-  'Sales tax guidance',
-  'Product photography',
-  'Email marketing',
-  '3D modelling',
-  'Banner ads',
-  'Video and illustrations',
-  'Content marketing',
-  'Product sourcing guidance',
-];
+/*
+ * Kept as the shipped fallback. The live list comes from the platform
+ * configuration (master admin -> Scenario Triggers), so a service the
+ * owner adds gets templates seeded for new signups too.
+ */
+export const defaultServices = BUILT_IN_SERVICES;
 
 export const sanitizeUser = (userDoc) => {
   if (!userDoc) return null;
@@ -152,19 +140,7 @@ export const welComeEmail = async ({ to, subject, html, text }) => {
     throw new Error('Recipient email is required');
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  return transporter.sendMail({
-    from:
-      process.env.SMTP_FROM || `"Replex Engine" <${process.env.EMAIL_USER}>`,
+  return sendPlatformMail({
     to,
     subject,
     html,
@@ -245,8 +221,10 @@ export const signUp = async (req, res) => {
     await savedUser.save();
 
     // --- Default Templates ---
+    const seedServices = (await loadPlatformRules()).services.list;
+
     const templates = [];
-    defaultServices.forEach((service) => {
+    seedServices.forEach((service) => {
       ['Initial Email', 'First Email', 'Second Email'].forEach(
         (emailName, idx) => {
           templates.push({
@@ -630,6 +608,7 @@ export const updateUserAndOrganization = async (req, res) => {
       email,
       role,
       TimeZone,
+      TimeZoneAuto,
 
       // ---------- ORGANIZATION ----------
       organizationName,
@@ -667,6 +646,7 @@ export const updateUserAndOrganization = async (req, res) => {
     if (fullName !== undefined) user.fullName = fullName;
     if (email !== undefined) user.email = email;
     if (TimeZone !== undefined) user.TimeZone = TimeZone;
+    if (TimeZoneAuto !== undefined) user.TimeZoneAuto = Boolean(TimeZoneAuto);
     if (organizationName !== undefined) {
       user.organizationName = organizationName;
       user.companyName = organizationName;
@@ -694,6 +674,8 @@ export const updateUserAndOrganization = async (req, res) => {
       if (Region !== undefined) organization.Region = Region;
       if (country !== undefined) organization.country = country;
       if (TimeZone !== undefined) organization.TimeZone = TimeZone;
+      if (TimeZoneAuto !== undefined)
+        organization.TimeZoneAuto = Boolean(TimeZoneAuto);
       if (PartnerLink !== undefined) organization.PartnerLink = PartnerLink;
 
       // 🔥 NEWLY ADDED FIELDS
@@ -1486,8 +1468,10 @@ export const googleLogin = async (req, res) => {
     await savedUser.save();
 
     // Default Templates
+    const seedServices = (await loadPlatformRules()).services.list;
+
     const templates = [];
-    defaultServices.forEach((service) => {
+    seedServices.forEach((service) => {
       ['Initial Email', 'First Email', 'Second Email'].forEach(
         (emailName, idx) => {
           templates.push({
@@ -2029,16 +2013,10 @@ export const forgotPassword = async (req, res) => {
 
     const resetUrl = `${FRONTEND_URL}/reset-password/${token}`;
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    const platformAddress = await platformFromAddress();
 
     const mailOptions = {
-      from: `"Replex Engine : Reset your password" <${process.env.EMAIL_USER}>`,
+      from: `"Replex Engine : Reset your password" <${platformAddress}>`,
       to: email,
       subject: 'Reset Your Password',
       html: `
@@ -2056,7 +2034,7 @@ export const forgotPassword = async (req, res) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendPlatformMail(mailOptions);
 
     res.json({
       success: true,
@@ -2165,16 +2143,10 @@ export const requestLogin = async (req, res) => {
     const token = createToken({ id: user._id, type: 'loginVerify' }, '10m');
     const verifyUrl = `http://localhost:3006/login-verify/${token}`;
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    const supportAddress = await platformFromAddress();
 
-    await transporter.sendMail({
-      from: `"Make Support" <${process.env.EMAIL_USER}>`,
+    await sendPlatformMail({
+      from: `"Make Support" <${supportAddress}>`,
       to: user.email,
       subject: 'Login Verification',
       html: `
@@ -2923,6 +2895,18 @@ export const updateAiStatus = async (req, res) => {
     const { userId, enabled } = req.body;
     const targetUserId = userId || req.params?.userId;
 
+    /*
+     * IDOR: this took whatever userId the caller sent and flipped that
+     * account's AI setting. Behind authMiddleware alone, any signed-in
+     * customer could enable or disable AI replies on any other account.
+     */
+    if (targetUserId && !isOwnerOrAdmin(req, targetUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot change another user's AI settings",
+      });
+    }
+
     if (!targetUserId || typeof enabled !== 'boolean') {
       return res.status(400).json({
         success: false,
@@ -2969,6 +2953,14 @@ export const toggleAiReplies = async (req, res) => {
 
     if (!userId) {
       return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    /* Same IDOR as updateAiStatus — the userId came straight from the caller. */
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot change another user's AI settings",
+      });
     }
 
     const user = await authModel.findById(userId);
@@ -3748,23 +3740,23 @@ export const getDashboardSummary = async (req, res) => {
 
     // Fetch raw thread root candidates matching user criteria
     const rawThreads = await EmailModel.find(threadMatchQuery)
-      .select('_id subject senderAddress recipientAddress leadStatus direction replies conversation discussion createdAt date lastActivityAt forwardedMeta textBody conversationId providerThreadId threadId messageId')
+      .select('_id subject senderAddress recipientAddress leadStatus direction replies conversation discussion createdAt date lastActivityAt forwardedMeta textBody conversationId providerThreadId threadId messageId matchedScenarioId')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Filter out system welcome / onboarding emails
+    /* Platform-level rules — the same ones the Lead Inbox applies. */
+    const platformRules = await loadPlatformRules();
+
     const validThreads = rawThreads.filter(
-      (e) => !e.subject || !/^Welcome to Replex Engine/i.test(e.subject.trim())
+      (e) => !isExcludedFromInbox(e, platformRules.inbox)
     );
 
     // Deduplicate multiple raw entries belonging to the same lead thread
     const uniqueLeadMap = new Map();
     for (const email of validThreads) {
       const sender = (email.senderAddress || '').toLowerCase();
-      const cleanSubj = (email.subject || '')
-        .replace(/^((re|fwd|fw|\[external\]):\s*)+/i, '')
-        .trim()
-        .toLowerCase();
+      /* Same prefix list as the matcher, so a reply keys to its root. */
+      const cleanSubj = normalizeLeadSubject(email.subject, platformRules);
       const cleanMsgId = email.messageId ? email.messageId.replace(/^<|>$/g, '').trim() : '';
 
       const threadKey =
@@ -3783,7 +3775,26 @@ export const getDashboardSummary = async (req, res) => {
       }
     }
 
-    const deduplicatedLeadThreads = Array.from(uniqueLeadMap.values());
+    let deduplicatedLeadThreads = Array.from(uniqueLeadMap.values());
+
+    /*
+     * Count the same leads the Lead Inbox shows.
+     *
+     * The inbox keeps only threads meeting a scenario's criteria, so
+     * counting the raw mailbox here would report a lead total the user
+     * cannot find any of. Same rules, same helper — see
+     * utils/scenarioMatch.js.
+     */
+    const scenariosWithCriteria = await scenarioModel
+      .find({ $or: [{ userId: userId }, { userId: userObjId }] })
+      .select('type incomingLead routerBranches')
+      .lean();
+
+    if (hasAnyScenarioCriteria(scenariosWithCriteria, platformRules)) {
+      deduplicatedLeadThreads = deduplicatedLeadThreads.filter((thread) =>
+        threadMatchesScenarios(scenariosWithCriteria, [thread], platformRules)
+      );
+    }
 
     const total = deduplicatedLeadThreads.length;
     const secured = deduplicatedLeadThreads.filter((e) => e.leadStatus === 'secured').length;

@@ -2,6 +2,8 @@ import { TemplateModel } from '../Models/Template.js';
 import { authModel } from '../Models/auth.js';
 import { OrganizationModel } from '../Models/Organization.js';
 import { isOwnerOrAdmin, getAuthUserId } from '../middleware/authmiddleware.js';
+import mongoose from 'mongoose';
+import { loadPlatformRules } from '../utils/platformScenarioConfig.js';
 
 export const addTemplate = async (req, res) => {
   try {
@@ -14,7 +16,20 @@ export const addTemplate = async (req, res) => {
 
     const { platform, service, conditions, content } = req.body;
 
+    /*
+     * The model requires a name, but this handler never set one — so every
+     * create threw a ValidationError and returned a 500. It is also what a
+     * user needs to tell several custom templates apart.
+     */
+    const name = String(req.body?.name || "").trim();
+
     // Basic validation
+    if (!name) {
+      return res.status(400).json({
+        error: 'A template name is required',
+      });
+    }
+
     if (!userId || !platform || !content) {
       return res.status(400).json({
         error: 'userId, platform and content are required',
@@ -30,6 +45,7 @@ export const addTemplate = async (req, res) => {
 
     const template = new TemplateModel({
       userId,
+      name,
       platform,
       service: platform === 'shopify' ? service : null,
       conditions: conditions || [],
@@ -99,8 +115,19 @@ export const updateTemplate = async (req, res) => {
       return res.status(403).json({ error: "Forbidden: You cannot update another user's template" });
     }
 
-    const updated = await TemplateModel.findByIdAndUpdate(id, req.body, {
+    /*
+     * A blank name would fail the model's required rule on the next save,
+     * so an empty string is dropped rather than written over a good name.
+     */
+    const updateData = { ...req.body };
+
+    if (typeof updateData.name === 'string' && !updateData.name.trim()) {
+      delete updateData.name;
+    }
+
+    const updated = await TemplateModel.findByIdAndUpdate(id, updateData, {
       new: true,
+      runValidators: true,
     });
 
     res.json({
@@ -911,5 +938,104 @@ export const toggleAllTemplatesAi = async (req, res) => {
   } catch (err) {
     console.error('❌ Error updating all templates Auto Reply status:', err);
     res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Restore default Shopify templates
+|--------------------------------------------------------------------------
+|
+| Default templates are created once, during signup. An account that
+| predates that code, or whose signup partially failed, has none — and
+| there was no way to get them back, so the Templates page stayed empty
+| and scenarios had nothing to reply with.
+|
+| This rebuilds the set from the platform service list (master admin ->
+| Scenario Triggers -> Service Routing), which is also what signup seeds
+| from, so the two cannot drift.
+|
+| IDEMPOTENT
+|
+| Only templates that are actually missing are created, matched on
+| (service, sequence). Running it twice adds nothing the second time, and
+| it never touches a template the user has edited.
+*/
+export const restoreDefaultTemplates = async (req, res) => {
+  try {
+    const authUserId = getAuthUserId(req);
+    const userId = req.body?.userId || req.query?.userId || authUserId;
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot restore another user's templates",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid user ID.' });
+    }
+
+    const services = (await loadPlatformRules()).services.list;
+    const sequences = ['Initial Email', 'First Email', 'Second Email'];
+
+    const existing = await TemplateModel.find({
+      userId,
+      platform: 'shopify',
+    })
+      .select('name')
+      .lean();
+
+    const existingNames = new Set(
+      existing.map((t) => String(t.name || '').trim().toLowerCase())
+    );
+
+    const missing = [];
+
+    services.forEach((service) => {
+      sequences.forEach((sequence) => {
+        const name = `${service} - ${sequence}`;
+
+        if (existingNames.has(name.toLowerCase())) return;
+
+        missing.push({
+          userId,
+          platform: 'shopify',
+          service,
+          name,
+          conditions: [],
+          content: `This is the ${sequence.toUpperCase()} template for ${service}. You can edit this content.`,
+          active: true,
+        });
+      });
+    });
+
+    if (missing.length > 0) {
+      await TemplateModel.insertMany(missing);
+    }
+
+    console.log(
+      `[restoreDefaultTemplates] user=${userId} existing=${existing.length} created=${missing.length}`
+    );
+
+    return res.status(200).json({
+      success: true,
+      created: missing.length,
+      existing: existing.length,
+      message:
+        missing.length > 0
+          ? `${missing.length} template(s) restored.`
+          : 'All default templates are already in place.',
+    });
+  } catch (error) {
+    console.error('[restoreDefaultTemplates] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to restore default templates',
+      error: error.message,
+    });
   }
 };
