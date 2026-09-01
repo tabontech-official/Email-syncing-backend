@@ -26,6 +26,21 @@ export const addScenario = async (req, res) => {
     if (userId) {
       const user = await authModel.findById(userId);
       const plan = (user?.subscription?.plan || "Explore").toLowerCase();
+
+      // Free plan (Explore) allows only 1 Shopify scenario
+      if ((plan === "explore" || !plan) && req.body.type === "shopify") {
+        const existingShopifyCount = await scenarioModel.countDocuments({
+          userId,
+          type: "shopify",
+        });
+
+        if (existingShopifyCount >= 1) {
+          return res.status(403).json({
+            error: "Free plan includes 1 prebuilt Shopify scenario. Upgrade to Elevate or Unite to build multiple Shopify scenarios.",
+          });
+        }
+      }
+
       let maxActive = user?.subscription?.scenariosLimit || (plan === "elevate" ? 5 : plan === "unite" ? 15 : plan === "enterprise" ? 999 : 1);
       if (user?.subscription?.extraScenariosLimit) {
         maxActive += user.subscription.extraScenariosLimit;
@@ -88,15 +103,31 @@ export const getSingleScenario = async (req, res) => {
 
 export const updateScenario = async (req, res) => {
   try {
-    const routerBranches = Array.isArray(req.body.routerBranches)
-      ? req.body.routerBranches
-      : [];
+    const existingScenario = await scenarioModel.findById(req.params.id);
+    if (!existingScenario) {
+      return res.status(404).json({
+        success: false,
+        message: "Scenario not found.",
+      });
+    }
 
-    const incomingLead = req.body.incomingLead || {};
+    if (!isOwnerOrAdmin(req, existingScenario.userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot update another user's scenario",
+      });
+    }
+
+    const routerBranches = req.body.hasOwnProperty("routerBranches") && Array.isArray(req.body.routerBranches)
+      ? req.body.routerBranches
+      : (existingScenario.routerBranches || []);
+
+    const incomingLead = req.body.hasOwnProperty("incomingLead") && typeof req.body.incomingLead === "object" && req.body.incomingLead !== null
+      ? req.body.incomingLead
+      : (existingScenario.incomingLead || {});
 
     /*
      * Normalize incoming lead connection ID.
-     * connectionId frontend se string, ObjectId ya array ki form mein aa sakti hai.
      */
     const rawIncomingConnectionId = Array.isArray(incomingLead.connectionId)
       ? incomingLead.connectionId[0]
@@ -110,16 +141,10 @@ export const updateScenario = async (req, res) => {
     const incomingSubjectFilter =
       typeof incomingLead.subjectFilter === "string"
         ? incomingLead.subjectFilter.trim()
-        : "";
+        : (existingScenario.incomingLead?.subjectFilter || "");
 
-    /*
-     * Mailhook trigger: leads arrive by forwarding to the user's mailhook
-     * address, so there is no Connection to validate. The chosen mailhook
-     * card is checked against the mailhook collection instead, further
-     * down, once the scenario owner is known.
-     */
-    const isMailhookTrigger =
-      (incomingLead.app?.name || "").toLowerCase() === "mailhook";
+    const appName = incomingLead.app?.name || existingScenario.incomingLead?.app?.name || "Gmail";
+    const isMailhookTrigger = appName.toLowerCase() === "mailhook";
 
     const rawIncomingMailhookId = Array.isArray(incomingLead.mailhookId)
       ? incomingLead.mailhookId[0]
@@ -128,21 +153,11 @@ export const updateScenario = async (req, res) => {
     const incomingMailhookId =
       typeof rawIncomingMailhookId === "string"
         ? rawIncomingMailhookId.trim()
-        : rawIncomingMailhookId?.toString?.().trim() || "";
+        : rawIncomingMailhookId?.toString?.().trim() || (existingScenario.incomingLead?.mailhookId?.toString?.() || "");
 
-    /*
-     * Saari email connections collect karenge.
-     */
     const connectionIds = [];
     let missingConnectionFound = false;
 
-    /*
-     * Incoming Leads trigger validation.
-     *
-     * Agar trigger enabled hai, subject filter diya hua hai,
-     * ya incomingLead object frontend se configure hokar aaya hai,
-     * to connection required hogi.
-     */
     const incomingLeadConfigured = Boolean(
       incomingLead.enabled ||
         incomingConnectionId ||
@@ -158,16 +173,13 @@ export const updateScenario = async (req, res) => {
       }
     }
 
-    /*
-     * Router modules ki connections validate karein.
-     */
     routerBranches.forEach((branch) => {
       const modules = Array.isArray(branch.modules)
         ? branch.modules
         : [];
 
       modules.forEach((module) => {
-        const appName =
+        const modAppName =
           typeof module.app?.name === "string"
             ? module.app.name.toLowerCase()
             : "";
@@ -178,16 +190,16 @@ export const updateScenario = async (req, res) => {
             : "";
 
         const isDelayModule =
-          appName.includes("delay") ||
+          modAppName.includes("delay") ||
           moduleType.includes("delay");
 
         const isEmailModule =
           !isDelayModule &&
           (
-            appName.includes("email") ||
-            appName.includes("gmail") ||
-            appName.includes("follow") ||
-            appName.includes("initial") ||
+            modAppName.includes("email") ||
+            modAppName.includes("gmail") ||
+            modAppName.includes("follow") ||
+            modAppName.includes("initial") ||
             moduleType.includes("email") ||
             moduleType.includes("gmail")
           );
@@ -213,24 +225,13 @@ export const updateScenario = async (req, res) => {
       });
     });
 
-    /*
-     * Duplicate IDs hata dein.
-     */
     const uniqueConnectionIds = [...new Set(connectionIds)];
 
-    /*
-     * MongoDB ObjectId format validate karein.
-     */
     const invalidFormatIds = uniqueConnectionIds.filter(
       (connectionId) => !mongoose.Types.ObjectId.isValid(connectionId)
     );
 
     if (invalidFormatIds.length > 0) {
-      console.warn(
-        "[updateScenario] Invalid connection ID format:",
-        invalidFormatIds
-      );
-
       missingConnectionFound = true;
     }
 
@@ -238,9 +239,6 @@ export const updateScenario = async (req, res) => {
       (connectionId) => mongoose.Types.ObjectId.isValid(connectionId)
     );
 
-    /*
-     * Check karein ke connections database mein mojood aur active hain.
-     */
     if (validFormatConnectionIds.length > 0) {
       const validConnections = await ConnectionModel.find({
         _id: {
@@ -262,36 +260,10 @@ export const updateScenario = async (req, res) => {
         );
 
       if (inactiveOrMissingIds.length > 0) {
-        console.warn(
-          "[updateScenario] Inactive or missing connections:",
-          inactiveOrMissingIds
-        );
-
         missingConnectionFound = true;
       }
     }
 
-    const existingScenario = await scenarioModel.findById(req.params.id);
-    if (!existingScenario) {
-      return res.status(404).json({
-        success: false,
-        message: "Scenario not found.",
-      });
-    }
-
-    if (!isOwnerOrAdmin(req, existingScenario.userId)) {
-      return res.status(403).json({
-        success: false,
-        message: "Forbidden: You cannot update another user's scenario",
-      });
-    }
-
-    /*
-     * Validate the mailhook trigger the same way connections are validated:
-     * it must belong to this user and be verified. An unverified mailhook
-     * is one nothing has actually been forwarded to, so a scenario built on
-     * it would sit active and never fire.
-     */
     let validMailhookId = null;
 
     if (isMailhookTrigger && incomingLeadConfigured) {
@@ -299,11 +271,6 @@ export const updateScenario = async (req, res) => {
         !incomingMailhookId ||
         !mongoose.Types.ObjectId.isValid(incomingMailhookId)
       ) {
-        console.warn(
-          "[updateScenario] Mailhook trigger without a valid mailhook ID:",
-          incomingMailhookId
-        );
-
         missingConnectionFound = true;
       } else {
         const mailhookCard = await mailhookModel
@@ -314,11 +281,6 @@ export const updateScenario = async (req, res) => {
           .select("_id connectionVerified");
 
         if (!mailhookCard || !mailhookCard.connectionVerified) {
-          console.warn(
-            "[updateScenario] Missing or unverified mailhook:",
-            incomingMailhookId
-          );
-
           missingConnectionFound = true;
         } else {
           validMailhookId = mailhookCard._id.toString();
@@ -326,9 +288,6 @@ export const updateScenario = async (req, res) => {
       }
     }
 
-    /*
-     * Check requested active status and enforce user subscription plan limit!
-     */
     let requestedActive = req.body.hasOwnProperty("scenarioActive")
       ? Boolean(req.body.scenarioActive)
       : (existingScenario?.scenarioActive ?? true);
@@ -356,19 +315,6 @@ export const updateScenario = async (req, res) => {
 
     const scenarioActive = !missingConnectionFound && requestedActive;
 
-    /*
-     * Incoming lead enabled tab hoga jab connection aur
-     * subject filter dono available hon.
-     *
-     * Agar aap subject filter optional rakhna chahte hain to
-     * yahan se incomingSubjectFilter condition remove kar dein.
-     */
-    /*
-     * A built-in scenario carries no subject filter of its own — it follows
-     * the platform trigger the owner configures in the master admin panel.
-     * Requiring a stored filter here would leave those scenarios permanently
-     * disabled, so the platform default counts as configured.
-     */
     const platformRules = await loadPlatformRules();
 
     const effectiveSubjectFilter =
@@ -387,183 +333,110 @@ export const updateScenario = async (req, res) => {
 
     const updateData = {
       name:
-        typeof req.body.name === "string"
+        typeof req.body.name === "string" && req.body.name.trim() !== ""
           ? req.body.name.trim()
-          : "",
+          : (existingScenario.name || "Untitled Scenario"),
 
       description:
         typeof req.body.description === "string"
           ? req.body.description
-          : "",
+          : (existingScenario.description || ""),
 
-      type: req.body.type || "other",
+      type: req.body.type || existingScenario.type || "other",
 
       incomingLead: {
         app: {
-          name: incomingLead.app?.name || "Gmail",
-          color: incomingLead.app?.color || "",
-          icon: incomingLead.app?.icon || "",
+          name: incomingLead.app?.name || existingScenario.incomingLead?.app?.name || "Gmail",
+          color: incomingLead.app?.color || existingScenario.incomingLead?.app?.color || "",
+          icon: incomingLead.app?.icon || existingScenario.incomingLead?.app?.icon || "",
         },
 
         connectionId: isMailhookTrigger
           ? null
-          : incomingConnectionId || null,
+          : incomingConnectionId || (existingScenario.incomingLead?.connectionId ? String(existingScenario.incomingLead.connectionId) : null),
 
-        mailhookId: isMailhookTrigger ? validMailhookId : null,
+        mailhookId: isMailhookTrigger ? (validMailhookId || (existingScenario.incomingLead?.mailhookId ? String(existingScenario.incomingLead.mailhookId) : null)) : null,
 
         subjectFilter: incomingSubjectFilter,
 
         pollInterval:
           Number(incomingLead.pollInterval) > 0
             ? Number(incomingLead.pollInterval)
-            : 60,
+            : (existingScenario.incomingLead?.pollInterval || 60),
 
         enabled: incomingLeadEnabled,
       },
 
       routerBranches: routerBranches.map((branch) => ({
-        id: branch.id,
-
+        id: branch.id || Date.now(),
         hasModule: Boolean(branch.hasModule),
-
-        condition:
-          typeof branch.condition === "string"
-            ? branch.condition
-            : null,
-
+        condition: typeof branch.condition === "string" ? branch.condition : null,
         filter: {
           label: branch.filter?.label || "",
-
-          conditions: Array.isArray(
-            branch.filter?.conditions
-          )
+          conditions: Array.isArray(branch.filter?.conditions)
             ? branch.filter.conditions.map((condition) => ({
                 field: condition.field || "",
                 operator: condition.operator || "",
                 value: condition.value || "",
-                join: ["AND", "OR"].includes(condition.join)
-                  ? condition.join
-                  : null,
+                join: ["AND", "OR"].includes(condition.join) ? condition.join : null,
               }))
             : [],
-
           template: branch.filter?.template || "",
         },
-
         modules: Array.isArray(branch.modules)
           ? branch.modules.map((module) => {
-              const rawModuleConnectionId = Array.isArray(
-                module.connectionId
-              )
+              const rawModuleConnectionId = Array.isArray(module.connectionId)
                 ? module.connectionId[0]
                 : module.connectionId;
 
               const moduleConnectionId =
                 typeof rawModuleConnectionId === "string"
                   ? rawModuleConnectionId.trim()
-                  : rawModuleConnectionId
-                      ?.toString?.()
-                      .trim() || "";
+                  : rawModuleConnectionId?.toString?.().trim() || "";
 
               return {
-                id: module.id,
-
+                id: module.id || Date.now(),
                 type: module.type || "",
-
                 description: module.description || "",
-
                 subject: module.subject || "",
-
                 to: module.to || "",
-
-                cc: Array.isArray(module.cc)
-                  ? module.cc.filter(Boolean)
-                  : [],
-
-                bcc: Array.isArray(module.bcc)
-                  ? module.bcc.filter(Boolean)
-                  : [],
-
+                cc: Array.isArray(module.cc) ? module.cc.filter(Boolean) : [],
+                bcc: Array.isArray(module.bcc) ? module.bcc.filter(Boolean) : [],
                 connectionId: moduleConnectionId,
-
-                /*
-                 * This mapping is a whitelist — anything not listed is
-                 * dropped on save, so the builder's Manual/AI choice and
-                 * the profile it writes from have to be named here.
-                 */
                 replyMode: module.replyMode === "ai" ? "ai" : "manual",
-
-                companyProfileId:
-                  module.replyMode === "ai" && module.companyProfileId
-                    ? module.companyProfileId
-                    : null,
-
+                companyProfileId: module.replyMode === "ai" && module.companyProfileId ? module.companyProfileId : null,
                 template: module.template || "",
-
-                delayValue:
-                  module.delayValue !== undefined &&
-                  module.delayValue !== null &&
-                  module.delayValue !== ""
-                    ? Number(module.delayValue)
-                    : null,
-
+                delayValue: module.delayValue !== undefined && module.delayValue !== null && module.delayValue !== "" ? Number(module.delayValue) : null,
                 delayUnit: module.delayUnit || null,
-
                 app: {
                   name: module.app?.name || "",
                   color: module.app?.color || "",
                   icon: module.app?.icon || "",
                 },
-
                 position: {
-                  x:
-                    Number.isFinite(
-                      Number(module.position?.x)
-                    )
-                      ? Number(module.position.x)
-                      : 200,
-
-                  y:
-                    Number.isFinite(
-                      Number(module.position?.y)
-                    )
-                      ? Number(module.position.y)
-                      : 200,
+                  x: Number.isFinite(Number(module.position?.x)) ? Number(module.position.x) : 200,
+                  y: Number.isFinite(Number(module.position?.y)) ? Number(module.position.y) : 200,
                 },
-
                 filter: {
                   label: module.filter?.label || "",
-
-                  conditions: Array.isArray(
-                    module.filter?.conditions
-                  )
-                    ? module.filter.conditions.map(
-                        (condition) => ({
-                          field: condition.field || "",
-                          operator:
-                            condition.operator || "",
-                          value: condition.value || "",
-                          join: ["AND", "OR"].includes(
-                            condition.join
-                          )
-                            ? condition.join
-                            : null,
-                        })
-                      )
+                  conditions: Array.isArray(module.filter?.conditions)
+                    ? module.filter.conditions.map((condition) => ({
+                        field: condition.field || "",
+                        operator: condition.operator || "",
+                        value: condition.value || "",
+                        join: ["AND", "OR"].includes(condition.join) ? condition.join : null,
+                      }))
                     : [],
-
-                  template:
-                    module.filter?.template || "",
+                  template: module.filter?.template || "",
                 },
-
                 emailType: module.emailType || "",
               };
             })
           : [],
       })),
 
-      rfNodes: Array.isArray(req.body.rfNodes) ? req.body.rfNodes : [],
-      rfEdges: Array.isArray(req.body.rfEdges) ? req.body.rfEdges : [],
+      rfNodes: req.body.hasOwnProperty("rfNodes") && Array.isArray(req.body.rfNodes) ? req.body.rfNodes : (existingScenario.rfNodes || []),
+      rfEdges: req.body.hasOwnProperty("rfEdges") && Array.isArray(req.body.rfEdges) ? req.body.rfEdges : (existingScenario.rfEdges || []),
       scenarioActive,
     };
 
@@ -588,13 +461,10 @@ export const updateScenario = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-
       message: scenarioActive
         ? "Scenario updated and activated successfully."
-        : "Scenario updated but deactivated because one or more connections are missing, invalid, or inactive.",
-
+        : "Scenario updated successfully.",
       scenarioActive,
-
       updated: updatedScenario,
     });
   } catch (error) {
@@ -627,10 +497,16 @@ export const deleteScenario = async (req, res) => {
     }
 
     if (scenario.type === "shopify") {
-      return res.status(403).json({
-        success: false,
-        message: "Shopify prebuilt system scenarios cannot be deleted.",
+      const shopifyCount = await scenarioModel.countDocuments({
+        userId: scenario.userId,
+        type: "shopify",
       });
+      if (shopifyCount <= 1) {
+        return res.status(403).json({
+          success: false,
+          message: "The primary Shopify prebuilt scenario cannot be deleted.",
+        });
+      }
     }
 
     await scenarioModel.findByIdAndDelete(scenarioId);
