@@ -4530,6 +4530,56 @@ export const RunTestMode = async (req, res) => {
       helpDescription ||
       'No description provided.';
 
+    /*
+     |------------------------------------------------------------------
+     | The plain-text form, as a real Partner Directory lead carries it
+     |------------------------------------------------------------------
+     |
+     | A test used to hand executeScenarios only the Description — four to
+     | sixty characters — while the form itself existed solely in the HTML
+     | part. Everything downstream reads the TEXT: matchService() scans
+     | subject + body for a service name, and parseShopifyInquiry() reads
+     | these dashed sections. Given a body that says "testing1234", both
+     | found nothing, matchService fell through to its "General" fallback,
+     | and the reply went out on the General template no matter which
+     | service template was active.
+     |
+     | The run logs showed it plainly — the `test` run resolved
+     | "Store build or redesign" while the `live` run beside it, the one
+     | that actually mails the customer, recorded "General".
+     |
+     | So the test now feeds the engine the same shape of input a real
+     | lead does. The section labels and dashed underlines match what
+     | utils/shopifyInquiry.js parses, because a test built on a different
+     | format than production is a test that cannot catch production bugs.
+     */
+    const underline = (label) => '-'.repeat(label.length);
+
+    const formSection = (label, value) =>
+      `${underline(label)}\n${label}\n${underline(label)}\n\n${value}\n\n`;
+
+    const parentFormTextBody =
+      `Hello ${partnerName} and ${dummyCustomer},\n\n` +
+      `${dummyCustomer} has expressed interest in your services through the ` +
+      `Shopify Partner Directory. ${partnerName}, to initiate the conversation, ` +
+      `please follow up with ${dummyCustomer} directly by selecting ` +
+      `“Reply all” when you reach out.\n\n` +
+      `All further communications will be between you both directly.\n\n` +
+      `Details about ${dummyCustomer} request are provided below:\n\n` +
+      `***********************\nContact Form Submission\n***********************\n\n` +
+      formSection('Full name', dummyCustomer) +
+      formSection('Business email', businessEmail) +
+      formSection(
+        "Select the store you're working on",
+        `${storeName}\n\n${storeUrl}`
+      ) +
+      formSection('Country', country) +
+      formSection(`Select a service offered by ${partnerName}`, service) +
+      formSection('Budget (USD)', String(budget ?? '')) +
+      formSection('Description', parentTextBody) +
+      `Thank you for being a part of the Shopify Partner Directory.\n\n` +
+      `Sincerely,\nThe Shopify Team\n`;
+
     const parentHtmlBody = `
 <div style="font-family: Arial, Helvetica, sans-serif; color:#2b2b2b; line-height:1.6; background:#fff; padding:20px;">
   <p>Hello <strong>${partnerName}</strong> and <strong>${dummyCustomer}</strong>,</p>
@@ -5037,7 +5087,13 @@ export const RunTestMode = async (req, res) => {
 
       to: incomingLeadEmail,
       subject: parentSubject,
-      body: parentTextBody,
+
+      /*
+       * The full form, not just the Description. matchService() and
+       * parseShopifyInquiry() both read this, and neither can find a
+       * service in a body that does not contain one.
+       */
+      body: parentFormTextBody,
       emailId: parentEmail?._id ? parentEmail._id.toString() : parentSendInfo.messageId,
       messageId: parentSendInfo.messageId,
 

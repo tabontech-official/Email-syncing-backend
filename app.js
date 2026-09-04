@@ -10,7 +10,7 @@ import {
 import authRouter from './Routes/auth.js';
 import productRouter from './Routes/product.js';
 import orderRouter from './Routes/order.js';
-import Connect from './connection/connect.js';
+import Connect, { ensureDbConnected } from './connection/connect.js';
 import setupSwagger from './swaggerConfig.js';
 import { productSubscriptionExpiration } from './controller/scheduleFunction.js';
 import promoRouter from './Routes/promotion.js';
@@ -119,6 +119,44 @@ app.use(
     credentials: true,
   })
 );
+
+/*
+|--------------------------------------------------------------------------
+| Database readiness, per request
+|--------------------------------------------------------------------------
+|
+| initializeApplication() below connects at module load, but on Vercel that
+| races the request the instance was created to serve — and if the attempt
+| failed, nothing retried it. Either way Mongoose accepted the query, held
+| it in its buffer, and gave up after ten seconds, which reached the user
+| as "Operation `users.findOne()` buffering timed out after 10000ms".
+|
+| This waits for a real connection before any route that needs one runs,
+| and retries on the next request if it could not get one. A database that
+| is genuinely unreachable now answers 503 in the time it takes to find
+| out, instead of a ten-second hang reported as a 500.
+|
+| The skipped paths are the ones that must answer without a database: OAuth
+| discovery is how an MCP client bootstraps before it holds any credential,
+| and making that depend on Mongo would be a needless coupling.
+*/
+const NO_DB_REQUIRED = [/^\/\.well-known\//, /^\/mcp\/info\/?$/];
+
+app.use(async (req, res, next) => {
+  if (NO_DB_REQUIRED.some((pattern) => pattern.test(req.path))) return next();
+
+  try {
+    await ensureDbConnected();
+    return next();
+  } catch (error) {
+    console.error('[db] unavailable for', req.method, req.originalUrl, '-', error?.message);
+
+    return res.status(503).json({
+      success: false,
+      message: 'The service is temporarily unable to reach its database. Please try again in a moment.',
+    });
+  }
+});
 
 app.use('/uploads', express.static('uploads'));
 
