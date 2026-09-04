@@ -20,3 +20,6 @@ build/
 
 # Other
 .DS_Store
+
+# Vercel CLI link metadata (project + org ids) — local only
+.vercel

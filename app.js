@@ -421,8 +421,42 @@ const initializeApplication = async () => {
     );
 
     /*
-     * Do not continue when database initialization fails.
+     |------------------------------------------------------------------
+     | Exiting is right on a server, and catastrophic in serverless
+     |------------------------------------------------------------------
+     |
+     | On a long-running host, failing fast is correct: a process with no
+     | database is useless and should die so the supervisor restarts it.
+     |
+     | On Vercel there is no supervisor and no separate process. This
+     | module is initialised INSIDE the same invocation that is already
+     | serving an HTTP request, and initialisation opens Gmail IMAP
+     | listeners — long-lived TCP connections that a serverless sandbox
+     | frequently refuses. So a single failed mailbox listener called
+     | process.exit and took the in-flight response down with it, which
+     | the client sees as FUNCTION_INVOCATION_FAILED rather than any
+     | error this code chose to return.
+     |
+     | That is what made cold requests fail intermittently while an
+     | immediate retry succeeded — and why adding an MCP connector could
+     | not get past registration: that POST is usually the first request
+     | to reach a cold instance.
+     |
+     | In serverless we log and carry on. Anything that genuinely needs
+     | the database still surfaces its own error, on the request that
+     | needed it, instead of destroying an unrelated one.
      */
+    const isServerless = Boolean(
+      process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+    );
+
+    if (isServerless) {
+      console.error(
+        'Continuing despite initialization failure: exiting would abort the request currently being served.'
+      );
+      return;
+    }
+
     process.exit(1);
   }
 };

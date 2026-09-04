@@ -112,6 +112,42 @@ browser to `<FRONTEND_URL>/admin/mcp-connector/authorize`; without it,
 user to a dead path. `MCP_PUBLIC_URL` is only needed behind a proxy that
 rewrites the Host header.
 
+### The connector must be served from the public domain
+
+Claude derives the connector's identity, and the OAuth issuer it trusts,
+from the origin you hand it. So the address must be
+`https://replexengine.com/mcp` — not the backend's `*.vercel.app` host.
+
+`replexengine.com` is the frontend deployment, so `vercel.json` in the
+frontend project rewrites the connector paths onto the backend:
+
+    /mcp/*                                  -> backend
+    /.well-known/oauth-protected-resource*  -> backend
+    /.well-known/oauth-authorization-server* -> backend
+
+and the backend must set:
+
+    MCP_PUBLIC_URL=https://replexengine.com
+    FRONTEND_URL=https://replexengine.com
+
+`MCP_PUBLIC_URL` matters because a Vercel rewrite reaches the backend with
+the backend's own Host header. Without it the metadata documents would
+advertise the `.vercel.app` origin to a client that connected to
+`replexengine.com`, and RFC 8707 audience validation is entitled to reject
+that mismatch.
+
+### Cold starts used to kill the request
+
+`initializeApplication()` in `app.js` called `process.exit(1)` on any
+startup failure. That is correct on a long-running server and fatal on
+Vercel, where the module initialises inside the invocation already serving
+a request — a single Gmail IMAP listener failing to open would take the
+HTTP response down with it as `FUNCTION_INVOCATION_FAILED`.
+
+Adding a connector was the request most likely to hit it, being the first
+POST to reach a cold instance. It now logs and continues when running
+serverless, and still exits on a real server.
+
 ### What the flow does
 
 | Step | Endpoint |
