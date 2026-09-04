@@ -35,11 +35,13 @@ adminPlatformRouter.get('/master-dashboard', getAdminPlatformDashboard);
 
 // Plan Management
 adminPlatformRouter.get('/plans', getPlans);
-adminPlatformRouter.post('/plans', createPlan);
+adminPlatformRouter.post('/plans', createPlan); 
 adminPlatformRouter.put('/plans/:id', updatePlan);
 adminPlatformRouter.delete('/plans/:id', deletePlan);
 
-// Stripe Configuration
+
+
+// Stripe Configurations
 adminPlatformRouter.get('/stripe-config', getStripeConfig);
 adminPlatformRouter.put('/stripe-config', updateStripeConfig);
 
