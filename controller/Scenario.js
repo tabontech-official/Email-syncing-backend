@@ -1,12 +1,16 @@
 import { scenarioModel } from "../Models/Scenario.js";
 import { ScenarioRunLogModel } from "../Models/ScenarioRunLog.js";
-import { ConnectionModel } from "../Models/Connection.js";
 import { mailhookModel } from "../Models/MailhookSchema.js";
 import {
   loadPlatformRules,
   triggerForType,
 } from "../utils/platformScenarioConfig.js";
 import { authModel } from "../Models/auth.js";
+import {
+  collectRequiredConnections,
+  evaluateConnectionBlockers,
+  evaluatePlanLimitBlocker,
+} from "../utils/scenarioActivation.js";
 import mongoose from "mongoose";
 import { isOwnerOrAdmin, getAuthUserId } from "../middleware/authmiddleware.js";
 
@@ -155,37 +159,14 @@ export const updateScenario = async (req, res) => {
         ? rawIncomingMailhookId.trim()
         : rawIncomingMailhookId?.toString?.().trim() || (existingScenario.incomingLead?.mailhookId?.toString?.() || "");
 
-    const connectionIds = [];
-    let missingConnectionFound = false;
-
     /*
-     * Why activation was refused, in the client's words.
+     * Whether this scenario may run, and why not.
      *
-     * A scenario that cannot activate used to fail silently: the flag was
-     * written as false and the response said nothing about it, so the
-     * builder showed the switch as On until the next reload. Every branch
-     * that sets missingConnectionFound now records what it objected to,
-     * and the response carries it back so the UI can name the problem.
+     * The rule lives in utils/scenarioActivation.js because the MCP
+     * connector switches scenarios on too, and a second copy of "is this
+     * mailbox usable" is exactly how the UI and the server came to
+     * disagree in the first place.
      */
-    const blockers = [];
-
-    const addBlocker = (blocker) => {
-      missingConnectionFound = true;
-      blockers.push(blocker);
-    };
-
-    /* Which step the connection belongs to, for the message. */
-    const connectionRoles = new Map();
-
-    const noteConnectionRole = (connectionId, role) => {
-      const existing = connectionRoles.get(connectionId);
-      if (existing && !existing.includes(role)) {
-        connectionRoles.set(connectionId, `${existing}, ${role}`);
-        return;
-      }
-      if (!existing) connectionRoles.set(connectionId, role);
-    };
-
     const incomingLeadConfigured = Boolean(
       incomingLead.enabled ||
         incomingConnectionId ||
@@ -193,165 +174,23 @@ export const updateScenario = async (req, res) => {
         incomingSubjectFilter
     );
 
-    if (incomingLeadConfigured && !isMailhookTrigger) {
-      if (!incomingConnectionId) {
-        addBlocker({
-          code: "inbox_missing",
-          role: "trigger inbox",
-          message: "No inbox is connected for the trigger.",
-        });
-      } else {
-        connectionIds.push(incomingConnectionId);
-        noteConnectionRole(incomingConnectionId, "trigger inbox");
-      }
-    }
-
-    routerBranches.forEach((branch) => {
-      const modules = Array.isArray(branch.modules)
-        ? branch.modules
-        : [];
-
-      modules.forEach((module) => {
-        const modAppName =
-          typeof module.app?.name === "string"
-            ? module.app.name.toLowerCase()
-            : "";
-
-        const moduleType =
-          typeof module.type === "string"
-            ? module.type.toLowerCase()
-            : "";
-
-        const isDelayModule =
-          modAppName.includes("delay") ||
-          moduleType.includes("delay");
-
-        const isEmailModule =
-          !isDelayModule &&
-          (
-            modAppName.includes("email") ||
-            modAppName.includes("gmail") ||
-            modAppName.includes("follow") ||
-            modAppName.includes("initial") ||
-            moduleType.includes("email") ||
-            moduleType.includes("gmail")
-          );
-
-        if (!isEmailModule) {
-          return;
-        }
-
-        const rawConnectionId = Array.isArray(module.connectionId)
-          ? module.connectionId[0]
-          : module.connectionId;
-
-        const connectionId =
-          typeof rawConnectionId === "string"
-            ? rawConnectionId.trim()
-            : rawConnectionId?.toString?.().trim() || "";
-
-        const stepName = module.app?.name || module.type || "an email step";
-
-        if (!connectionId) {
-          addBlocker({
-            code: "sender_missing",
-            role: stepName,
-            message: `"${stepName}" has no sending account selected.`,
-          });
-        } else {
-          connectionIds.push(connectionId);
-          noteConnectionRole(connectionId, stepName);
-        }
-      });
-    });
-
-    const uniqueConnectionIds = [...new Set(connectionIds)];
-
-    const invalidFormatIds = uniqueConnectionIds.filter(
-      (connectionId) => !mongoose.Types.ObjectId.isValid(connectionId)
+    const blockers = await evaluateConnectionBlockers(
+      collectRequiredConnections({
+        incomingConnectionId,
+        isMailhookTrigger,
+        incomingLeadConfigured,
+        routerBranches,
+      })
     );
 
-    invalidFormatIds.forEach((connectionId) => {
-      addBlocker({
-        code: "connection_invalid",
-        role: connectionRoles.get(connectionId) || "a step",
-        message: `The account selected for ${connectionRoles.get(connectionId) || "a step"} is not a valid connection.`,
-      });
-    });
+    const addBlocker = (blocker) => {
+      blockers.push(blocker);
+    };
 
-    const validFormatConnectionIds = uniqueConnectionIds.filter(
-      (connectionId) => mongoose.Types.ObjectId.isValid(connectionId)
-    );
+    const invalidFormatIds = blockers
+      .filter((b) => b.code === "connection_invalid")
+      .map((b) => b.connectionId);
 
-    if (validFormatConnectionIds.length > 0) {
-      /*
-       * Fetched WITHOUT the status filter so a rejected connection can be
-       * described rather than just counted. An expired OAuth grant is the
-       * common case and it is fixable by the user — but only if the
-       * response says which mailbox needs signing in again.
-       */
-      const foundConnections = await ConnectionModel.find({
-        _id: {
-          $in: validFormatConnectionIds,
-        },
-      }).select("_id email provider status lastConnectionError");
-
-      const byId = new Map(
-        foundConnections.map((connection) => [
-          connection._id.toString(),
-          connection,
-        ])
-      );
-
-      validFormatConnectionIds.forEach((connectionId) => {
-        const role = connectionRoles.get(connectionId) || "a step";
-        const connection = byId.get(connectionId);
-
-        if (!connection) {
-          addBlocker({
-            code: "connection_missing",
-            role,
-            connectionId,
-            message: `The account selected for ${role} no longer exists. Choose another one.`,
-          });
-          return;
-        }
-
-        /*
-         * A row predating the status field is active by the schema's own
-         * default, and that is what the connections API reports for it.
-         * The old query filtered on status server-side, so those rows were
-         * rejected while the UI showed them as fine — the same disagreement
-         * this change exists to remove, one row-shape further down.
-         */
-        if (!connection.status || connection.status === "active") return;
-
-        const label = connection.email || "this account";
-
-        if (connection.status === "reauth_required") {
-          addBlocker({
-            code: "reauth_required",
-            role,
-            connectionId,
-            email: connection.email || "",
-            provider: connection.provider || "",
-            status: connection.status,
-            message: `${label} needs to be reconnected — its sign-in has expired. Reconnect it to activate this scenario.`,
-          });
-          return;
-        }
-
-        addBlocker({
-          code: "connection_disconnected",
-          role,
-          connectionId,
-          email: connection.email || "",
-          provider: connection.provider || "",
-          status: connection.status,
-          message: `${label} is disconnected. Reconnect it to activate this scenario.`,
-        });
-      });
-    }
 
     let validMailhookId = null;
 
@@ -393,32 +232,20 @@ export const updateScenario = async (req, res) => {
     const userId = req.body.userId || existingScenario?.userId;
 
     if (requestedActive && userId) {
-      const user = await authModel.findById(userId);
-      const plan = (user?.subscription?.plan || "Explore").toLowerCase();
-      let maxActive = user?.subscription?.scenariosLimit || (plan === "elevate" ? 5 : plan === "unite" ? 15 : plan === "enterprise" ? 999 : 1);
-      if (user?.subscription?.extraScenariosLimit) {
-        maxActive += user.subscription.extraScenariosLimit;
-      }
+      const planBlocker = await evaluatePlanLimitBlocker(userId, req.params.id);
 
-      const otherActiveCount = await scenarioModel.countDocuments({
-        userId,
-        _id: { $ne: req.params.id },
-        scenarioActive: true,
-      });
-
-      if (otherActiveCount >= maxActive) {
+      if (planBlocker) {
         requestedActive = false;
-        blockers.push({
-          code: "active_limit_reached",
-          role: "plan limit",
-          limit: maxActive,
-          plan: user?.subscription?.plan || "Explore",
-          message: `Your plan allows ${maxActive} active scenario${maxActive === 1 ? "" : "s"}. Pause another scenario or upgrade to activate this one.`,
-        });
+        blockers.push(planBlocker);
       }
     }
 
-    const scenarioActive = !missingConnectionFound && requestedActive;
+    /*
+     * blockers is non-empty only when something is genuinely wrong, so it
+     * carries what missingConnectionFound used to track — with the reason
+     * attached rather than discarded.
+     */
+    const scenarioActive = blockers.length === 0 && requestedActive;
 
     /*
      * Only meaningful when the caller asked for On and did not get it —

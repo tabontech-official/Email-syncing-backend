@@ -48,6 +48,11 @@ import mongoose from 'mongoose';
 import { startAllGmailListeners } from './middleware/gmailImapListener.js';
 import { startMicrosoftPollingScheduler } from './middleware/microsoftGraphService.js';
 import { generalApiLimiter } from './middleware/rateLimiter.js';
+import mcpRouter from './Routes/mcp.js';
+import {
+  protectedResourceMetadata,
+  authorizationServerMetadata,
+} from './mcp/oauth.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -148,6 +153,44 @@ app.use('/api/ai-config', generalApiLimiter, aiConfigRouter);
 
 app.use('/auth', authRouter);
 app.use('/admin', adminPlatformRouter);
+
+/*
+|--------------------------------------------------------------------------
+| OAuth discovery for the MCP connector
+|--------------------------------------------------------------------------
+|
+| These live at the ROOT, not under /mcp, because that is where the specs
+| say clients look: RFC 9728 and RFC 8414 both define well-known paths on
+| the origin. Claude fetches them before it holds any credential, so they
+| are unauthenticated and openly readable — they describe endpoints, never
+| data.
+|
+| The path-suffixed variants ("/.well-known/oauth-protected-resource/mcp")
+| are what a client derives for a server mounted at /mcp; the bare ones
+| are what a client derives for one at the origin. Serving both means
+| discovery succeeds whichever rule the client applies.
+*/
+const discoveryCors = (req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, MCP-Protocol-Version');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  return next();
+};
+
+app.get('/.well-known/oauth-protected-resource', discoveryCors, protectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp', discoveryCors, protectedResourceMetadata);
+app.get('/.well-known/oauth-authorization-server', discoveryCors, authorizationServerMetadata);
+app.get('/.well-known/oauth-authorization-server/mcp', discoveryCors, authorizationServerMetadata);
+
+/* Some clients probe OpenID discovery first; same document answers it. */
+app.get('/.well-known/openid-configuration', discoveryCors, authorizationServerMetadata);
+
+/*
+ * The MCP connector. Rate limited like every other API surface — an MCP
+ * client is driven by a model and can loop, so it needs the same ceiling
+ * as anything else.
+ */
+app.use('/mcp', generalApiLimiter, mcpRouter);
 app.use('/team', teamRouter);
 app.use('/stripe', stripeRouter);
 app.use('/talk', SalesRouter);
