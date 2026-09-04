@@ -158,6 +158,34 @@ export const updateScenario = async (req, res) => {
     const connectionIds = [];
     let missingConnectionFound = false;
 
+    /*
+     * Why activation was refused, in the client's words.
+     *
+     * A scenario that cannot activate used to fail silently: the flag was
+     * written as false and the response said nothing about it, so the
+     * builder showed the switch as On until the next reload. Every branch
+     * that sets missingConnectionFound now records what it objected to,
+     * and the response carries it back so the UI can name the problem.
+     */
+    const blockers = [];
+
+    const addBlocker = (blocker) => {
+      missingConnectionFound = true;
+      blockers.push(blocker);
+    };
+
+    /* Which step the connection belongs to, for the message. */
+    const connectionRoles = new Map();
+
+    const noteConnectionRole = (connectionId, role) => {
+      const existing = connectionRoles.get(connectionId);
+      if (existing && !existing.includes(role)) {
+        connectionRoles.set(connectionId, `${existing}, ${role}`);
+        return;
+      }
+      if (!existing) connectionRoles.set(connectionId, role);
+    };
+
     const incomingLeadConfigured = Boolean(
       incomingLead.enabled ||
         incomingConnectionId ||
@@ -167,9 +195,14 @@ export const updateScenario = async (req, res) => {
 
     if (incomingLeadConfigured && !isMailhookTrigger) {
       if (!incomingConnectionId) {
-        missingConnectionFound = true;
+        addBlocker({
+          code: "inbox_missing",
+          role: "trigger inbox",
+          message: "No inbox is connected for the trigger.",
+        });
       } else {
         connectionIds.push(incomingConnectionId);
+        noteConnectionRole(incomingConnectionId, "trigger inbox");
       }
     }
 
@@ -217,10 +250,17 @@ export const updateScenario = async (req, res) => {
             ? rawConnectionId.trim()
             : rawConnectionId?.toString?.().trim() || "";
 
+        const stepName = module.app?.name || module.type || "an email step";
+
         if (!connectionId) {
-          missingConnectionFound = true;
+          addBlocker({
+            code: "sender_missing",
+            role: stepName,
+            message: `"${stepName}" has no sending account selected.`,
+          });
         } else {
           connectionIds.push(connectionId);
+          noteConnectionRole(connectionId, stepName);
         }
       });
     });
@@ -231,37 +271,86 @@ export const updateScenario = async (req, res) => {
       (connectionId) => !mongoose.Types.ObjectId.isValid(connectionId)
     );
 
-    if (invalidFormatIds.length > 0) {
-      missingConnectionFound = true;
-    }
+    invalidFormatIds.forEach((connectionId) => {
+      addBlocker({
+        code: "connection_invalid",
+        role: connectionRoles.get(connectionId) || "a step",
+        message: `The account selected for ${connectionRoles.get(connectionId) || "a step"} is not a valid connection.`,
+      });
+    });
 
     const validFormatConnectionIds = uniqueConnectionIds.filter(
       (connectionId) => mongoose.Types.ObjectId.isValid(connectionId)
     );
 
     if (validFormatConnectionIds.length > 0) {
-      const validConnections = await ConnectionModel.find({
+      /*
+       * Fetched WITHOUT the status filter so a rejected connection can be
+       * described rather than just counted. An expired OAuth grant is the
+       * common case and it is fixable by the user — but only if the
+       * response says which mailbox needs signing in again.
+       */
+      const foundConnections = await ConnectionModel.find({
         _id: {
           $in: validFormatConnectionIds,
         },
-        status: "active",
-      }).select("_id");
+      }).select("_id email provider status lastConnectionError");
 
-      const validConnectionIds = new Set(
-        validConnections.map((connection) =>
-          connection._id.toString()
-        )
+      const byId = new Map(
+        foundConnections.map((connection) => [
+          connection._id.toString(),
+          connection,
+        ])
       );
 
-      const inactiveOrMissingIds =
-        validFormatConnectionIds.filter(
-          (connectionId) =>
-            !validConnectionIds.has(connectionId)
-        );
+      validFormatConnectionIds.forEach((connectionId) => {
+        const role = connectionRoles.get(connectionId) || "a step";
+        const connection = byId.get(connectionId);
 
-      if (inactiveOrMissingIds.length > 0) {
-        missingConnectionFound = true;
-      }
+        if (!connection) {
+          addBlocker({
+            code: "connection_missing",
+            role,
+            connectionId,
+            message: `The account selected for ${role} no longer exists. Choose another one.`,
+          });
+          return;
+        }
+
+        /*
+         * A row predating the status field is active by the schema's own
+         * default, and that is what the connections API reports for it.
+         * The old query filtered on status server-side, so those rows were
+         * rejected while the UI showed them as fine — the same disagreement
+         * this change exists to remove, one row-shape further down.
+         */
+        if (!connection.status || connection.status === "active") return;
+
+        const label = connection.email || "this account";
+
+        if (connection.status === "reauth_required") {
+          addBlocker({
+            code: "reauth_required",
+            role,
+            connectionId,
+            email: connection.email || "",
+            provider: connection.provider || "",
+            status: connection.status,
+            message: `${label} needs to be reconnected — its sign-in has expired. Reconnect it to activate this scenario.`,
+          });
+          return;
+        }
+
+        addBlocker({
+          code: "connection_disconnected",
+          role,
+          connectionId,
+          email: connection.email || "",
+          provider: connection.provider || "",
+          status: connection.status,
+          message: `${label} is disconnected. Reconnect it to activate this scenario.`,
+        });
+      });
     }
 
     let validMailhookId = null;
@@ -271,7 +360,11 @@ export const updateScenario = async (req, res) => {
         !incomingMailhookId ||
         !mongoose.Types.ObjectId.isValid(incomingMailhookId)
       ) {
-        missingConnectionFound = true;
+        addBlocker({
+          code: "mailhook_missing",
+          role: "trigger inbox",
+          message: "No mailhook is selected for the trigger.",
+        });
       } else {
         const mailhookCard = await mailhookModel
           .findOne({
@@ -281,7 +374,12 @@ export const updateScenario = async (req, res) => {
           .select("_id connectionVerified");
 
         if (!mailhookCard || !mailhookCard.connectionVerified) {
-          missingConnectionFound = true;
+          addBlocker({
+            code: "mailhook_unverified",
+            role: "trigger inbox",
+            message:
+              "The selected mailhook is not verified yet — confirm forwarding to finish setup.",
+          });
         } else {
           validMailhookId = mailhookCard._id.toString();
         }
@@ -310,10 +408,27 @@ export const updateScenario = async (req, res) => {
 
       if (otherActiveCount >= maxActive) {
         requestedActive = false;
+        blockers.push({
+          code: "active_limit_reached",
+          role: "plan limit",
+          limit: maxActive,
+          plan: user?.subscription?.plan || "Explore",
+          message: `Your plan allows ${maxActive} active scenario${maxActive === 1 ? "" : "s"}. Pause another scenario or upgrade to activate this one.`,
+        });
       }
     }
 
     const scenarioActive = !missingConnectionFound && requestedActive;
+
+    /*
+     * Only meaningful when the caller asked for On and did not get it —
+     * a save that never requested activation is not "blocked".
+     */
+    const activationBlocked = Boolean(
+      req.body.hasOwnProperty("scenarioActive") &&
+        Boolean(req.body.scenarioActive) &&
+        !scenarioActive
+    );
 
     const platformRules = await loadPlatformRules();
 
@@ -461,10 +576,15 @@ export const updateScenario = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: scenarioActive
-        ? "Scenario updated and activated successfully."
-        : "Scenario updated successfully.",
+      message: activationBlocked
+        ? blockers[0]?.message ||
+          "Scenario saved, but it could not be activated."
+        : scenarioActive
+          ? "Scenario updated and activated successfully."
+          : "Scenario updated successfully.",
       scenarioActive,
+      activationBlocked,
+      blockers,
       updated: updatedScenario,
     });
   } catch (error) {

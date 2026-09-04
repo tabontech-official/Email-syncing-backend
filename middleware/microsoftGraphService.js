@@ -31,6 +31,7 @@ import {
   MicrosoftReauthRequiredError,
   getValidMicrosoftAccessToken,
 } from './microsoftTokenService.js';
+import { markConnectionReauthRequired } from '../utils/connectionAlerts.js';
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -49,9 +50,12 @@ const FIRST_POLL_LOOKBACK_MS = 10 * 60 * 1000;
 | grant itself is no longer usable — the user must sign in again.
 */
 const markReauthRequired = async (connectionId, reason) => {
-  await ConnectionModel.findByIdAndUpdate(connectionId, {
-    $set: { status: 'reauth_required', lastConnectionError: reason },
-  });
+  /*
+   * Delegated so the owner is emailed about it. Marking the row without
+   * telling anyone is what let a revoked grant sit unnoticed while every
+   * scenario on that mailbox quietly refused to run.
+   */
+  await markConnectionReauthRequired(connectionId, reason);
 };
 
 const graphRequest = async (connectionId, path, options = {}) => {

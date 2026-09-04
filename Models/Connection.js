@@ -262,6 +262,18 @@ const connectionSchema = new mongoose.Schema(
       enum: ["active", "disconnected", "reauth_required"],
       default: "active",
     },
+
+    /*
+     * When the owner was emailed that this connection needs signing in
+     * again. Set once per incident and cleared the moment the connection
+     * goes back to active, so a mailbox that breaks, is fixed, and breaks
+     * again is reported each time — while a mailbox that stays broken and
+     * is polled every minute is reported once.
+     */
+    reauthNotifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -277,6 +289,47 @@ connectionSchema.index(
     unique: true,
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| Recovery clears the "we told them" stamp
+|--------------------------------------------------------------------------
+|
+| reauthNotifiedAt stops the owner being emailed on every poll of a
+| mailbox that is already known to be broken. That means it MUST be
+| cleared when the mailbox comes back, or the next genuine failure is
+| silent — the bug this whole alert exists to prevent, one incident later.
+|
+| Reconnection happens down several paths (OAuth callback, app-password
+| re-verification, admin repair), and each writes the connection its own
+| way. Hooking the model catches all of them, including paths added later,
+| rather than relying on every author to remember.
+*/
+const clearReauthStampOnRecovery = function (next) {
+  if (this.status === "active" && this.reauthNotifiedAt) {
+    this.reauthNotifiedAt = null;
+  }
+  next();
+};
+
+connectionSchema.pre("save", clearReauthStampOnRecovery);
+
+/* The same rule for the update-in-place forms, which skip pre('save'). */
+const clearReauthStampOnUpdate = function (next) {
+  const update = this.getUpdate() || {};
+  const nextStatus = update.status ?? update.$set?.status;
+
+  if (nextStatus === "active") {
+    update.$set = { ...(update.$set || {}), reauthNotifiedAt: null };
+    this.setUpdate(update);
+  }
+
+  next();
+};
+
+connectionSchema.pre("findOneAndUpdate", clearReauthStampOnUpdate);
+connectionSchema.pre("updateOne", clearReauthStampOnUpdate);
+connectionSchema.pre("updateMany", clearReauthStampOnUpdate);
 
 export const ConnectionModel = mongoose.model(
   "Connection",

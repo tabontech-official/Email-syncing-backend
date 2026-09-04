@@ -24,6 +24,7 @@
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { ConnectionModel } from '../Models/Connection.js';
 import { decrypt, encrypt } from './encryption.js';
+import { markConnectionReauthRequired } from '../utils/connectionAlerts.js';
 
 /*
  * Delegated Graph permissions. offline_access is what makes Microsoft
@@ -267,9 +268,10 @@ export const getValidMicrosoftAccessToken = async (connectionId) => {
   const refreshToken = stored.refreshToken ? decrypt(stored.refreshToken) : null;
 
   if (!refreshToken) {
-    connection.status = 'reauth_required';
-    connection.lastConnectionError = 'No Microsoft refresh token stored.';
-    await connection.save();
+    await markConnectionReauthRequired(
+      connection,
+      'No Microsoft refresh token stored.'
+    );
 
     throw new MicrosoftReauthRequiredError(
       'No Microsoft refresh token is stored for this connection. The user must sign in with Microsoft again.',
@@ -297,11 +299,12 @@ export const getValidMicrosoftAccessToken = async (connectionId) => {
       name: error?.name,
     });
 
-    connection.status = 'reauth_required';
-    connection.lastConnectionError = `Microsoft refresh rejected: ${
-      error?.errorCode || error?.name || 'unknown'
-    }`;
-    await connection.save();
+    await markConnectionReauthRequired(
+      connection,
+      `Microsoft refresh rejected: ${
+        error?.errorCode || error?.name || 'unknown'
+      }`
+    );
 
     throw new MicrosoftReauthRequiredError(
       'Microsoft rejected the stored refresh token. The user must sign in with Microsoft again.',
@@ -310,10 +313,10 @@ export const getValidMicrosoftAccessToken = async (connectionId) => {
   }
 
   if (!result?.accessToken) {
-    connection.status = 'reauth_required';
-    connection.lastConnectionError =
-      'Microsoft refresh returned no access token.';
-    await connection.save();
+    await markConnectionReauthRequired(
+      connection,
+      'Microsoft refresh returned no access token.'
+    );
 
     throw new MicrosoftReauthRequiredError(
       'Microsoft returned no access token when refreshing. The user must sign in with Microsoft again.',
