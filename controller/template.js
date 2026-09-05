@@ -4,6 +4,7 @@ import { OrganizationModel } from '../Models/Organization.js';
 import { isOwnerOrAdmin, getAuthUserId } from '../middleware/authmiddleware.js';
 import mongoose from 'mongoose';
 import { loadPlatformRules } from '../utils/platformScenarioConfig.js';
+import { resolveActiveTemplate } from '../utils/templateSelection.js';
 
 export const addTemplate = async (req, res) => {
   try {
@@ -481,6 +482,82 @@ export const saveOtherTemplate = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
+    });
+  }
+};
+
+/*
+ * Will a reply for this service use its own template, or General?
+ *
+ * The Send Test panel used to answer this itself: fetch every template
+ * for the service and apply a predicate. Its predicate was "are they ALL
+ * active", the engine's is "is the one for this step active", and the
+ * two drifted — the warning fired on a service whose Initial Email was
+ * switched on, and told the user a fallback would happen that was not
+ * going to. See the note at the top of utils/templateSelection.js.
+ *
+ * So the screen stops deciding. It asks the server, the server asks the
+ * same resolver the send path calls, and the two cannot disagree.
+ *
+ * GET /template/resolution?userId=&service=&stepType=initial
+ */
+export const getTemplateResolution = async (req, res) => {
+  try {
+    const authUserId = getAuthUserId(req);
+    const userId = req.query.userId || authUserId;
+    const { service, stepType } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required',
+      });
+    }
+
+    if (!isOwnerOrAdmin(req, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You cannot read another user's templates",
+      });
+    }
+
+    if (!service || !String(service).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'service is required',
+      });
+    }
+
+    const selection = await resolveActiveTemplate(TemplateModel, {
+      userId,
+      service,
+      stepType,
+    });
+
+    return res.status(200).json({
+      success: true,
+      /* False means nothing is sent for this step at all. */
+      willUseTemplate: selection.willUseTemplate,
+      /* True means the service has nothing active and General answers. */
+      fallbackToGeneral: selection.fallbackToGeneral,
+      requestedService: selection.requestedService,
+      resolvedService: selection.service,
+      stepType: selection.stepType,
+      template: selection.template
+        ? {
+            _id: selection.template._id,
+            name: selection.template.name,
+            service: selection.template.service,
+            active: selection.template.active,
+          }
+        : null,
+    });
+  } catch (err) {
+    console.error('❌ getTemplateResolution Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to resolve template',
+      error: err.message,
     });
   }
 };

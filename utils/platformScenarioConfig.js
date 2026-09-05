@@ -354,3 +354,56 @@ export const isExcludedFromInbox = (email, inboxRules) => {
 
   return false;
 };
+
+/*
+ * Match an explicit service value against the configured list.
+ *
+ * The Partner Directory form has a "Select a service offered by ..."
+ * field, so on a real lead the service is a VALUE, not something to be
+ * guessed at. Returned in the list's own casing so the template lookup
+ * (`^name$`, case-insensitive) lines up with what was seeded.
+ *
+ * A value that is not on the list is still returned as given — an owner
+ * can rename a service, and a template may well exist under the old
+ * name. Returns null only when there was nothing to normalise.
+ */
+export const normalizeServiceName = (value, serviceRules) => {
+  const rules = serviceRules || BUILT_IN_SERVICE_ROUTING;
+  const wanted = String(value || '').trim();
+
+  if (!wanted) return null;
+
+  const found = (rules.list || []).find(
+    (service) => String(service).trim().toLowerCase() === wanted.toLowerCase()
+  );
+
+  return found || wanted;
+};
+
+/*
+ * Which service is this lead asking about — for callers that may already
+ * know the answer.
+ *
+ * WHY THIS EXISTS
+ *
+ * matchService() scans the whole subject and body for a service name and
+ * takes the first hit. That is a guess, and it is only ever the right
+ * tool when nothing better is available:
+ *
+ *   - It cannot find a service in a body that does not spell one out.
+ *     The Send Test lead carried only the Description ("testing1234"),
+ *     so every test fell through to the "General" fallback and answered
+ *     on the General template no matter which service was activated.
+ *
+ *   - On a real lead it can pick the wrong one. First-match-wins across
+ *     ~30 names over a page of prose means a service merely MENTIONED in
+ *     the customer's description outranks the one they actually chose in
+ *     the form.
+ *
+ * So an explicit value — the form's own field, or the service picked in
+ * the Send Test panel — decides, and the text scan stays as the fallback
+ * for mail that carries no such field.
+ */
+export const resolveLeadService = (explicitService, text, serviceRules) =>
+  normalizeServiceName(explicitService, serviceRules) ||
+  matchService(text, serviceRules);

@@ -18,7 +18,7 @@ import {
   isExcludedFromInbox,
   isInternalAddress,
   loadPlatformRules,
-  matchService,
+  resolveLeadService,
   triggerForType,
 } from '../utils/platformScenarioConfig.js';
 import {
@@ -60,6 +60,13 @@ import {
   resolveAndAttachIncomingReply,
 } from '../utils/threadingHelper.js';
 import { htmlToText, normalizeIncomingBody } from '../utils/emailBody.js';
+/*
+ * "Which template answers this lead" lives in one module now — the send
+ * paths below and the Send Test panel's warning both call it, so the
+ * screen cannot claim a fallback the engine is not going to make. See
+ * utils/templateSelection.js.
+ */
+import { resolveActiveTemplate } from '../utils/templateSelection.js';
 
 const extractEmail = (value = '') => {
   if (!value) return '';
@@ -1066,6 +1073,16 @@ export const executeScenarios = async (emailData) => {
        * two concurrent releases cannot both replay the same message.
        */
       replayQueued = false,
+      /*
+       * The service this lead asked for, when the caller already knows it.
+       *
+       * Send Test knows exactly which service was picked in the form, so
+       * it says so rather than leaving the router to hunt for the name in
+       * a body that never contained it — which is what sent every test on
+       * the General template. Live mail passes nothing here and the
+       * service is read off the inquiry form instead; see getShopifyLead.
+       */
+      leadService = '',
     } = emailData;
 
     const rawMsgId = parsedEmailObj?.messageId || emailData.messageId || emailData.emailId;
@@ -1206,7 +1223,17 @@ export const executeScenarios = async (emailData) => {
         receivedAt: receivedAtAddress,
       });
 
-      shopifyLeadCache = { fields, replyAddress: resolved };
+      shopifyLeadCache = {
+        fields,
+        replyAddress: resolved,
+        /*
+         * The form's own "Select a service offered by ..." answer, kept
+         * apart from `fields`: fields.Service is whatever
+         * extractFieldsFromEmail() guessed (it uses the SUBJECT), so it
+         * cannot be trusted to route on.
+         */
+        service: inquiry.service || '',
+      };
 
       return shopifyLeadCache;
     };
@@ -1493,6 +1520,15 @@ export const executeScenarios = async (emailData) => {
       leadFields = shopifyLead.fields;
       replyTo = shopifyLead.replyAddress || from;
 
+      /*
+       * Which service the templates are chosen by.
+       *
+       * In priority: what the caller told us (Send Test knows), then the
+       * inquiry form's own service field, and only then the text scan.
+       * See resolveLeadService() for why the scan is the last resort.
+       */
+      const leadServiceHint = leadService || shopifyLead.service || '';
+
       if (shopifyLead.replyAddress && shopifyLead.replyAddress !== from) {
         console.log(`↪️ Relayed lead: replies go to ${shopifyLead.replyAddress}, not the sender ${from}.`);
       }
@@ -1706,51 +1742,33 @@ export const executeScenarios = async (emailData) => {
                   `${subject || ''} ${body || ''}`.toLowerCase();
 
                 /*
-                 * The router's service condition. The list and its ORDER are set by
-                 * the platform owner (master admin -> Scenario Triggers): first match
-                 * wins, so a broad term above a specific one shadows it.
+                 * Which service's template this follow-up uses. The
+                 * explicit answer first — the inquiry form's own service
+                 * field, or the one Send Test was run with — and only a
+                 * scan of subject + body when there is none. See
+                 * resolveLeadService().
                  */
-                const matchedService = matchService(textToSearch, platformRules.services);
+                const matchedService = resolveLeadService(
+                  leadServiceHint,
+                  textToSearch,
+                  platformRules.services
+                );
 
-                let tpl = await TemplateModel.findOne({
+                /*
+                 * One definition of "which template answers this", shared
+                 * with the immediate send path and with the Send Test
+                 * panel's warning. See utils/templateSelection.js.
+                 */
+                const selection = await resolveActiveTemplate(TemplateModel, {
                   userId,
-                  platform: 'shopify',
-                  service: new RegExp(`^${matchedService}$`, 'i'),
-                  $or: [
-                    {
-                      name: new RegExp(
-                        stepType === 'initial'
-                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                          : stepType === 'first'
-                            ? '(.*First Email.*|.*First Follow-up.*)'
-                            : '(.*Second Email.*|.*Second Follow-up.*)',
-                        'i'
-                      ),
-                    },
-                  ],
-                  active: true,
+                  service: matchedService,
+                  stepType,
                 });
 
-                if (!tpl) {
+                const tpl = selection.template;
+
+                if (selection.fallbackToGeneral) {
                   console.log(`⚠️ Active template for service "${matchedService}" not found or inactive. Falling back to active General template...`);
-                  tpl = await TemplateModel.findOne({
-                    userId,
-                    platform: 'shopify',
-                    service: /^General$/i,
-                    $or: [
-                      {
-                        name: new RegExp(
-                          stepType === 'initial'
-                            ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                            : stepType === 'first'
-                              ? '(.*First Email.*|.*First Follow-up.*)'
-                              : '(.*Second Email.*|.*Second Follow-up.*)',
-                          'i'
-                        ),
-                      },
-                    ],
-                    active: true,
-                  });
                 }
 
                 if (tpl) {
@@ -1962,11 +1980,24 @@ export const executeScenarios = async (emailData) => {
               const textToSearch = (subject + ' ' + body).toLowerCase();
 
               /*
-               * The router's service condition. The list and its ORDER are set by
-               * the platform owner (master admin -> Scenario Triggers): first match
-               * wins, so a broad term above a specific one shadows it.
+               * Which service's template answers this lead.
+               *
+               * This used to be matchService() alone: a first-match-wins
+               * scan of subject + body against the ~30 configured service
+               * names. A body that never spells one out — the Send Test
+               * lead — fell through to the "General" fallback, so every
+               * test answered on the General template however many
+               * service templates were switched on.
+               *
+               * The lead's own answer decides now; the scan only stands
+               * in when there is no answer to read. See
+               * resolveLeadService().
                */
-              const matchedService = matchService(textToSearch, platformRules.services);
+              const matchedService = resolveLeadService(
+                leadServiceHint,
+                textToSearch,
+                platformRules.services
+              );
 
               /*
                * `active: true` matters here.
@@ -1982,45 +2013,25 @@ export const executeScenarios = async (emailData) => {
                * The delayed-module path a few hundred lines up already
                * filtered on active; these two were simply out of step.
                */
-              let tpl = await TemplateModel.findOne({
+              /*
+               * One definition of "which template answers this".
+               *
+               * This block and the delayed follow-up above were separate
+               * hand-written copies of the same query, and the Send Test
+               * panel had a third. They drifted — see the note at the top
+               * of utils/templateSelection.js — so the question is asked
+               * in one place now and everything else calls it.
+               */
+              const selection = await resolveActiveTemplate(TemplateModel, {
                 userId,
-                platform: 'shopify',
-                service: new RegExp(`^${matchedService}$`, 'i'),
-                $or: [
-                  {
-                    name: new RegExp(
-                      stepType === 'initial'
-                        ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                        : stepType === 'first'
-                          ? '(.*First Email.*|.*First Follow-up.*)'
-                          : '(.*Second Email.*|.*Second Follow-up.*)',
-                      'i'
-                    ),
-                  },
-                ],
-                active: true,
+                service: matchedService,
+                stepType,
               });
 
-              if (!tpl) {
+              const tpl = selection.template;
+
+              if (selection.fallbackToGeneral) {
                 console.log(`⚠️ No ACTIVE template for service "${matchedService}". Falling back to the active General template...`);
-                tpl = await TemplateModel.findOne({
-                  userId,
-                  platform: 'shopify',
-                  service: /^General$/i,
-                  $or: [
-                    {
-                      name: new RegExp(
-                        stepType === 'initial'
-                          ? '(.*Initial Email.*|.*Initial Follow-up.*)'
-                          : stepType === 'first'
-                            ? '(.*First Email.*|.*First Follow-up.*)'
-                            : '(.*Second Email.*|.*Second Follow-up.*)',
-                        'i'
-                      ),
-                    },
-                  ],
-                  active: true,
-                });
               }
 
               /*
@@ -2098,6 +2109,41 @@ export const executeScenarios = async (emailData) => {
                     stepType,
                   },
                 });
+              } else {
+                /*
+                 * A send that did not happen is a failure, and it was
+                 * being recorded as nothing at all — see the note in
+                 * sendEmailModule's outer catch. Every other outcome in
+                 * this loop writes a step; this one has to as well, or
+                 * the Send Test panel shows a run with no explanation.
+                 */
+                console.error('❌ Reply email was not sent:', {
+                  moduleId: module.id || module._id,
+                  to: replyTo,
+                  service: matchedService,
+                  stepType,
+                  error: sendResult?.error || 'sendEmailModule reported no success',
+                });
+
+                addRunStep({
+                  stepKey: 'reply-email-send',
+                  stepName: 'Reply Email Send',
+                  status: 'failed',
+                  message:
+                    sendResult?.error ||
+                    'The reply was not sent — the mail transport reported no success.',
+                  issue: sendResult?.errorName || 'Send failed',
+                  suggestion:
+                    'Check the connection used by this module on the Connections page, then run the test again.',
+                  location: replyTo,
+                  meta: {
+                    moduleId: module.id || module._id,
+                    templateId: tpl?._id || null,
+                    templateName: tpl?.name || module.template || '',
+                    service: matchedService,
+                    stepType,
+                  },
+                });
               }
               const updated = await AutomationStatusModel.findByIdAndUpdate(
                 statusDoc._id,
@@ -2120,6 +2166,52 @@ export const executeScenarios = async (emailData) => {
               }
             }
           } catch (err) {
+            /*
+             |--------------------------------------------------------------
+             | Make the failure visible
+             |--------------------------------------------------------------
+             |
+             | This catch used to swallow the error whole: no log line, no
+             | run step, nothing. A module could throw and the run would be
+             | filed as "Scenario matched but no executable step completed"
+             | with an empty steps array, while AutomationStatus still read
+             | completed — which describes a healthy run that sent nothing.
+             |
+             | On 2026-09-05 that turned a one-line change into an outage
+             | nobody could diagnose from the outside: replies stopped, and
+             | the only evidence was an absence. An exception in the send
+             | path is the single most important thing to be able to see,
+             | and it was the one thing guaranteed to be invisible.
+             |
+             | It is still caught — one bad module must not abort the whole
+             | scenario — but it is now recorded on the run, so the Send
+             | Test panel and the run history show what actually happened.
+             */
+            console.error('❌ Module execution threw:', {
+              scenarioId: String(scenario._id),
+              moduleId: module?.id || module?._id,
+              moduleName: module?.app?.name || module?.type,
+              name: err?.name,
+              message: err?.message,
+              stack: err?.stack,
+            });
+
+            addRunStep({
+              stepKey: 'module-exception',
+              stepName: `Module Failed (${module?.app?.name || module?.type || 'unknown'})`,
+              status: 'failed',
+              message: err?.message || 'The module threw an error.',
+              issue: err?.name || 'Error',
+              suggestion:
+                'This is a fault in scenario execution, not a configuration problem. The message above is the exact error.',
+              location: String(module?.id || module?._id || ''),
+              meta: {
+                moduleId: module?.id || module?._id,
+                moduleType: module?.type,
+                errorName: err?.name,
+              },
+            });
+
             await AutomationStatusModel.findByIdAndUpdate(statusDoc._id, {
               $set: { status: 'failed', lastExecutedAt: new Date() },
             });
@@ -2825,6 +2917,24 @@ export const sendEmailModule = async (
     log('=========================================');
   } catch (outerErr) {
     console.error('🔥 [sendEmailModule] Fatal Error:', outerErr);
+
+    /*
+     * Returning nothing here is how a send failure became invisible.
+     *
+     * The caller reads `sendResult?.success`, so `undefined` was
+     * indistinguishable from a clean skip: no run step was recorded, the
+     * module was still marked completed, and the run was filed as
+     * "Scenario matched but no executable step completed" with an empty
+     * steps array. An outage that mailed nobody looked like a quiet run.
+     *
+     * The failure now travels back with its reason attached.
+     */
+    return {
+      success: false,
+      replyEmailId: null,
+      error: outerErr?.message || 'sendEmailModule threw',
+      errorName: outerErr?.name || 'Error',
+    };
   }
 };
 
@@ -4531,54 +4641,27 @@ export const RunTestMode = async (req, res) => {
       'No description provided.';
 
     /*
-     |------------------------------------------------------------------
-     | The plain-text form, as a real Partner Directory lead carries it
-     |------------------------------------------------------------------
-     |
-     | A test used to hand executeScenarios only the Description — four to
-     | sixty characters — while the form itself existed solely in the HTML
-     | part. Everything downstream reads the TEXT: matchService() scans
-     | subject + body for a service name, and parseShopifyInquiry() reads
-     | these dashed sections. Given a body that says "testing1234", both
-     | found nothing, matchService fell through to its "General" fallback,
-     | and the reply went out on the General template no matter which
-     | service template was active.
-     |
-     | The run logs showed it plainly — the `test` run resolved
-     | "Store build or redesign" while the `live` run beside it, the one
-     | that actually mails the customer, recorded "General".
-     |
-     | So the test now feeds the engine the same shape of input a real
-     | lead does. The section labels and dashed underlines match what
-     | utils/shopifyInquiry.js parses, because a test built on a different
-     | format than production is a test that cannot catch production bugs.
+     * Why the test lead's TEXT body is only the Description
+     *
+     * A real Partner Directory lead carries the whole contact form in
+     * its text part, dashed section labels and all, and
+     * utils/shopifyInquiry.js reads it there. A test built here carries
+     * the form in the HTML part only.
+     *
+     * That mattered while the router discovered the service by scanning
+     * the body for one of ~30 names: a body reading "testing1234" spells
+     * out no service, so it fell through to the "General" fallback and
+     * every test answered on the General template. Building the full
+     * form text and handing it to executeScenarios did resolve the right
+     * service — and stopped the reply being sent, for a reason nothing
+     * recorded at the time.
+     *
+     * The service is passed explicitly to executeScenarios now
+     * (`leadService`, below), so the body no longer has to carry it and
+     * that experiment is not worth repeating. If the test is ever made
+     * to mirror the real format, the labels to match are the ones
+     * parseShopifyInquiry() switches on.
      */
-    const underline = (label) => '-'.repeat(label.length);
-
-    const formSection = (label, value) =>
-      `${underline(label)}\n${label}\n${underline(label)}\n\n${value}\n\n`;
-
-    const parentFormTextBody =
-      `Hello ${partnerName} and ${dummyCustomer},\n\n` +
-      `${dummyCustomer} has expressed interest in your services through the ` +
-      `Shopify Partner Directory. ${partnerName}, to initiate the conversation, ` +
-      `please follow up with ${dummyCustomer} directly by selecting ` +
-      `“Reply all” when you reach out.\n\n` +
-      `All further communications will be between you both directly.\n\n` +
-      `Details about ${dummyCustomer} request are provided below:\n\n` +
-      `***********************\nContact Form Submission\n***********************\n\n` +
-      formSection('Full name', dummyCustomer) +
-      formSection('Business email', businessEmail) +
-      formSection(
-        "Select the store you're working on",
-        `${storeName}\n\n${storeUrl}`
-      ) +
-      formSection('Country', country) +
-      formSection(`Select a service offered by ${partnerName}`, service) +
-      formSection('Budget (USD)', String(budget ?? '')) +
-      formSection('Description', parentTextBody) +
-      `Thank you for being a part of the Shopify Partner Directory.\n\n` +
-      `Sincerely,\nThe Shopify Team\n`;
 
     const parentHtmlBody = `
 <div style="font-family: Arial, Helvetica, sans-serif; color:#2b2b2b; line-height:1.6; background:#fff; padding:20px;">
@@ -4769,48 +4852,24 @@ export const RunTestMode = async (req, res) => {
      */
     let selectedTemplate = null;
 
-    if (useGeneralTemplate) {
-      selectedTemplate =
-        await TemplateModel.findOne({
-          userId,
-          service: {
-            $regex: /^general$/i,
-          },
-          active: true,
-          name: {
-            $regex: /initial/i,
-          },
-        });
-    } else {
-      selectedTemplate =
-        await TemplateModel.findOne({
-          userId,
-          service: {
-            $regex: new RegExp(
-              `^${service}$`,
-              'i'
-            ),
-          },
-          active: true,
-          name: {
-            $regex: /initial/i,
-          },
-        });
+    /*
+     * The same resolver the engine uses, so the run log names the
+     * template that was actually sent. This was a fourth hand-written
+     * copy of the query — it searched every platform, interpolated the
+     * service name unescaped, and matched /initial/i where the engine
+     * matches "Initial Email" or "Initial Follow-up".
+     *
+     * "Use the General template" is the user's explicit choice in the
+     * Send Test panel, so it asks General directly rather than asking for
+     * the service and letting the fallback arrive at General.
+     */
+    const selection = await resolveActiveTemplate(TemplateModel, {
+      userId,
+      service: useGeneralTemplate ? 'General' : service,
+      stepType: 'initial',
+    });
 
-      if (!selectedTemplate) {
-        selectedTemplate =
-          await TemplateModel.findOne({
-            userId,
-            service: {
-              $regex: /^general$/i,
-            },
-            active: true,
-            name: {
-              $regex: /initial/i,
-            },
-          });
-      }
-    }
+    selectedTemplate = selection.template;
 
     if (!selectedTemplate) {
       addStep({
@@ -5089,11 +5148,31 @@ export const RunTestMode = async (req, res) => {
       subject: parentSubject,
 
       /*
-       * The full form, not just the Description. matchService() and
-       * parseShopifyInquiry() both read this, and neither can find a
-       * service in a body that does not contain one.
+       * The Description, as the customer typed it. This is the enquiry
+       * text the templates quote, and it is deliberately NOT the whole
+       * contact form.
+       *
+       * An earlier attempt at the General-template bug passed the full
+       * form here so that matchService() could find the service name in
+       * it. It resolved the right service and stopped the reply being
+       * sent, for a reason nothing recorded. The service no longer has to
+       * be discovered by reading the body at all — it is passed
+       * explicitly below — so the body stays what it was.
        */
-      body: parentFormTextBody,
+      body: parentTextBody,
+
+      /*
+       * The service the user picked in the Send Test panel.
+       *
+       * Without this the router fell back to scanning subject + body for
+       * a service name, found none in a body that only carries the
+       * Description, and answered on the General template — which is the
+       * bug this whole path exists to reproduce, not to demonstrate.
+       *
+       * "Use the General template" is a deliberate choice in the same
+       * panel, so it is passed through as General rather than ignored.
+       */
+      leadService: useGeneralTemplate ? 'General' : service,
       emailId: parentEmail?._id ? parentEmail._id.toString() : parentSendInfo.messageId,
       messageId: parentSendInfo.messageId,
 

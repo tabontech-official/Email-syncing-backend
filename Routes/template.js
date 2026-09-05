@@ -6,6 +6,7 @@ import {
   getActiveOtherTemplates,
   getAllTemplates,
   getAllTemplatesByQuery,
+  getTemplateResolution,
   getCustomTemplates,
   getTemplates,
   saveOtherTemplate,
@@ -31,6 +32,12 @@ templateRouter.post('/restore-defaults', authMiddleware, restoreDefaultTemplates
 templateRouter.get('/all/custom', authMiddleware, getCustomTemplates);
 templateRouter.post('/save/other', authMiddleware, saveOtherTemplate);
 templateRouter.get('/alltemplates/query', authMiddleware, getAllTemplatesByQuery);
+/*
+ * The one question the Send Test panel is allowed to ask about template
+ * activation. Answered by the same resolver the send path uses, so the
+ * warning modal cannot contradict what the engine does.
+ */
+templateRouter.get('/resolution', authMiddleware, getTemplateResolution);
 templateRouter.delete('/delete/:id', authMiddleware, deleteTemplate);
 templateRouter.put('/update/:id', authMiddleware, updateTemplate);
 templateRouter.get('/alltemplates', authMiddleware, getAllTemplates);
