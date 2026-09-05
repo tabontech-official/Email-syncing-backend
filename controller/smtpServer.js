@@ -1487,6 +1487,14 @@ export const executeScenarios = async (emailData) => {
 
               let finalTemplateContent = '';
 
+              /*
+               * Declared out here on purpose: the run step below names the
+               * template that was used, and `tpl` used to be scoped to the
+               * if-block, so every reference to it after the block threw a
+               * ReferenceError.
+               */
+              let tpl = null;
+
               if (
                 module.template &&
                 typeof module.template === 'string' &&
@@ -1496,7 +1504,7 @@ export const executeScenarios = async (emailData) => {
                   ' OTHER: TemplateID detected → fetching content from DB...'
                 );
 
-                const tpl = await TemplateModel.findById(module.template);
+                tpl = await TemplateModel.findById(module.template);
                 if (tpl) {
                   finalTemplateContent = tpl.content;
                   console.log(
@@ -1519,7 +1527,19 @@ export const executeScenarios = async (emailData) => {
                 finalTemplateContent = '';
               }
 
-              await sendEmailModule(
+              /*
+               * The result was being thrown away, and the two run steps
+               * below it referenced `sendResult`, `matchedService` and
+               * `stepType` — none of which exist on this path. They were
+               * copied from the Shopify branch, where they do. So every
+               * custom scenario that reached a Send Email module sent the
+               * mail and then threw a ReferenceError writing the log,
+               * which the module-loop catch turned into a failed run.
+               *
+               * One step, reporting what actually happened, using only
+               * what is in scope here.
+               */
+              const sendResult = await sendEmailModule(
                 {
                   ...module,
                   template: finalTemplateContent,
@@ -1528,38 +1548,43 @@ export const executeScenarios = async (emailData) => {
                 subject,
                 emailId
               );
+
               addRunStep({
                 stepKey: 'reply-email-send',
-                stepName: 'Reply Email Send',
-                status: 'success',
-                message: 'Reply email sent successfully.',
+                stepName: sendResult?.success
+                  ? 'Send Email — Reply Sent'
+                  : 'Send Email — Not Sent',
+                status: sendResult?.success ? 'success' : 'failed',
+                nodeId: module.id || module._id || 'send-email',
+                nodeType: 'module',
+                message: sendResult?.success
+                  ? 'Reply email sent successfully.'
+                  : sendResult?.error ||
+                    'The reply was not sent — the mail transport reported no success.',
+                issue: sendResult?.success
+                  ? ''
+                  : sendResult?.errorName || 'Send failed',
                 location: from,
+                input: {
+                  to: from,
+                  inReplyToSubject: subject,
+                  templateId: tpl?._id ? String(tpl._id) : null,
+                  templateName: tpl?.name || '',
+                  bodyPreview: finalTemplateContent,
+                },
+                output: {
+                  success: Boolean(sendResult?.success),
+                  replyEmailId: sendResult?.replyEmailId
+                    ? String(sendResult.replyEmailId)
+                    : null,
+                  error: sendResult?.success ? undefined : sendResult?.error,
+                },
                 meta: {
                   moduleId: module.id || module._id,
                   templateId: tpl?._id || null,
                   templateName: tpl?.name || module.template || '',
-                  service: matchedService,
-                  stepType,
                 },
               });
-
-              if (sendResult?.success) {
-                addRunStep({
-                  stepKey: 'reply-email-send',
-                  stepName: 'Reply Email Send',
-                  status: 'success',
-                  message: 'Reply email sent successfully.',
-                  location: from,
-                  meta: {
-                    moduleId: module.id || module._id,
-                    replyEmailId: sendResult.replyEmailId,
-                    templateId: tpl?._id || null,
-                    templateName: tpl?.name || module.template || '',
-                    service: matchedService,
-                    stepType,
-                  },
-                });
-              }
             }
           }
         }
@@ -3565,7 +3590,14 @@ export const addLeadDiscussion = async (req, res) => {
         const matchedConnection = await ConnectionModel.findOne({
           $or: [
             { userId: rootEmail.userId },
-            { userId: userId },
+            /*
+             * authUserId, not `userId` — which was never declared in this
+             * function, so this whole branch threw a ReferenceError the
+             * moment a thread had no connection to infer from. Same fault
+             * as manualConnectionId above, one variable further down: the
+             * earlier fix declared that one and left this one behind.
+             */
+            { userId: authUserId },
           ],
           email: senderEmail,
           status: 'active',
@@ -3582,7 +3614,7 @@ export const addLeadDiscussion = async (req, res) => {
       const fallbackConnection = await ConnectionModel.findOne({
         $or: [
           { userId: rootEmail.userId },
-          { userId: userId },
+          { userId: authUserId },
         ],
         status: 'active',
       });
