@@ -8,6 +8,52 @@ const scenarioRunLogStepSchema = new mongoose.Schema(
       // examples: webhook, template-check, parent-email, reply-email, scenario-execution
     },
 
+    /*
+     |------------------------------------------------------------------
+     | Which CARD on the canvas this step belongs to
+     |------------------------------------------------------------------
+     |
+     | A run log used to be a flat list of steps with no way back to the
+     | node that produced them, so the scenario canvas could not show what
+     | happened inside Incoming Leads, or the Router, or one particular
+     | Send Email module — the three places a lead actually gets decided.
+     |
+     | nodeId is the canvas identity: 'incoming-leads', 'router', or a
+     | module's own id. Several steps can share one nodeId (a Router
+     | evaluating three branches writes three), which is what the card's
+     | operation count counts.
+     */
+    nodeId: {
+      type: String,
+      default: '',
+      // 'incoming-leads' | 'router' | <module id>
+    },
+
+    nodeType: {
+      type: String,
+      default: '',
+      // 'trigger' | 'router' | 'module'
+    },
+
+    /*
+     * What the step was given and what it decided.
+     *
+     * Free-form on purpose — every node reports different things, and the
+     * point is to show the operator the actual values a decision was made
+     * on rather than a sentence about them. Written through
+     * runStepPayload() in controller/smtpServer.js, which truncates long
+     * strings so an email body cannot bloat the document.
+     */
+    input: {
+      type: Object,
+      default: {},
+    },
+
+    output: {
+      type: Object,
+      default: {},
+    },
+
     stepName: {
       type: String,
       required: true,

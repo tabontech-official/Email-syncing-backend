@@ -66,13 +66,59 @@ import { htmlToText, normalizeIncomingBody } from '../utils/emailBody.js';
  * screen cannot claim a fallback the engine is not going to make. See
  * utils/templateSelection.js.
  */
-import { resolveActiveTemplate } from '../utils/templateSelection.js';
+import {
+  activeTemplateQuery,
+  resolveActiveTemplate,
+} from '../utils/templateSelection.js';
 
 const extractEmail = (value = '') => {
   if (!value) return '';
   const match = String(value).match(/<(.+?)>/);
   return (match ? match[1] : String(value)).trim().toLowerCase();
 };
+
+/*
+|--------------------------------------------------------------------------
+| Run-step payloads — what a card shows when you open it
+|--------------------------------------------------------------------------
+|
+| Every decision the engine makes is recorded against the CARD that made
+| it, with the values it was given and the values it produced. That is the
+| difference between "no reply was sent" and "the router resolved General
+| because the body it was handed said 'testing abc'".
+|
+| Bodies and HTML are unbounded, and a run log is a database document, so
+| strings are clipped and the clip is made obvious rather than silent.
+*/
+const RUN_STEP_MAX_STRING = 1200;
+
+const clipValue = (value) => {
+  if (typeof value === 'string') {
+    return value.length > RUN_STEP_MAX_STRING
+      ? `${value.slice(0, RUN_STEP_MAX_STRING)}… [${value.length} chars total]`
+      : value;
+  }
+
+  if (Array.isArray(value)) return value.slice(0, 25).map(clipValue);
+
+  if (value && typeof value === 'object') {
+    /* Mongoose docs and RegExp do not survive a plain spread. */
+    if (value instanceof RegExp) return value.toString();
+    if (typeof value.toObject === 'function') return clipValue(value.toObject());
+
+    const out = {};
+    Object.keys(value)
+      .slice(0, 40)
+      .forEach((k) => {
+        out[k] = clipValue(value[k]);
+      });
+    return out;
+  }
+
+  return value;
+};
+
+export const runStepPayload = (obj = {}) => clipValue(obj) || {};
 
 const OPENROUTER_MODEL = 'google/gemma-4-26b-a4b-it:free';
 
@@ -1247,6 +1293,13 @@ export const executeScenarios = async (emailData) => {
      * leads from the rest of the mailbox a connection syncs, and it must
      * be written even for scenarios that go on to match no branch.
      */
+    /*
+     * Does this message meet ANY scenario's criteria? Used below to decide
+     * whether a trigger miss is worth recording in the run history — a
+     * lead that went unanswered is, ordinary mailbox traffic is not.
+     */
+    let emailIsLead = false;
+
     if (lockConditions.length > 0) {
       const matchedScenario = findMatchingScenario(
         scenarios,
@@ -1259,6 +1312,7 @@ export const executeScenarios = async (emailData) => {
       );
 
       if (matchedScenario) {
+        emailIsLead = true;
         console.log(`🏷️ Email matches scenario criteria: ${matchedScenario.name || matchedScenario._id}`);
 
         await EmailModel.updateOne(
@@ -1357,6 +1411,11 @@ export const executeScenarios = async (emailData) => {
           issue: step.issue || '',
           location: step.location || '',
           suggestion: step.suggestion || '',
+          /* Which card on the canvas produced this — see the model. */
+          nodeId: step.nodeId || '',
+          nodeType: step.nodeType || '',
+          input: runStepPayload(step.input || {}),
+          output: runStepPayload(step.output || {}),
           meta: step.meta || {},
           startedAt: step.startedAt || new Date(),
           completedAt: step.completedAt || new Date(),
@@ -1570,10 +1629,73 @@ export const executeScenarios = async (emailData) => {
           ? subjectLower.startsWith(shopifyFilter)
           : subjectLower.includes(shopifyFilter);
 
+      /*
+       * The Incoming Leads card's own record.
+       *
+       * Recorded whether it matched or not: "the trigger never fired" is
+       * the single most common thing an operator needs to see, and it used
+       * to be a console line on a server they cannot read.
+       */
+      addRunStep({
+        stepKey: 'trigger-match',
+        stepName: 'Incoming Leads — Trigger Match',
+        status: isShopifyInquiry ? 'success' : 'failed',
+        nodeId: 'incoming-leads',
+        nodeType: 'trigger',
+        message: isShopifyInquiry
+          ? 'The subject matched the configured trigger.'
+          : 'The subject did not match the configured trigger, so this scenario was skipped.',
+        issue: isShopifyInquiry ? '' : 'Subject does not match the trigger.',
+        suggestion: isShopifyInquiry
+          ? ''
+          : 'Check the Incoming Leads subject filter against the subject shown here.',
+        location: receivedAtAddress || '',
+        input: {
+          subject,
+          subjectAfterPrefixStrip: subjectLower,
+          from,
+          receivedAt: receivedAtAddress || '',
+          bodyPreview: body,
+        },
+        output: {
+          matched: isShopifyInquiry,
+          triggerSubject: shopifyFilter,
+          matchMode,
+          triggerSource: scenarioSubjectFilter
+            ? "this scenario's own subject filter"
+            : 'platform default (master admin → Scenario Triggers)',
+        },
+        meta: { scenarioId: String(scenario._id) },
+      });
+
       if (!isShopifyInquiry) {
         console.log(
           `⛔ Subject does not match the Shopify trigger ("${shopifyFilter}") — skipping Shopify scenario only.`
         );
+
+        /*
+         * Persist the miss only for mail that some scenario's criteria
+         * already called a lead. Logging every newsletter a synced mailbox
+         * carries would bury the runs that matter.
+         */
+        if (emailIsLead) {
+          await ScenarioRunLogModel.create({
+            userId,
+            scenarioId: scenario._id,
+            scenarioName: scenario.name || '',
+            scenarioType: scenario.type || 'shopify',
+            runType: 'live',
+            status: 'failed',
+            message: 'Trigger subject did not match — scenario skipped.',
+            businessEmail: from || '',
+            parentEmailId: emailId || null,
+            steps: runSteps,
+            requestPayload: { userId, from, subject, body, emailId },
+            startedAt: runStartedAt,
+            completedAt: new Date(),
+          });
+        }
+
         continue;
       }
 
@@ -1586,31 +1708,97 @@ export const executeScenarios = async (emailData) => {
           `🔎 Branch Conditions: ${branch.filter?.conditions?.length || 0}`
         );
 
-        const matches = branch.filter?.conditions?.length
-          ? branch.filter.conditions.every((cond) => {
-              const fieldValue =
-                cond.field?.toLowerCase() === 'body'
-                  ? (body || '').toLowerCase()
-                  : cond.field?.toLowerCase() === 'subject'
-                    ? (subject || '').toLowerCase()
-                    : '';
-              const condValue = (cond.value || '').toLowerCase();
+        /*
+         * Evaluate every condition and KEEP the result of each.
+         *
+         * `.every()` short-circuits, so the old code could not say which
+         * condition failed — only that one did. The Router card needs the
+         * per-condition verdict, because "body contains 'Store migration'
+         * → false, the body was 'testing abc'" is the whole answer to why
+         * a lead went down the wrong path.
+         */
+        const conditions = branch.filter?.conditions || [];
 
-              console.log(
-                `   Checking: [${cond.field}] ${cond.operator} "${cond.value}"`
-              );
+        const conditionResults = conditions.map((cond) => {
+          const field = cond.field?.toLowerCase();
 
-              switch (cond.operator?.toLowerCase()) {
-                case 'contains':
-                  return fieldValue.includes(condValue);
-                case 'equals':
-                case 'equal to':
-                  return fieldValue === condValue;
-                default:
-                  return false;
-              }
-            })
+          const fieldValue =
+            field === 'body'
+              ? (body || '').toLowerCase()
+              : field === 'subject'
+                ? (subject || '').toLowerCase()
+                : '';
+
+          const condValue = (cond.value || '').toLowerCase();
+          const operator = cond.operator?.toLowerCase();
+
+          let passed = false;
+          if (operator === 'contains') passed = fieldValue.includes(condValue);
+          else if (operator === 'equals' || operator === 'equal to')
+            passed = fieldValue === condValue;
+
+          console.log(
+            `   Checking: [${cond.field}] ${cond.operator} "${cond.value}" -> ${passed}`
+          );
+
+          return {
+            field: cond.field || '',
+            operator: cond.operator || '',
+            expected: cond.value || '',
+            actualValueChecked: fieldValue,
+            passed,
+            reason:
+              !field || (field !== 'body' && field !== 'subject')
+                ? `Unknown field "${cond.field}" — nothing to compare, treated as no match.`
+                : !operator ||
+                    !['contains', 'equals', 'equal to'].includes(operator)
+                  ? `Unknown operator "${cond.operator}" — treated as no match.`
+                  : passed
+                    ? `The ${field} contains "${cond.value}".`
+                    : `The ${field} does not contain "${cond.value}".`,
+          };
+        });
+
+        /* No conditions means the branch accepts everything. */
+        const matches = conditions.length
+          ? conditionResults.every((r) => r.passed)
           : true;
+
+        addRunStep({
+          stepKey: 'router-branch',
+          stepName: `Router — Branch ${branch.id || branch._id || ''}`.trim(),
+          status: matches ? 'success' : 'skipped',
+          nodeId: 'router',
+          nodeType: 'router',
+          message: matches
+            ? conditions.length
+              ? 'All branch conditions matched — this branch ran.'
+              : 'Branch has no conditions, so it accepts every lead — this branch ran.'
+            : 'A branch condition did not match — this branch was skipped.',
+          issue: matches
+            ? ''
+            : conditionResults
+                .filter((r) => !r.passed)
+                .map((r) => r.reason)
+                .join(' '),
+          suggestion: matches
+            ? ''
+            : 'Compare the expected value against "actualValueChecked" below — that is the exact text the router searched.',
+          location: String(branch.id || branch._id || ''),
+          input: {
+            branchId: branch.id || branch._id || '',
+            conditionCount: conditions.length,
+            conditions,
+            subjectChecked: subject,
+            bodyChecked: body,
+          },
+          output: {
+            matched: matches,
+            conditionResults,
+            moduleCount: branch.modules?.length || 0,
+          },
+          meta: { scenarioId: String(scenario._id) },
+        });
 
         if (!matches) {
           console.log('❌ Branch conditions did NOT match — skipping.');
@@ -2000,6 +2188,61 @@ export const executeScenarios = async (emailData) => {
               );
 
               /*
+               * How the service was decided, in the card.
+               *
+               * This is the step that answers "why did it send General?".
+               * It names the source of the answer, so an operator can see
+               * at a glance whether the lead told us its service or
+               * whether the engine guessed from prose and found nothing.
+               */
+              const serviceSource = leadServiceHint
+                ? leadService
+                  ? 'passed in by Send Test (the service you picked)'
+                  : "read from the inquiry form's service field"
+                : matchedService ===
+                    (platformRules.services?.fallback || 'General')
+                  ? 'FALLBACK — no service found in the subject or body'
+                  : 'found by scanning the subject and body text';
+
+              addRunStep({
+                stepKey: 'service-resolve',
+                stepName: 'Router — Service Resolution',
+                status: 'success',
+                nodeId: 'router',
+                nodeType: 'router',
+                message: `Lead routed to "${matchedService}" (${serviceSource}).`,
+                issue:
+                  !leadServiceHint &&
+                  matchedService ===
+                    (platformRules.services?.fallback || 'General')
+                    ? 'No service name appears in the subject or body, so the General fallback was used.'
+                    : '',
+                suggestion:
+                  !leadServiceHint &&
+                  matchedService ===
+                    (platformRules.services?.fallback || 'General')
+                    ? 'The lead body must contain the service name, or the inquiry form must carry a service field, for a service-specific template to be chosen.'
+                    : '',
+                location: matchedService,
+                input: {
+                  explicitServiceFromCaller: leadService || '(none)',
+                  serviceFromInquiryForm: shopifyLead.service || '(none)',
+                  textSearched: textToSearch,
+                  configuredServices: platformRules.services?.list || [],
+                  fallbackService: platformRules.services?.fallback || 'General',
+                },
+                output: {
+                  matchedService,
+                  decidedBy: serviceSource,
+                  usedFallback:
+                    !leadServiceHint &&
+                    matchedService ===
+                      (platformRules.services?.fallback || 'General'),
+                },
+                meta: { moduleId: module.id || module._id, stepType },
+              });
+
+              /*
                * `active: true` matters here.
                *
                * This query used to ignore it, so switching a template off
@@ -2035,6 +2278,56 @@ export const executeScenarios = async (emailData) => {
               }
 
               /*
+               * The template lookup, shown as the query it actually ran.
+               *
+               * Printing the query rather than describing it means an
+               * operator can compare it against the Templates page by eye:
+               * this exact service, this exact name pattern, active true.
+               */
+              addRunStep({
+                stepKey: 'template-resolve',
+                stepName: 'Template — Selection',
+                status: tpl ? 'success' : 'failed',
+                nodeId: module.id || module._id || 'template',
+                nodeType: 'module',
+                message: tpl
+                  ? selection.fallbackToGeneral
+                    ? `No active "${stepType}" template for "${matchedService}" — fell back to General: "${tpl.name}".`
+                    : `Using "${tpl.name}".`
+                  : `No active "${stepType}" template for "${matchedService}" or General — nothing to send.`,
+                issue: selection.fallbackToGeneral
+                  ? `The "${matchedService}" ${stepType} template is missing or switched off.`
+                  : tpl
+                    ? ''
+                    : 'No active template matched.',
+                suggestion:
+                  tpl && !selection.fallbackToGeneral
+                    ? ''
+                    : `Templates page → activate the "${stepType}" template for "${matchedService}".`,
+                location: tpl?.name || matchedService,
+                input: {
+                  lookedUpService: matchedService,
+                  stepType,
+                  query: activeTemplateQuery({
+                    userId,
+                    service: matchedService,
+                    stepType,
+                  }),
+                  note: 'This is the exact query the send path runs. A template must match all of it, including active: true.',
+                },
+                output: {
+                  willUseTemplate: selection.willUseTemplate,
+                  fallbackToGeneral: selection.fallbackToGeneral,
+                  resolvedService: selection.service,
+                  templateId: tpl?._id ? String(tpl._id) : null,
+                  templateName: tpl?.name || null,
+                  templateActive: tpl?.active ?? null,
+                  aiResponse: tpl?.aiResponse ?? null,
+                },
+                meta: { moduleId: module.id || module._id, stepType },
+              });
+
+              /*
                * With nothing active to send, stop.
                *
                * module.template holds a template NAME ("Initial Email"),
@@ -2049,8 +2342,12 @@ export const executeScenarios = async (emailData) => {
 
                 addRunStep({
                   stepKey: 'reply-email-send',
-                  stepName: 'Reply Email Send',
+                  stepName: 'Send Email — Skipped',
                   status: 'failed',
+                  nodeId: module.id || module._id || 'send-email',
+                  nodeType: 'module',
+                  input: { to: replyTo, service: matchedService, stepType },
+                  output: { success: false, reason: 'no active template' },
                   message: `No active ${stepType} template for "${matchedService}" or General — nothing was sent.`,
                   issue: 'No active template matched this lead.',
                   suggestion: `Switch on an ${stepType} template under Templates, for "${matchedService}" or for General.`,
@@ -2096,10 +2393,27 @@ export const executeScenarios = async (emailData) => {
               if (sendResult?.success) {
                 addRunStep({
                   stepKey: 'reply-email-send',
-                  stepName: 'Reply Email Send',
+                  stepName: 'Send Email — Reply Sent',
                   status: 'success',
+                  nodeId: module.id || module._id || 'send-email',
+                  nodeType: 'module',
                   message: 'Reply email sent successfully.',
                   location: replyTo,
+                  input: {
+                    to: replyTo,
+                    inReplyToSubject: subject,
+                    templateName: tpl?.name || '',
+                    service: matchedService,
+                    stepType,
+                    connectionId: String(targetConnId || ''),
+                    bodyPreview: templateContent,
+                  },
+                  output: {
+                    success: true,
+                    replyEmailId: String(sendResult.replyEmailId || ''),
+                    threadId: sendResult.threadId || null,
+                    sentService: sendResult.service || '',
+                  },
                   meta: {
                     moduleId: module.id || module._id,
                     replyEmailId: sendResult.replyEmailId,
@@ -2127,8 +2441,10 @@ export const executeScenarios = async (emailData) => {
 
                 addRunStep({
                   stepKey: 'reply-email-send',
-                  stepName: 'Reply Email Send',
+                  stepName: 'Send Email — Not Sent',
                   status: 'failed',
+                  nodeId: module.id || module._id || 'send-email',
+                  nodeType: 'module',
                   message:
                     sendResult?.error ||
                     'The reply was not sent — the mail transport reported no success.',
@@ -2136,6 +2452,18 @@ export const executeScenarios = async (emailData) => {
                   suggestion:
                     'Check the connection used by this module on the Connections page, then run the test again.',
                   location: replyTo,
+                  input: {
+                    to: replyTo,
+                    templateName: tpl?.name || '',
+                    service: matchedService,
+                    stepType,
+                    connectionId: String(targetConnId || ''),
+                  },
+                  output: {
+                    success: false,
+                    error: sendResult?.error || 'no success reported',
+                    errorName: sendResult?.errorName || '',
+                  },
                   meta: {
                     moduleId: module.id || module._id,
                     templateId: tpl?._id || null,
