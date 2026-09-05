@@ -33,7 +33,8 @@ adminPlatformRouter.use(adminMiddleware);
 adminPlatformRouter.get('/dashboard', getAdminPlatformDashboard);
 adminPlatformRouter.get('/master-dashboard', getAdminPlatformDashboard);
 
-// Plan Management
+// Plan Managements
+//plannin  
 adminPlatformRouter.get('/plans', getPlans);
 adminPlatformRouter.post('/plans', createPlan); 
 adminPlatformRouter.put('/plans/:id', updatePlan);
