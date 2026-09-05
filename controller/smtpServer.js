@@ -2378,7 +2378,22 @@ export const executeScenarios = async (emailData) => {
                   templateName: tpl?.name || module.template || '',
                   service: matchedService,
                   stepType,
-                  templateAiEnabled: tpl ? (tpl.aiResponse !== false) : true,
+                  /*
+                   * Tri-state, deliberately.
+                   *
+                   * This was `tpl.aiResponse !== false`, which reads as
+                   * "AI unless switched off" — so any template document
+                   * without the field (every one created before it
+                   * existed) came out TRUE, and the model rewrote a
+                   * manual template that had never asked for it. The
+                   * schema default is false; the flag has to agree.
+                   *
+                   * null means "this template has no opinion", which is
+                   * what lets the account-wide setting still apply. See
+                   * the precedence in sendEmailModule.
+                   */
+                  templateAiEnabled:
+                    typeof tpl?.aiResponse === 'boolean' ? tpl.aiResponse : null,
                 },
                 /*
                  * The lead, not the relay. `from` is partners@shopify.com
@@ -2670,7 +2685,6 @@ export const sendEmailModule = async (
     const user = await authModel.findById(connection.userId).lean();
 
     const isManualReply = module.stepType === 'Manual Reply' || module.isManual === true || module.isManualReply === true;
-    const isTemplateAiEnabled = module.templateAiEnabled !== false;
 
     /*
      * The module's own reply mode wins when it is set. It is chosen in the
@@ -2685,13 +2699,37 @@ export const sendEmailModule = async (
           ? false
           : null;
 
+    /*
+     * The template's own AI switch, when it has one set.
+     */
+    const templateWantsAi =
+      typeof module.templateAiEnabled === 'boolean'
+        ? module.templateAiEnabled
+        : null;
+
+    /*
+     * Most specific setting wins.
+     *
+     *   1. a Manual Reply step never uses AI
+     *   2. the module's reply mode, chosen in the scenario builder
+     *   3. THE TEMPLATE'S OWN AI TOGGLE
+     *   4. the account-wide flags, for templates that express no
+     *      preference
+     *
+     * Step 3 was missing: the account flag was ORed in, so switching AI
+     * on for the account rewrote every manual template regardless of its
+     * own toggle. A template that says "send this wording as written" has
+     * to be able to mean it — that is the entire point of a manual
+     * template, and the Templates page offers the switch per template.
+     */
     const isAIActive =
       !isManualReply &&
       (moduleWantsAi !== null
         ? moduleWantsAi
-        : module.templateAiEnabled === true ||
-          user?.Ai === true ||
-          user?.subscription?.aiRepliesActive === true);
+        : templateWantsAi !== null
+          ? templateWantsAi
+          : user?.Ai === true ||
+            user?.subscription?.aiRepliesActive === true);
 
     if (isAIActive) {
       log('🤖 AI REPLIES ENABLED for automated step → OpenRouter Gemma 4 26B generating high-converting email response');

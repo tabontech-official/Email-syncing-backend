@@ -134,6 +134,71 @@ const readSections = (text = '') => {
  * an empty string, so callers can tell "the form said nothing" apart
  * from "the form said blank" and keep whatever they already had.
  */
+/*
+ * The same form, without the dashed rules.
+ *
+ * readSections() needs a label fenced by lines of hyphens, which is how
+ * the relay's PLAIN-TEXT part is laid out. The HTML part carries the very
+ * same form as `<strong>Label</strong><br>value`, and once tags are
+ * stripped that becomes a label line followed by its value — no fences,
+ * so readSections finds nothing at all.
+ *
+ * That mattered: a connection that stored only the HTML part, or any
+ * message whose text part is just the customer's description, yielded no
+ * service. The router then fell through to scanning prose for a service
+ * name, found none, and answered on the General template — the exact
+ * complaint this parser exists to prevent.
+ *
+ * Only the fields the router and the templates actually need are read
+ * back this way, and only to fill gaps the fenced parse left.
+ */
+const readLabelledLines = (text = '') => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, ' ').trim());
+
+  const found = {};
+
+  /* The first non-empty line after `i` — the value sits under its label. */
+  const valueAfter = (i) => {
+    for (let j = i + 1; j < Math.min(i + 4, lines.length); j += 1) {
+      if (lines[j]) return lines[j];
+    }
+    return '';
+  };
+
+  lines.forEach((line, i) => {
+    const key = labelKey(line.replace(/:$/, ''));
+
+    if (!found.service && key.startsWith('select a service')) {
+      found.service = valueAfter(i);
+      return;
+    }
+
+    if (!found.fullName && key === 'full name') {
+      found.fullName = valueAfter(i);
+      return;
+    }
+
+    if (!found.country && key === 'country') {
+      found.country = valueAfter(i);
+      return;
+    }
+
+    if (!found.budget && key.startsWith('budget')) {
+      found.budget = valueAfter(i);
+      return;
+    }
+
+    if (!found.businessEmail && (key === 'business email' || key === 'email')) {
+      const match = valueAfter(i).match(EMAIL);
+      if (match) found.businessEmail = match[0];
+    }
+  });
+
+  return found;
+};
+
 export const parseShopifyInquiry = (body = '') => {
   const text = toPlainText(body);
   const found = {};
@@ -197,6 +262,17 @@ export const parseShopifyInquiry = (body = '') => {
       continue;
     }
   }
+
+  /*
+   * Fill anything the fenced layout did not yield. Never overwrites — a
+   * value read from a properly fenced section is the more reliable of the
+   * two, so the fallback only adds what is missing.
+   */
+  const labelled = readLabelledLines(text);
+
+  Object.keys(labelled).forEach((key) => {
+    if (!found[key] && labelled[key]) found[key] = labelled[key];
+  });
 
   return found;
 };
