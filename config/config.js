@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 // Load environment variables from .env file into process.env
 dotenv.config(); 
 
+
+
 // Export the environment variables as a config object
 const config = {
   port: process.env.PORT || 5000,
