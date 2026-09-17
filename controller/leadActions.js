@@ -242,21 +242,75 @@ export const getPendingLeads = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
 
-    const filter = {
-      userId: new mongoose.Types.ObjectId(userId),
+    const userObjId = new mongoose.Types.ObjectId(userId);
+
+    // 1. Fetch outgoing emails/replies to find answered threads
+    const outgoingEmails = await EmailModel.find({
+      userId: userObjId,
       isDeleted: { $ne: true },
-      isOutgoing: { $ne: true },
+      $or: [
+        { direction: 'outgoing' },
+        { stepType: { $in: ['Auto Reply', 'Manual Reply'] } },
+      ],
+    })
+      .select('parentEmailId conversationId threadId inReplyTo references')
+      .lean();
+
+    const answeredIds = new Set();
+    outgoingEmails.forEach((out) => {
+      if (out.parentEmailId) answeredIds.add(String(out.parentEmailId));
+      if (out.conversationId) answeredIds.add(String(out.conversationId));
+      if (out.threadId) answeredIds.add(String(out.threadId));
+      if (out.inReplyTo) answeredIds.add(String(out.inReplyTo));
+    });
+
+    // 2. Query candidate leads
+    const filter = {
+      userId: userObjId,
+      isDeleted: { $ne: true },
+      direction: { $ne: 'outgoing' },
       isArchived: { $ne: true },
+      leadStatus: { $nin: ['secured', 'closed'] },
       $or: [
         { queuedForScenarioId: { $ne: null } },
-        { scenarioExecuted: { $ne: true }, replied: { $ne: true } },
+        { scenarioExecuted: { $ne: true } },
       ],
     };
 
-    const pendingEmails = await EmailModel.find(filter)
+    const candidateEmails = await EmailModel.find(filter)
       .sort({ date: -1, createdAt: -1 })
       .limit(100)
       .lean();
+
+    // 3. Filter only truly unanswered/queued leads
+    const pendingEmails = candidateEmails.filter((email) => {
+      const emailId = String(email._id);
+      const convId = email.conversationId ? String(email.conversationId) : null;
+      const threadId = email.threadId ? String(email.threadId) : null;
+      const msgId = email.messageId ? String(email.messageId) : null;
+
+      // If queued while a scenario was paused, it is definitely pending
+      if (email.queuedForScenarioId) {
+        return true;
+      }
+
+      // If already has an outgoing reply in the thread, skip
+      if (
+        answeredIds.has(emailId) ||
+        (convId && answeredIds.has(convId)) ||
+        (threadId && answeredIds.has(threadId)) ||
+        (msgId && answeredIds.has(msgId))
+      ) {
+        return false;
+      }
+
+      // If scenario was already executed or replied, skip
+      if (email.scenarioExecuted === true || email.replied === true) {
+        return false;
+      }
+
+      return true;
+    });
 
     const scenarioIds = [
       ...new Set(
