@@ -265,6 +265,22 @@ export const getPendingLeads = async (req, res) => {
     });
 
     // 2. Query candidate leads
+    const { startDate, endDate } = req.query;
+    const dateQuery = {};
+    if (startDate) {
+      const s = new Date(startDate);
+      if (!isNaN(s.getTime())) {
+        dateQuery.$gte = s;
+      }
+    }
+    if (endDate) {
+      const e = new Date(endDate);
+      if (!isNaN(e.getTime())) {
+        e.setHours(23, 59, 59, 999);
+        dateQuery.$lte = e;
+      }
+    }
+
     const filter = {
       userId: userObjId,
       isDeleted: { $ne: true },
@@ -277,9 +293,21 @@ export const getPendingLeads = async (req, res) => {
       ],
     };
 
+    if (Object.keys(dateQuery).length > 0) {
+      filter.$and = [
+        {
+          $or: [
+            { date: dateQuery },
+            { queuedAt: dateQuery },
+            { createdAt: dateQuery },
+          ],
+        },
+      ];
+    }
+
     const candidateEmails = await EmailModel.find(filter)
       .sort({ date: -1, createdAt: -1 })
-      .limit(100)
+      .limit(150)
       .lean();
 
     // 3. Filter only truly unanswered/queued leads

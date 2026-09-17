@@ -50,6 +50,7 @@ import { mailhookModel } from '../Models/MailhookSchema.js';
 import { ScenarioRunLogModel } from '../Models/ScenarioRunLog.js';
 import { decrypt } from '../middleware/encryption.js';
 import { CompanyProfileModel } from '../Models/CompanyProfile.js';
+import { AiConfigModel } from '../Models/AiConfig.js';
 import { resolveDefaultProfile } from './companyProfileController.js';
 import { sendMicrosoftEmail } from '../middleware/microsoftGraphService.js';
 import {
@@ -136,17 +137,35 @@ export const generateOpenRouterGemmaReply = async ({
   companyProfileId = null,
 }) => {
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    // 1. Fetch Master Admin AI Configuration (Layer 1)
+    const masterAiConfig = await AiConfigModel.findOne({
+      key: 'global_master_config',
+    })
+      .lean()
+      .catch(() => null);
+
+    const apiKey =
+      masterAiConfig?.apiKey || process.env.OPENROUTER_API_KEY;
+
     if (!apiKey) {
-      console.warn('⚠️ OPENROUTER_API_KEY is not set in backend process.env');
+      console.warn('⚠️ OPENROUTER_API_KEY is not set in backend process.env or Master AI Config');
       return null;
     }
 
+    const modelName =
+      masterAiConfig?.modelName ||
+      process.env.OPENROUTER_MODEL ||
+      'google/gemini-2.0-flash-exp:free';
+    const temperature = masterAiConfig?.temperature ?? 0.7;
+    const maxTokens = masterAiConfig?.maxTokens ?? 1024;
+    const masterPrompt =
+      masterAiConfig?.masterPrompt ||
+      'You are an expert AI customer support & sales agent. Always assist customers clearly, politely, and accurately using the company knowledge base. Ensure responses remain professional, on-brand, and follow all company guidelines.';
+
+    // 2. Fetch User Company Profile & Knowledge Base (Layer 2)
     const profileDoc = companyProfileId
       ? await CompanyProfileModel.findOne({
           _id: companyProfileId,
-          /* Scoped to the owner: an id from a saved scenario must never
-             read another account's profile. */
           userId: user._id,
         }).lean()
       : await resolveDefaultProfile(user._id);
@@ -167,93 +186,74 @@ export const generateOpenRouterGemmaReply = async ({
     const faqs = (resolvedProfile?.faqs || [])
       .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
       .join('\n\n');
-    const policies = resolvedProfile?.policies || {};
     const timelines = resolvedProfile?.timelines || {};
     const writingStyle = resolvedProfile?.writingStyle || {};
 
-    const senderName = user.fullName || 'Samiullah Qureshi';
-    const companyName = cp.companyName || user.organizationName || user.companyName || 'Summit Digital Solutions';
+    const senderName = user.fullName || user.name || 'Sales Consultant';
+    const companyName =
+      cp.companyName ||
+      user.organizationName ||
+      user.companyName ||
+      'Our Company';
 
-    const systemPrompt = `You are an expert Sales & Solutions Consultant for ${companyName}.
+    // 3. Assemble Multi-Layer Prompt Architecture
+    const systemPrompt = `=== [LAYER 1: MASTER PLATFORM GOVERNANCE & ADMIN DIRECTIVES] ===
+${masterPrompt}
 
-Your task is to generate a highly personalized, professional, and persuasive email reply based ONLY on the customer's inquiry.
+=== [LAYER 2: COMPANY PROFILE & VERIFIED KNOWLEDGE BASE] ===
+Company Name: ${companyName}
+Industry: ${cp.industry || 'Digital Services'}
+Business Description: ${cp.businessDescription || 'High-impact solutions tailored to client needs'}
+Services Offered:
+${services || 'Tailored consulting and technical services'}
+Delivery Timelines: ${timelines.deliveryTime || 'As per project scope'}
+Writing Style & Tone: ${writingStyle.tone || 'Professional, warm, clear, consultative'}
 
-## Knowledge Base & Company Context
-- Company Name: ${companyName}
-- Industry: ${cp.industry || 'Digital Services'}
-- Business Description: ${cp.businessDescription || 'High-impact web development, strategic digital marketing, and business automation'}
-- Services: ${services || 'Web development, marketing, and business automation'}
-- Delivery Timelines: ${timelines.deliveryTime || 'As per scope'}
-- FAQs: ${faqs || 'N/A'}
-- Knowledge Base: ${knowledge || 'N/A'}
+Frequently Asked Questions (FAQs):
+${faqs || 'N/A'}
+
+Company Knowledge Base Documentation:
+${knowledge || 'N/A'}
 
 Knowledge Base Guidelines:
-- Use the available knowledge base and company documentation whenever relevant.
-- If the knowledge base contains services, case studies, technologies, pricing guidance, or workflows related to the customer's inquiry, incorporate that information naturally into the email.
-- If no relevant knowledge exists, rely on your own expertise.
-- Never fabricate information that is not present in the knowledge base.
-
-Instructions:
-- Carefully analyze the customer's message before writing.
-- Understand the customer's business, pain points, goals, budget, country, website, and requested service.
-- Use your own knowledge and industry expertise to recommend the most suitable solution.
-- Do NOT use generic marketing templates.
-- Do NOT assume the customer needs services they did not mention.
-- Only recommend services that directly solve the customer's stated problem.
-- If appropriate, briefly explain how the proposed solution will benefit their business.
-- Keep the email conversational, human, and consultative rather than salesy.
-- Mention the customer's company name naturally if present.
-- Mention the requested service and budget when relevant.
-- Include a clear call-to-action, such as scheduling a discovery call or requesting any missing technical details.
-- Use clear paragraph breaks (blank lines) between sections so the email is structured, formatted, and easy to read.
-
-Sign off as:
+- Ground your response in the provided company profile, services, and knowledge base.
+- If relevant knowledge exists for the inquiry, naturally weave it in.
+- Never fabricate offerings, prices, or policies not supported by the company profile.
+- Sign off as:
 ${senderName}
 ${companyName}
 
-Email Style:
-- Professional
-- Friendly
-- Personalized
-- Solution-focused
-- 200–350 words
-- No emojis
-- No bullet points unless they improve readability
-- Never mention services unrelated to the customer's inquiry.
-- Never say "we specialize in everything" or use generic agency language.
-- Every email must feel as if it was written specifically for that customer.
+=== [RESPONSE INSTRUCTIONS] ===
+- Carefully analyze the customer message and respond directly to their specific questions/pain points.
+- Tone: Professional, personalized, solution-oriented, conversational.
+- Length: Concise, readable, well-structured with paragraph breaks.
+- Output ONLY the complete ready-to-send email body.`;
 
-Input:
-{{Customer Inquiry}}
-
-Output:
-A complete email reply only.`;
-
-    const userMessage = `Incoming Lead Inquiry:
-From: ${from}
+    const userMessage = `=== [LAYER 3: INCOMING CUSTOMER INQUIRY] ===
+Customer Name / From: ${from}
 Subject: ${subject}
 
-Customer Query:
+Customer Email Message:
 ${body}
 
-Write the structured, high-converting email response now:`;
+Generate the final personalized email reply now:`;
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://replex-engine.vercel.app',
-        'X-Title': 'Replex Engine Automated AI Scenario Reply',
+        'HTTP-Referer': 'https://replexengine.com',
+        'X-Title': 'Replex Engine Layered AI Scenario Reply',
       },
       body: JSON.stringify({
-        model: OPENROUTER_MODEL,
+        model: modelName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        temperature: 0.7,
-        max_tokens: 600,
+        temperature,
+        max_tokens: maxTokens,
       }),
     });
 
@@ -261,7 +261,7 @@ Write the structured, high-converting email response now:`;
       const data = await response.json();
       const replyText = data.choices?.[0]?.message?.content?.trim();
       if (replyText) {
-        console.log('✅ OpenRouter Gemma 4 AI reply generated successfully for automated email');
+        console.log(`✅ [Layered AI Reply] Generated using model "${modelName}" (Master Admin + Company Profile layers applied)`);
         return replyText;
       }
     } else {
@@ -269,7 +269,7 @@ Write the structured, high-converting email response now:`;
       console.warn('⚠️ OpenRouter API error in backend:', response.status, errText);
     }
   } catch (err) {
-    console.error('❌ OpenRouter Gemma reply generation error in backend:', err.message);
+    console.error('❌ Layered AI reply generation error in backend:', err.message);
   }
   return null;
 };
