@@ -2140,8 +2140,8 @@ export const requestLogin = async (req, res) => {
         .status(401)
         .json({ success: false, message: 'Invalid credentials.' });
 
-    const token = createToken({ id: user._id, type: 'loginVerify' }, '10m');
-    const verifyUrl = `http://localhost:3006/login-verify/${token}`;
+    const frontendBase = (process.env.FRONTEND_URL || 'https://replexengine.com').replace(/\/$/, '');
+    const verifyUrl = `${frontendBase}/login-verify/${token}`;
 
     const supportAddress = await platformFromAddress();
 
@@ -2232,7 +2232,8 @@ export const verifyLogin = async (req, res) => {
     );
     console.log('📤 Redirecting user to frontend...');
 
-    res.redirect(`http://localhost:3006/login-verify?token=${loginToken}`);
+    const frontendBase = (process.env.FRONTEND_URL || 'https://replexengine.com').replace(/\/$/, '');
+    res.redirect(`${frontendBase}/login-verify?token=${loginToken}`);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Internal server error.' });
   }

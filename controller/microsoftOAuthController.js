@@ -34,7 +34,7 @@ import {
 export { MICROSOFT_OAUTH_SCOPES };
 
 const getFrontendUrl = () =>
-  (process.env.FRONTEND_URL || 'http://localhost:3006').replace(/\/$/, '');
+  (process.env.FRONTEND_URL || 'https://replexengine.com').replace(/\/$/, '');
 
 /*
  * Build the post-callback URL safely.
