@@ -1352,7 +1352,7 @@ export const executeScenarios = async (emailData) => {
        * inactive scenarios: they define what counts as a lead for the
        * Lead Inbox even while their automation is paused.
        */
-      if (scenario.scenarioActive === false) {
+      if (scenario.scenarioActive === false && !replayQueued) {
         console.log(`⏸️ Scenario "${scenario.name}" is switched OFF — skipping execution.`);
 
         /*
@@ -3285,6 +3285,22 @@ export const sendEmailModule = async (
           status: 'replied',
           leadStatus: 'replied',
           awaitingReply: false,
+          scenarioExecuted: true,
+          replied: true,
+          queuedForScenarioId: null,
+          queuedAt: null,
+        });
+      }
+
+      if (parentEmailId && mongoose.Types.ObjectId.isValid(parentEmailId)) {
+        await EmailModel.findByIdAndUpdate(parentEmailId, {
+          status: 'replied',
+          leadStatus: 'replied',
+          awaitingReply: false,
+          scenarioExecuted: true,
+          replied: true,
+          queuedForScenarioId: null,
+          queuedAt: null,
         });
       }
 
