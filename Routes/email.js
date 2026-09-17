@@ -28,6 +28,8 @@ import {
 import {
   setLeadArchived,
   processLeadScenario,
+  getPendingLeads,
+  batchProcessPendingLeads,
 } from '../controller/leadActions.js';
 import multer from 'multer';
 import { authMiddleware, adminMiddleware } from '../middleware/authmiddleware.js';
@@ -111,6 +113,8 @@ emailRouter.post(
   authMiddleware,
   processLeadScenario
 );
+emailRouter.get('/pending-leads/:userId', authMiddleware, getPendingLeads);
+emailRouter.post('/batch-process-pending', authMiddleware, batchProcessPendingLeads);
 emailRouter.patch('/lead-status/:emailId', authMiddleware, updateLeadStatus);
 emailRouter.put('/lead-status/:emailId', authMiddleware, updateLeadStatus);
 

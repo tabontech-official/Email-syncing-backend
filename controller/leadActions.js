@@ -166,11 +166,11 @@ export const processLeadScenario = async (req, res) => {
       });
     }
 
-    if (scenario.scenarioActive === false) {
-      return res.status(409).json({
-        success: false,
-        message: `"${scenario.name}" is switched off. Switch it on first, then run it against this lead.`,
-      });
+    const allowInactive = Boolean(req.body?.forceRun || req.query?.forceRun);
+
+    if (scenario.scenarioActive === false && !allowInactive) {
+      // Fallback: If user explicitly clicked to run, proceed with replayQueued
+      console.log(`⚠️ Scenario "${scenario.name}" is inactive, but user manually requested execution on demand.`);
     }
 
     const alreadyProcessed = email.scenarioExecuted === true;
@@ -207,11 +207,6 @@ export const processLeadScenario = async (req, res) => {
     return res.status(200).json({
       success: true,
       scenarioName: scenario.name,
-      /*
-       * Whether this lead had already been through the scenario once.
-       * Reported rather than blocked — re-running is the point — but the
-       * caller should be able to say "sent again", not just "sent".
-       */
       alreadyProcessed,
       message: alreadyProcessed
         ? `Ran "${scenario.name}" again against this lead.`
@@ -223,5 +218,247 @@ export const processLeadScenario = async (req, res) => {
       success: false,
       message: 'The scenario could not be run against this lead.',
     });
+  }
+};
+
+/*
+ * GET /mailhook/pending-leads/:userId
+ *
+ * Retrieves all pending or unanswered leads (e.g. while scenario was paused,
+ * or inbound leads waiting for manual/automated replies).
+ */
+export const getPendingLeads = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const authUserId = String(
+      req.user?._id || req.user?.id || req.user?.userId || ''
+    );
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid userId' });
+    }
+
+    if (authUserId !== String(userId) && req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const filter = {
+      userId: new mongoose.Types.ObjectId(userId),
+      isDeleted: { $ne: true },
+      isOutgoing: { $ne: true },
+      isArchived: { $ne: true },
+      $or: [
+        { queuedForScenarioId: { $ne: null } },
+        { scenarioExecuted: { $ne: true }, replied: { $ne: true } },
+      ],
+    };
+
+    const pendingEmails = await EmailModel.find(filter)
+      .sort({ date: -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    const scenarioIds = [
+      ...new Set(
+        pendingEmails
+          .map((e) => e.queuedForScenarioId || e.matchedScenarioId)
+          .filter(Boolean)
+      ),
+    ];
+    const scenarios = await scenarioModel
+      .find({ _id: { $in: scenarioIds } })
+      .lean();
+    const scenarioMap = new Map(scenarios.map((s) => [String(s._id), s]));
+
+    const data = pendingEmails.map((email) => {
+      const targetScenId =
+        email.queuedForScenarioId || email.matchedScenarioId;
+      const matchedScenario = targetScenId
+        ? scenarioMap.get(String(targetScenId))
+        : null;
+
+      let reason = 'Unprocessed Lead';
+      if (email.queuedForScenarioId) {
+        reason = 'Scenario was Paused';
+      } else if (matchedScenario && matchedScenario.scenarioActive === false) {
+        reason = 'Scenario Inactive';
+      } else if (!email.scenarioExecuted) {
+        reason = 'Awaiting Reply';
+      }
+
+      return {
+        _id: email._id,
+        subject: email.subject || '(No Subject)',
+        from: email.senderAddress || '',
+        name:
+          [email.senderFirstName, email.senderLastName]
+            .filter(Boolean)
+            .join(' ') ||
+          email.senderName ||
+          '',
+        preview: (
+          email.textBody ||
+          email.snippet ||
+          email.htmlBody ||
+          ''
+        )
+          .replace(/<[^>]*>/g, '')
+          .slice(0, 160),
+        date: email.date || email.queuedAt || email.createdAt,
+        queuedForScenarioId: email.queuedForScenarioId || null,
+        scenarioName:
+          matchedScenario?.name ||
+          (email.queuedForScenarioId
+            ? 'Paused Scenario'
+            : 'Default Scenario'),
+        scenarioActive: matchedScenario
+          ? matchedScenario.scenarioActive !== false
+          : true,
+        reason,
+        status: email.queuedForScenarioId ? 'queued' : 'unanswered',
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (err) {
+    console.error('❌ getPendingLeads error:', err);
+    return res
+      .status(500)
+      .json({ success: false, message: 'Could not fetch pending leads' });
+  }
+};
+
+/*
+ * POST /mailhook/batch-process-pending
+ *
+ * Batch runs scenarios / auto-replies across multiple selected pending leads.
+ */
+export const batchProcessPendingLeads = async (req, res) => {
+  try {
+    const { emailIds, userId } = req.body;
+    const authUserId = String(
+      req.user?._id || req.user?.id || req.user?.userId || ''
+    );
+
+    if (userId && authUserId !== String(userId) && req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const filter = {
+      userId: new mongoose.Types.ObjectId(userId || authUserId),
+      isDeleted: { $ne: true },
+      isOutgoing: { $ne: true },
+    };
+
+    if (Array.isArray(emailIds) && emailIds.length > 0) {
+      filter._id = {
+        $in: emailIds.map((id) => new mongoose.Types.ObjectId(id)),
+      };
+    } else {
+      filter.$or = [
+        { queuedForScenarioId: { $ne: null } },
+        { scenarioExecuted: { $ne: true }, replied: { $ne: true } },
+      ];
+    }
+
+    const emails = await EmailModel.find(filter).limit(50).lean();
+
+    let sent = 0;
+    let failed = 0;
+    const results = [];
+
+    for (const email of emails) {
+      try {
+        let scenario = null;
+        if (email.matchedScenarioId || email.queuedForScenarioId) {
+          scenario = await scenarioModel
+            .findById(email.matchedScenarioId || email.queuedForScenarioId)
+            .lean();
+        }
+
+        if (!scenario) {
+          const rules = await loadPlatformRules();
+          const scenarios = await scenarioModel
+            .find({ userId: email.userId })
+            .lean();
+          scenario = findMatchingScenario(
+            scenarios,
+            {
+              subject: email.subject,
+              textBody: email.textBody || email.htmlBody || '',
+              senderAddress: email.senderAddress,
+            },
+            rules
+          );
+        }
+
+        if (!scenario) {
+          scenario = await scenarioModel
+            .findOne({ userId: email.userId, scenarioActive: { $ne: false } })
+            .lean();
+        }
+
+        if (!scenario) {
+          failed += 1;
+          results.push({
+            emailId: email._id,
+            success: false,
+            reason: 'No matching scenario found',
+          });
+          continue;
+        }
+
+        if (email.queuedForScenarioId) {
+          await EmailModel.updateOne(
+            { _id: email._id },
+            { $set: { queuedForScenarioId: null, queuedAt: null } }
+          );
+        }
+
+        await executeScenarios({
+          userId: email.userId,
+          from: email.senderAddress,
+          subject: email.subject,
+          body: email.textBody || email.htmlBody || '',
+          emailId: String(email._id),
+          parsedEmailObj: {
+            text: email.textBody || '',
+            html: email.htmlBody || '',
+            subject: email.subject || '',
+            from: email.senderAddress || '',
+            messageId: email.messageId || email.rfcMessageId || '',
+          },
+          onlyScenarioId: scenario._id,
+          replayQueued: true,
+        });
+
+        sent += 1;
+        results.push({
+          emailId: email._id,
+          success: true,
+          scenarioName: scenario.name,
+        });
+      } catch (e) {
+        failed += 1;
+        results.push({ emailId: email._id, success: false, error: e.message });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      sent,
+      failed,
+      total: emails.length,
+      results,
+    });
+  } catch (err) {
+    console.error('❌ batchProcessPendingLeads error:', err);
+    return res
+      .status(500)
+      .json({ success: false, message: 'Batch process failed' });
   }
 };
