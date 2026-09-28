@@ -929,11 +929,30 @@ export const mailHookWebhook = async (req, res) => {
       return res.status(200).send('✅ Forwarding verified');
     }
 
+    const extractAddressList = (addrField) => {
+      if (!addrField) return [];
+      if (Array.isArray(addrField)) return addrField.flatMap(extractAddressList);
+      if (Array.isArray(addrField.value)) {
+        return addrField.value.map((v) => v.address || v.name).filter(Boolean);
+      }
+      if (typeof addrField.text === 'string') {
+        return addrField.text.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+      if (typeof addrField === 'string') {
+        return addrField.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
+    const ccList = extractAddressList(parsed.cc);
+    const bccList = extractAddressList(parsed.bcc);
+
     /* ---------------- CHECK CUSTOMER REPLY FIRST ---------------- */
     const savedAsReply = await saveIncomingReplyIfExists({
       userId: user._id,
       from: senderAddress,
       to: mailhookAddress,
+      cc: ccList,
+      bcc: bccList,
       subject: parsed.subject,
       body: parsed.text || '',
       html: parsed.html || '',
@@ -980,6 +999,8 @@ export const mailHookWebhook = async (req, res) => {
       userId: user._id,
       senderAddress,
       recipientAddress: mailhookAddress,
+      cc: ccList,
+      bcc: bccList,
       subject: parsed.subject,
       /*
        * Text only — see utils/emailBody.js. The reading pane renders our
@@ -2808,6 +2829,20 @@ export const sendEmailModule = async (
     const formattedReferences = formatReferencesHeader(targetParentMsgId, parentEmailDoc);
     const effectiveThreadId = threadId || ultimateRoot?.threadId || (ultimateRoot ? ultimateRoot._id.toString() : null);
 
+    let effectiveTo = String(to || '').trim();
+    if (/partners@shopify\.com/i.test(effectiveTo) || (/@shopify\.com/i.test(effectiveTo) && (parentEmailDoc || ultimateRoot))) {
+      log(`⚠️ Attempted to send email to ${effectiveTo}. Attempting fallback to extracted customer email from parent email...`);
+      const bodyToSearch = `${parentEmailDoc?.textBody || ''} ${parentEmailDoc?.htmlBody || ''} ${ultimateRoot?.textBody || ''} ${ultimateRoot?.htmlBody || ''}`;
+      const fallbackTo = resolveLeadReplyAddress(bodyToSearch, {
+        fromAddress: parentEmailDoc?.senderAddress || ultimateRoot?.senderAddress || effectiveTo,
+        receivedAt: parentEmailDoc?.recipientAddress || ultimateRoot?.recipientAddress || '',
+      });
+      if (fallbackTo) {
+        effectiveTo = fallbackTo;
+        log(`🎯 Re-routed recipient to real customer email: ${effectiveTo}`);
+      }
+    }
+
     // ✅ Prepare Subject (Normalized Re: header)
     const finalSubject = normalizeSubject(module.subject || originalSubject || 'Shopify Inquiry');
     const safeSubject = finalSubject.replace(/\r?\n|\r/g, ' ').trim();
@@ -2978,7 +3013,7 @@ export const sendEmailModule = async (
             address: connection.email,
           },
 
-          to,
+          to: effectiveTo,
 
           cc: cc || undefined,
 
@@ -3043,7 +3078,7 @@ export const sendEmailModule = async (
           return match ? match[1] : input.trim();
         };
 
-        const toClean = extractEmail(to);
+        const toClean = extractEmail(effectiveTo);
         const ccClean = cc
           ? cc.split(',').map((addr) => ({
               emailAddress: { address: extractEmail(addr.trim()) },
@@ -3112,7 +3147,7 @@ export const sendEmailModule = async (
         log('🔷 Sending via Microsoft Graph...');
 
         await sendMicrosoftEmail(connection._id, {
-          to,
+          to: effectiveTo,
           cc,
           bcc,
           subject: safeSubject,
@@ -3172,7 +3207,7 @@ export const sendEmailModule = async (
 
         const info = await transporter.sendMail({
           from: `"${smtpSenderName}" <${connection.email}>`,
-          to,
+          to: effectiveTo,
           cc,
           bcc,
           subject: safeSubject,
@@ -3223,7 +3258,7 @@ export const sendEmailModule = async (
       const sentDoc = new EmailModel({
         userId: connection.userId,
         senderAddress: connection.email,
-        recipientAddress: to,
+        recipientAddress: effectiveTo,
         subject: safeSubject,
         textBody: plainTextBody,
         htmlBody: emailBody,
@@ -3508,10 +3543,15 @@ export const addLeadDiscussion = async (req, res) => {
 
     if (!matches?.length) return null;
 
-    /* Skip our own addresses — the lead is the other one. */
+    /* Skip our own addresses, shopify relay addresses and system addresses */
     const inboxRules = getCachedRules().inbox;
 
-    return matches.find((item) => !isInternalAddress(item, inboxRules));
+    return matches.find((item) => {
+      const lower = item.toLowerCase();
+      if (/shopify\.com/i.test(lower)) return false;
+      if (/^(?:no-?reply|do-?not-?reply|postmaster|mailer-daemon)@/i.test(lower)) return false;
+      return !isInternalAddress(lower, inboxRules);
+    });
   };
 
   try {
@@ -3656,30 +3696,44 @@ export const addLeadDiscussion = async (req, res) => {
     // -------------------------------
     // CUSTOMER EMAIL RESOLUTION
     // -------------------------------
-    /*
-     * Where a manual reply goes.
-     *
-     * The relay comes first in the thread, so rootEmail.senderAddress is
-     * partners@shopify.com on a Partner Directory lead — replying there
-     * reaches Shopify's unmonitored mailbox, not the customer. The same
-     * resolver the scenario replies use reads the address out of the
-     * body's contact form, and returns null for mail that was not
-     * relayed, where the sender IS the customer.
-     */
+    const isFromShopify =
+      /shopify\.com/i.test(rootEmail.senderAddress || '') ||
+      /shopify/i.test(rootEmail.subject || '') ||
+      /partner directory/i.test(`${rootEmail.textBody || ''} ${rootEmail.htmlBody || ''}`);
+
     const relayedLeadAddress = resolveLeadReplyAddress(
-      `${rootEmail.textBody || ''}
-${rootEmail.htmlBody || ''}`,
+      `${rootEmail.textBody || ''}\n${rootEmail.htmlBody || ''}`,
       {
         fromAddress: rootEmail.senderAddress || '',
         receivedAt: rootEmail.recipientAddress || '',
       }
     );
 
-    const customerEmail =
-      relayedLeadAddress ||
-      extractEmail(rootEmail.senderAddress) ||
-      extractCustomerEmailFromBody(rootEmail) ||
-      extractEmail(lastOutgoingChild?.recipientAddress);
+    const bodyExtractedEmail = extractCustomerEmailFromBody(rootEmail);
+
+    let customerEmail = null;
+
+    if (isFromShopify) {
+      // 1st priority: email extracted from body (for shopify emails)
+      // 2nd priority: recipient / to from previous replies or headers (excluding shopify.com)
+      customerEmail =
+        relayedLeadAddress ||
+        bodyExtractedEmail ||
+        (!/shopify\.com/i.test(lastOutgoingChild?.recipientAddress || '') ? extractEmail(lastOutgoingChild?.recipientAddress) : null) ||
+        (!/shopify\.com/i.test(rootEmail.recipientAddress || '') ? extractEmail(rootEmail.recipientAddress) : null);
+    } else {
+      customerEmail =
+        relayedLeadAddress ||
+        (!/shopify\.com/i.test(rootEmail.senderAddress || '') ? extractEmail(rootEmail.senderAddress) : null) ||
+        bodyExtractedEmail ||
+        (!/shopify\.com/i.test(lastOutgoingChild?.recipientAddress || '') ? extractEmail(lastOutgoingChild?.recipientAddress) : null) ||
+        (!/shopify\.com/i.test(rootEmail.recipientAddress || '') ? extractEmail(rootEmail.recipientAddress) : null);
+    }
+
+    // Strict exclusion: never send to partners@shopify.com
+    if (customerEmail && /partners@shopify\.com/i.test(customerEmail)) {
+      customerEmail = relayedLeadAddress || bodyExtractedEmail;
+    }
 
     if (relayedLeadAddress && relayedLeadAddress !== extractEmail(rootEmail.senderAddress)) {
       log(`Relayed lead: replying to ${relayedLeadAddress}, not the sender ${rootEmail.senderAddress}`);
@@ -3726,10 +3780,14 @@ ${rootEmail.htmlBody || ''}`,
       url: `${req.protocol}://${req.get('host')}/uploads/${file.filename}`,
     }));
 
+    const formattedBodyHtml = /<[a-z][\s\S]*>/i.test(cleanMessage)
+      ? cleanMessage
+      : `<div>${cleanMessage.replace(/\n/g, '<br/>')}</div>`;
+
     const modulePayload = {
       connectionId,
       subject,
-      template: `<div>${cleanMessage.replace(/\n/g, '<br/>')}</div>`,
+      template: formattedBodyHtml,
       service: lastOutgoingChild?.service || rootEmail.service,
       stepType: 'Manual Reply',
       attachments: uploadedAttachments,

@@ -22,7 +22,10 @@ import { EmailModel } from '../Models/Email.js';
 import { scenarioModel } from '../Models/Scenario.js';
 import { executeScenarios } from './smtpServer.js';
 import { findMatchingScenario } from '../utils/scenarioMatch.js';
-import { loadPlatformRules } from '../utils/platformScenarioConfig.js';
+import {
+  loadPlatformRules,
+  isExcludedFromInbox,
+} from '../utils/platformScenarioConfig.js';
 
 /* The email, if it exists and this caller owns it. */
 const loadOwnedEmail = async (req, res) => {
@@ -307,20 +310,28 @@ export const getPendingLeads = async (req, res) => {
 
     const candidateEmails = await EmailModel.find(filter)
       .sort({ date: -1, createdAt: -1 })
-      .limit(150)
+      .limit(250)
       .lean();
 
-    // 3. Filter only truly unanswered/queued leads
-    const pendingEmails = candidateEmails.filter((email) => {
+    const platformRules = await loadPlatformRules();
+    const userScenarios = await scenarioModel
+      .find({
+        $or: [{ userId: userObjId }, { userId: userId }],
+      })
+      .lean();
+
+    const validCandidates = candidateEmails.filter(
+      (e) => !isExcludedFromInbox(e, platformRules.inbox)
+    );
+
+    // 3. Filter only truly unanswered/queued leads that match a user's scenario
+    const pendingItems = [];
+
+    for (const email of validCandidates) {
       const emailId = String(email._id);
       const convId = email.conversationId ? String(email.conversationId) : null;
       const threadId = email.threadId ? String(email.threadId) : null;
       const msgId = email.messageId ? String(email.messageId) : null;
-
-      // If queued while a scenario was paused, it is definitely pending
-      if (email.queuedForScenarioId) {
-        return true;
-      }
 
       // If already has an outgoing reply in the thread, skip
       if (
@@ -329,35 +340,37 @@ export const getPendingLeads = async (req, res) => {
         (threadId && answeredIds.has(threadId)) ||
         (msgId && answeredIds.has(msgId))
       ) {
-        return false;
+        continue;
       }
 
       // If scenario was already executed or replied, skip
       if (email.scenarioExecuted === true || email.replied === true) {
-        return false;
+        continue;
       }
 
-      return true;
-    });
-
-    const scenarioIds = [
-      ...new Set(
-        pendingEmails
-          .map((e) => e.queuedForScenarioId || e.matchedScenarioId)
-          .filter(Boolean)
-      ),
-    ];
-    const scenarios = await scenarioModel
-      .find({ _id: { $in: scenarioIds } })
-      .lean();
-    const scenarioMap = new Map(scenarios.map((s) => [String(s._id), s]));
-
-    const data = pendingEmails.map((email) => {
+      // Check scenario match
       const targetScenId =
         email.queuedForScenarioId || email.matchedScenarioId;
-      const matchedScenario = targetScenId
-        ? scenarioMap.get(String(targetScenId))
+      let matchedScenario = targetScenId
+        ? userScenarios.find((s) => String(s._id) === String(targetScenId))
         : null;
+
+      if (!matchedScenario) {
+        matchedScenario = findMatchingScenario(
+          userScenarios,
+          {
+            subject: email.subject,
+            textBody: email.textBody || email.htmlBody || '',
+            senderAddress: email.senderAddress,
+          },
+          platformRules
+        );
+      }
+
+      // Only show leads that are related to an active/configured scenario
+      if (!matchedScenario && !email.queuedForScenarioId) {
+        continue;
+      }
 
       let reason = 'Unprocessed Lead';
       if (email.queuedForScenarioId) {
@@ -368,7 +381,7 @@ export const getPendingLeads = async (req, res) => {
         reason = 'Awaiting Reply';
       }
 
-      return {
+      pendingItems.push({
         _id: email._id,
         subject: email.subject || '(No Subject)',
         from: email.senderAddress || '',
@@ -390,21 +403,19 @@ export const getPendingLeads = async (req, res) => {
         queuedForScenarioId: email.queuedForScenarioId || null,
         scenarioName:
           matchedScenario?.name ||
-          (email.queuedForScenarioId
-            ? 'Paused Scenario'
-            : 'Default Scenario'),
+          (email.queuedForScenarioId ? 'Paused Scenario' : 'Scenario Lead'),
         scenarioActive: matchedScenario
           ? matchedScenario.scenarioActive !== false
           : true,
         reason,
         status: email.queuedForScenarioId ? 'queued' : 'unanswered',
-      };
-    });
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      count: data.length,
-      data,
+      count: pendingItems.length,
+      data: pendingItems,
     });
   } catch (err) {
     console.error('❌ getPendingLeads error:', err);

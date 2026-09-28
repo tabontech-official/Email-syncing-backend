@@ -381,14 +381,24 @@ export const startDelayWorker = () => {
          * existed carry no replyTo, so the body is re-read; failing
          * both, the sender stands.
          */
-        const followUpTo =
-          (isShopifyJob
-            ? job.emailData?.replyTo ||
-              resolveLeadReplyAddress(job.emailData?.body || "", {
-                fromAddress: job.emailData?.from || "",
-                receivedAt: job.emailData?.to || "",
-              })
-            : null) || job.emailData?.from;
+        let followUpTo = isShopifyJob
+          ? (!/partners@shopify\.com/i.test(job.emailData?.replyTo || '') ? job.emailData?.replyTo : null) ||
+            resolveLeadReplyAddress(job.emailData?.body || "", {
+              fromAddress: job.emailData?.from || "",
+              receivedAt: job.emailData?.to || "",
+            })
+          : null;
+
+        if (!followUpTo && !/partners@shopify\.com/i.test(job.emailData?.from || '')) {
+          followUpTo = job.emailData?.from;
+        }
+
+        if (!followUpTo && isShopifyJob) {
+          followUpTo = resolveLeadReplyAddress(job.emailData?.body || "", {
+            fromAddress: job.emailData?.from || "",
+            receivedAt: job.emailData?.to || "",
+          });
+        }
 
         if (followUpTo && followUpTo !== job.emailData?.from) {
           console.log(`↪️ [DelayWorker] Follow-up goes to ${followUpTo}, not the sender ${job.emailData?.from}.`);

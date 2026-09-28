@@ -137,6 +137,25 @@ export const processIncomingEmail = async ({
     }
   }
 
+  const extractAddressList = (addrField) => {
+    if (!addrField) return [];
+    if (Array.isArray(addrField)) {
+      return addrField.flatMap(extractAddressList);
+    }
+    if (Array.isArray(addrField.value)) {
+      return addrField.value.map((v) => v.address || v.name).filter(Boolean);
+    }
+    if (typeof addrField.text === 'string') {
+      return addrField.text.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (typeof addrField === 'string') {
+      return addrField.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  };
+  const ccList = extractAddressList(parsed.cc);
+  const bccList = extractAddressList(parsed.bcc);
+
   /*
    * First check whether this email is a reply
    * to an existing conversation.
@@ -148,6 +167,8 @@ export const processIncomingEmail = async ({
 
       from: senderAddress,
       to: recipientAddress,
+      cc: ccList,
+      bcc: bccList,
 
       subject: parsed.subject || '',
       body: parsed.text || '',
@@ -226,6 +247,8 @@ export const processIncomingEmail = async ({
 
       senderAddress,
       recipientAddress,
+      cc: ccList,
+      bcc: bccList,
 
       subject: parsed.subject || '',
       /* Text only — see utils/emailBody.js. */

@@ -295,24 +295,22 @@ export const resolveLeadReplyAddress = (
 ) => {
   const parsed = parseShopifyInquiry(body);
 
-  if (parsed.businessEmail) return parsed.businessEmail;
+  if (
+    parsed.businessEmail &&
+    !/(^|\.)shopify\.com$/i.test(parsed.businessEmail.split('@')[1] || '') &&
+    !/partners@shopify\.com/i.test(parsed.businessEmail)
+  ) {
+    return parsed.businessEmail;
+  }
 
   const text = toPlainText(body);
 
-  /*
-   * The prose fallback only applies to mail that IS a relayed directory
-   * inquiry.
-   *
-   * Unrestricted, it redirected ordinary mail: a thread genuinely from
-   * support@tabontech.com was answered at an address merely mentioned
-   * in its body. When the sender is the customer, the sender is the
-   * right recipient — so anything without the directory's fingerprints
-   * keeps its sender.
-   */
   const looksRelayed =
     /partner directory/i.test(text) ||
     /contact form submission/i.test(text) ||
     /has expressed interest in your services/i.test(text) ||
+    /shopify/i.test(String(fromAddress)) ||
+    /shopify/i.test(text) ||
     Object.keys(parsed).length > 0;
 
   if (!looksRelayed) return null;
@@ -336,6 +334,7 @@ export const resolveLeadReplyAddress = (
     if (senderDomain && domain === senderDomain) return false;
     if (ownDomain && domain === ownDomain) return false;
     if (/(^|\.)shopify\.com$/i.test(domain)) return false;
+    if (/partners@shopify\.com/i.test(address)) return false;
     /* Relay plumbing, never a person. */
     if (/^(?:no-?reply|do-?not-?reply|postmaster|mailer-daemon)@/i.test(address))
       return false;

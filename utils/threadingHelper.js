@@ -373,6 +373,16 @@ export const resolveAndAttachIncomingReply = async (emailData) => {
     connectionId: targetConnectionId,
     senderAddress: emailData.from,
     recipientAddress: emailData.to,
+    cc: Array.isArray(emailData.cc)
+      ? emailData.cc.filter(Boolean)
+      : typeof emailData.cc === 'string'
+      ? emailData.cc.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
+    bcc: Array.isArray(emailData.bcc)
+      ? emailData.bcc.filter(Boolean)
+      : typeof emailData.bcc === 'string'
+      ? emailData.bcc.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
     subject: emailData.subject,
     /* Text only — see utils/emailBody.js. */
     ...normalizeIncomingBody({ text: emailData.body, html: emailData.html }),

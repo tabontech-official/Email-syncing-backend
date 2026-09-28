@@ -164,6 +164,8 @@ export async function processGmailEmail(emailAddress, historyId) {
           connectionId: connection._id,
           from,
           to,
+          cc: cc ? (Array.isArray(cc) ? cc : cc.split(',').map((s) => s.trim()).filter(Boolean)) : [],
+          bcc: bcc ? (Array.isArray(bcc) ? bcc : bcc.split(',').map((s) => s.trim()).filter(Boolean)) : [],
           subject,
           body,
           html: htmlContent || '',
@@ -355,6 +357,10 @@ export const processOutlookEmail = async (notification, connection) => {
     const from = email.from?.emailAddress?.address || "unknown";
     const to =
       email.toRecipients?.map(t => t.emailAddress?.address).join(",") || "";
+    const ccList =
+      email.ccRecipients?.map(c => c.emailAddress?.address).filter(Boolean) || [];
+    const bccList =
+      email.bccRecipients?.map(c => c.emailAddress?.address).filter(Boolean) || [];
 
     const subject = email.subject || "(No Subject)";
     const receivedDate = email.receivedDateTime || new Date().toISOString();
@@ -373,6 +379,8 @@ export const processOutlookEmail = async (notification, connection) => {
       connectionId: connection._id,
       from,
       to,
+      cc: ccList,
+      bcc: bccList,
       subject,
       body: cleanBody,
       html: email.body?.content || "",
@@ -393,6 +401,8 @@ export const processOutlookEmail = async (notification, connection) => {
       messageId: outlookMsgId,
       senderAddress: from,
       recipientAddress: to,
+      cc: ccList,
+      bcc: bccList,
       subject,
       /* Text only — see utils/emailBody.js. */
       ...normalizeIncomingBody({
